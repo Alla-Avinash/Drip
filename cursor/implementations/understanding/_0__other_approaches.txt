@@ -1,0 +1,30 @@
+
+
+
+
+why only go for modifying the vscode application and why only going for the electron application?? 
+are there no other alternatives to develop this idea? 
+If there are other ideas can you please tell me some other approaches which you have taught of ??
+    - deploy the backend in docker container like setup 
+        - sample resource --> https://github.com/timothepoznanski/poznote
+        - problem with this approach 
+            - non-technical users have to install docker and then run this container application
+            - this application will be in a docker container but it can't be installed with an installer like .exe file with one click like in the case of vscode 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

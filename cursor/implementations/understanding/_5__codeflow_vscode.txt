@@ -1,0 +1,92 @@
+
+
+after the dev env setup try to run the application from the compiled out/ 
+
+the main things it does 
+    - creates a User Data Directory
+        - this acts as a database to store the required information by the vscode application 
+        - this is located in the C:\Users\allaa\AppData\Roaming\code-oss-dev 
+        - why is this used for?? Persistent Application State + Configuration Store
+        - this is not limited to the dev evn for just having the logs, but a similar kind of data directory is created even in the production env too
+    - including extensions in the setup 
+        - Extensions are NOT bundled automatically like production
+        - you have 3 types of extensions    
+            built-in extensions
+                - These are core extensions
+                - you have a list of them in the repo under the extensions/
+
+            marketplace 
+                - code oss is opensource and doesn't support the micorsoft marketplace, so you can only copy the extension src code to the extensions and make it work by adding it on. 
+            load your own custom extensions
+    - workbench contains the main requirement of the 
+    - 
+    - 
+
+
+
+
+1. User Data Directory 
+    - Make the app feel continuous, fast, and personalized across launches.
+    - So it stores anything that:
+        avoids recomputation
+        restores UI instantly
+        keeps extensions working
+        preserves your workflow
+    - what kind of things are in this database like folder system 
+        1. User intent (your choices)
+            theme, settings, shortcuts
+            what you prefer the editor to behave like
+        2. Workspace/session state
+            what project you opened
+            which files were open
+            cursor positions, layout
+            This is what makes VS Code “resume” instead of restart
+        3. Extension ecosystem state
+            installed extensions
+            their internal data
+            login/auth info (GitHub, Copilot, etc.)
+            extension cache data
+        4. Performance caches
+            preprocessed JS (faster startup)
+            file metadata
+            search/index-related data
+            avoids redoing heavy work
+        5. UI + runtime memory snapshot (lightweight)
+            panel states
+            view visibility
+            sidebar selections
+        6. Logs and diagnostics
+            crash logs
+            runtime logs
+            helps debugging and stability
+
+
+2. Extensions 
+
+
+
+
+3. Workbench (core UI system)
+    Layout = how the UI is structured and arranged, not the features themselves.
+    this workbench controls:
+        Sidebar (Explorer, Search, Extensions)
+        Editor area (tabs)
+        Panel (bottom: Terminal, Problems, Output)
+        Activity bar (left icons)
+        Status bar (bottom strip)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

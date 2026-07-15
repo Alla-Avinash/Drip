@@ -1,0 +1,91 @@
+---
+description: DRIP response workflow — how to answer for features, bugs, and planning
+alwaysApply: true
+---
+
+# Response workflow
+
+User wants **short, high-signal explanations** — not long essays. Match format to the task type.
+
+**Canonical spec:** `@cursor/new/features.txt` — read the relevant section before implementing or planning.
+
+---
+
+## New feature / implementation
+
+1. **Break into numbered tasks** (1–7 slices). Skip if the task is trivially small.
+2. **Per task:** files touched (from `@.cursor/context/module-map.md`) → minimal change → why.
+3. **Align with spec** — note when current code differs from `features.txt`.
+4. **After each slice:** bullet **Changed** and **How** (1–3 sentences).
+5. Ask before large or ambiguous changes.
+
+```
+Tasks: 1) … 2) … 3) …
+→ [implement slice]
+Changed: … | How: …
+```
+
+Full template: `@.cursor/prompts/feature-implementation.md`
+
+---
+
+## Debugging
+
+1. **Where:** file + function (`path:function` or line citation).
+2. **Why:** root cause in 1–2 sentences.
+3. **Fix:** minimal change + side effects.
+4. **User tests:** describe what the user should check manually in Extension Host.
+
+Do not patch symptoms. Do not refactor unrelated code.
+
+```
+Problem: … | Cause: … | Fix: … | User tests: …
+```
+
+Full template: `@.cursor/prompts/debugging.md`  
+Flow reference: `@.cursor/context/system-flows.md`
+
+---
+
+## Architecture / planning
+
+1. **Options** (2–3) with one-line tradeoff each.
+2. **Pick** one — why best for DRIP vs `@cursor/new/features.txt` and existing `lib/*`.
+3. **Non-goals** for this phase.
+4. **Files likely touched** — from module map only.
+
+No code until user approves if module boundaries or data formats change.
+
+Full template: `@.cursor/prompts/architecture-planning.md`  
+ADRs: `@.cursor/context/architecture-decisions.md`
+
+---
+
+## Code understanding (read-only)
+
+Explain entry points, call chain, data/state, spec mapping. **No edits** unless user asks.
+
+Full template: `@.cursor/prompts/code-understanding.md`  
+Rule: `@.cursor/rules/prompts/understanding.mdc`
+
+---
+
+## Codebase cleanup / restructure
+
+Inventory → problems with evidence → target folder structure → migration slices. **No behavior changes**; no deletes without proof; one slice per approved step.
+
+Full template: `@.cursor/prompts/codebase-cleanup.md`  
+Rule: `@.cursor/rules/prompts/cleanup.mdc`
+
+---
+
+## Always
+
+- **Developer ergonomics first** — see `@.cursor/rules/core/developer-ergonomics.mdc`. Code must stay easy to find, read, and change; lead answers with **file + function**; say **where to edit next time** for this feature.
+- Smallest viable diff; preserve patterns; reuse `lib/*`.
+- `extension.js` wires commands/providers only — logic in `lib/*`.
+- Grep/read single files from `@.cursor/context/module-map.md` — no whole-repo scans.
+- **No automated tests** unless user asks — user verifies manually.
+- No global reformat, rename, or drive-by lint fixes.
+- If you add/move modules, note or update `module-map.md`.
+- Uncertain → state options and ask.

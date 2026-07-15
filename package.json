@@ -1,0 +1,912 @@
+{
+	"name": "drip",
+	"displayName": "DRIP",
+	"description": "Prototype DRIP note ingestion UI",
+	"version": "0.0.1",
+	"publisher": "vscode",
+	"license": "MIT",
+	"engines": {
+		"vscode": "^1.85.0"
+	},
+	"main": "./extension.js",
+	"activationEvents": [
+		"onLanguage:dripnote",
+		"onCommand:drip.openComposer",
+		"onCommand:drip.openKbEditor",
+		"onCommand:drip.openTagsPanel",
+		"onCommand:drip.openRetriever",
+		"onCommand:drip.retrieverQuickOpen",
+		"onCommand:drip.openCanvasView",
+		"onCommand:drip.openHeadingInCanvas",
+		"onCommand:drip.openFileInCanvas",
+		"onWebviewPanel:drip.tagsGraph",
+		"onWebviewPanel:drip.retriever",
+		"onWebviewPanel:drip.canvas",
+		"onCommand:drip.captureSelectionToComposer",
+		"onCommand:drip.selectKnowledgeBase",
+		"onCommand:drip.openDripSettingsView",
+		"onView:drip.components",
+		"onView:drip.knowledgeBase",
+		"onView:drip.drafts",
+		"onView:drip.storage",
+		"onCommand:drip.copyPath",
+		"onCommand:drip.renameItem",
+		"onCommand:drip.createFolder",
+		"onCommand:drip.deleteItem",
+		"onCommand:drip.testEmbeddings"
+	],
+	"capabilities": {
+		"virtualWorkspaces": true,
+		"untrustedWorkspaces": {
+			"supported": true
+		}
+	},
+	"contributes": {
+		"viewsContainers": {
+			"activitybar": [
+				{
+					"id": "drip",
+					"title": "DRIP",
+					"icon": "$(notebook)"
+				}
+			],
+			"secondarySidebar": [
+				{
+					"id": "drip-storage-panel",
+					"title": "DRIP",
+					"icon": "$(notebook)"
+				}
+			]
+		},
+		"views": {
+			"drip": [
+				{
+					"id": "drip.components",
+					"name": "Components",
+					"icon": "$(extensions)",
+					"visibility": "visible",
+					"initialSize": 5
+				},
+				{
+					"id": "drip.knowledgeBase",
+					"name": "Knowledge Base",
+					"icon": "$(folder)",
+					"visibility": "visible"
+				},
+				{
+					"id": "drip.drafts",
+					"name": "Drafts",
+					"icon": "$(note)",
+					"visibility": "visible",
+					"initialSize": 4
+				}
+			],
+			"drip-storage-panel": [
+				{
+					"id": "drip.storage",
+					"name": "Storage",
+					"type": "webview",
+					"icon": "$(folder)"
+				}
+			]
+		},
+		"commands": [
+			{
+				"command": "drip.openComposer",
+				"title": "Open Composer"
+			},
+			{
+				"command": "drip.openKbEditor",
+				"title": "Open KB Editor",
+				"category": "DRIP",
+				"icon": "$(notebook)"
+			},
+			{
+				"command": "drip.openTagsPanel",
+				"title": "Open Tags Graph",
+				"category": "DRIP",
+				"icon": "$(graph)"
+			},
+			{
+				"command": "drip.openRetriever",
+				"title": "Open Retriever",
+				"category": "DRIP",
+				"icon": "$(search)"
+			},
+			{
+				"command": "drip.retrieverQuickOpen",
+				"title": "Quick Open Heading…",
+				"category": "DRIP",
+				"icon": "$(list-selection)"
+			},
+			{
+				"command": "drip.openCanvasView",
+				"title": "Open Canvas",
+				"category": "DRIP",
+				"icon": "$(layout)"
+			},
+			{
+				"command": "drip.openHeadingInCanvas",
+				"title": "Open in Canvas View",
+				"category": "DRIP",
+				"icon": "$(layout)"
+			},
+			{
+				"command": "drip.openFileInCanvas",
+				"title": "Open File in Canvas",
+				"category": "DRIP",
+				"icon": "$(layout)"
+			},
+			{
+				"command": "drip.captureSelectionToComposer",
+				"title": "Capture Selection to Composer"
+			},
+			{
+				"command": "drip.openDripSettingsView",
+				"title": "Open DRIP Settings",
+				"category": "DRIP",
+				"icon": "$(gear)"
+			},
+			{
+				"command": "drip.selectKnowledgeBase",
+				"title": "Select Knowledge Base Folder",
+				"category": "DRIP",
+				"icon": "$(folder-opened)"
+			},
+			{
+				"command": "drip.createNoteFile",
+				"title": "New Note",
+				"category": "DRIP",
+				"icon": "$(notebook)"
+			},
+			{
+				"command": "drip.createMarkdownFile",
+				"title": "New File",
+				"category": "DRIP",
+				"icon": "$(file-add)"
+			},
+			{
+				"command": "drip.createFolder",
+				"title": "New Folder",
+				"category": "DRIP",
+				"icon": "$(new-folder)"
+			},
+			{
+				"command": "drip.createDripIgnore",
+				"title": "New .dripignore File"
+			},
+			{
+				"command": "drip.showKbNewMenu",
+				"title": "New…",
+				"category": "DRIP",
+				"icon": "$(add)"
+			},
+			{
+				"command": "drip.ignorePath",
+				"title": "add to .dripignore"
+			},
+			{
+				"command": "drip.refreshTree",
+				"title": "Refresh",
+				"category": "DRIP",
+				"icon": "$(refresh)"
+			},
+			{
+				"command": "drip.copyPath",
+				"title": "Copy Path"
+			},
+			{
+				"command": "drip.renameItem",
+				"title": "Rename"
+			},
+			{
+				"command": "drip.deleteItem",
+				"title": "Delete"
+			},
+			{
+				"command": "drip.testEmbeddings",
+				"title": "DRIP: Run Embedding Benchmark"
+			},
+			{
+				"command": "drip.rebuildKbIndexNow",
+				"title": "DRIP: Update index",
+				"category": "DRIP",
+				"icon": "$(sync)"
+			},
+			{
+				"command": "drip.updateIndexScope",
+				"title": "DRIP: Update index",
+				"category": "DRIP",
+				"icon": "$(sync)"
+			},
+			{
+				"command": "drip.reconcileHeadingsScope",
+				"title": "DRIP: Reconcile headings",
+				"category": "DRIP",
+				"icon": "$(list-ordered)"
+			},
+			{
+				"command": "drip.processPendingLinkMigrations",
+				"title": "DRIP: Process pending link migrations",
+				"category": "DRIP",
+				"icon": "$(link-external)"
+			},
+			{
+				"command": "drip.copyHeadingIdentity",
+				"title": "DRIP: Copy heading identity",
+				"category": "DRIP"
+			},
+			{
+				"command": "drip.createIndexHere",
+				"title": "Rebuild index.drip",
+				"category": "DRIP",
+				"icon": "$(folder-add)"
+			},
+			{
+				"command": "drip.removeIndexHere",
+				"title": "Remove _index Here (deprecated)",
+				"category": "DRIP",
+				"icon": "$(trash)"
+			}
+		],
+		"configurationDefaults": {
+			"[dripnote]": {
+				"editor.insertSpaces": false,
+				"editor.tabSize": 4,
+				"editor.detectIndentation": false,
+				"editor.stickyScroll.defaultModel": "indentationModel",
+				"editor.quickSuggestions": {
+					"other": true,
+					"comments": false,
+					"strings": true
+				}
+			}
+		},
+		"configuration": {
+			"title": "DRIP",
+			"properties": {
+				"drip.autoOpenComposerOnSidebarReveal": {
+					"type": "boolean",
+					"default": true,
+					"description": "Open the Note Composer the first time the Knowledge Base sidebar becomes visible in this window."
+				},
+				"drip.knowledgeBaseFileExtensions": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"default": [
+						".d.txt",
+						".md"
+					],
+					"description": "File extensions (with a leading dot) treated as knowledge base notes in the tree, scans, and storage suggestions. Example: [\".d.txt\", \".md\"] includes README.md when \".md\" is listed."
+				},
+				"drip.defaultNewNoteExtension": {
+					"type": "string",
+					"default": ".d.txt",
+					"description": "Extension for newly created notes from the KB and Storage flows. Must be one of the values in drip.knowledgeBaseFileExtensions."
+				},
+				"drip.experimentalEmbeddings": {
+					"type": "boolean",
+					"default": true,
+					"description": "Use Transformers.js (ONNX) sentence embeddings for Suggestions (top folders + next folder/file picks) and AI deep-match in DRIP Storage, instead of token overlap. First use downloads the model to the Hugging Face cache."
+				},
+				"drip.embeddingModel": {
+					"type": "string",
+					"default": "Xenova/all-MiniLM-L6-v2",
+					"description": "Sentence embedding model id (Xenova ONNX build). Example: Xenova/all-MiniLM-L6-v2"
+				},
+				"drip.dripnoteAllowedMetadataKeys": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"default": [],
+					"description": "Additional allowed metadata keys for DRIP .d.txt metadata blocks (beyond built-ins like status, deadline, tags, pre-req). Unknown keys are underlined as errors unless listed here."
+				},
+				"drip.dripnoteCustomTypeMarkers": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"default": [],
+					"description": "Custom .d.txt type markers (without leading dot), e.g. [\"idea\", \"note\"]."
+				},
+				"drip.dripnoteCustomColors": {
+					"type": "object",
+					"default": {},
+					"description": "Optional custom colors for .d.txt markdown tokens. Map token to color (e.g. { \".idea\": \"#ffcc00\", \"tags\": \"#66ccff\" })."
+				},
+				"drip.metadataTemplatesEnabled": {
+					"type": "boolean",
+					"default": true,
+					"description": "Enable metadata templates and type-specific key/value rules for DRIP .d.txt files."
+				},
+				"drip.metadataStrictValidation": {
+					"type": "boolean",
+					"default": true,
+					"description": "Validate metadata values against configured template rules and show diagnostics with quick fixes."
+				},
+				"drip.metadataIgnoreErrors": {
+					"type": "boolean",
+					"default": false,
+					"description": "Suppress metadata template diagnostics while still keeping template-driven completion behavior."
+				},
+				"drip.metadataAutoInsertTemplate": {
+					"type": "boolean",
+					"default": true,
+					"description": "When a metadata type marker is entered in a valid metadata zone, insert missing template keys automatically."
+				},
+				"drip.metadataShowIndentErrors": {
+					"type": "boolean",
+					"default": true,
+					"description": "Show indentation diagnostics for heading metadata blocks (marker/key nesting and heading-adjacent metadata layout)."
+				},
+				"drip.showHeadingHierarchyIndentErrors": {
+					"type": "boolean",
+					"default": true,
+					"description": "Show errors when # headings break tab-based hierarchy (e.g. nested heading after column-0 body text without a root #)."
+				},
+				"drip.metadataUseCustomColors": {
+					"type": "boolean",
+					"default": false,
+					"description": "Use custom metadata colors from DRIP settings instead of theme defaults."
+				},
+				"drip.metadataTypes": {
+					"type": "array",
+					"default": [
+						{
+							"id": "concept",
+							"marker": ".concept",
+							"shortcut": ".c",
+							"color": "",
+							"displayTemplate": true,
+							"attributes": {
+								"difficulty": {
+									"kind": "enum",
+									"default": "",
+									"required": false,
+									"values": [
+										"hard",
+										"medium",
+										"easy"
+									]
+								},
+								"status": {
+									"kind": "enum",
+									"default": "",
+									"required": false,
+									"values": [
+										"completed",
+										"active",
+										"pending",
+										"do-research"
+									]
+								},
+								"importance": {
+									"kind": "enum",
+									"default": "",
+									"required": false,
+									"values": [
+										"high",
+										"low"
+									]
+								}
+							}
+						},
+						{
+							"id": "task",
+							"marker": ".task",
+							"shortcut": ".t",
+							"color": "",
+							"displayTemplate": true,
+							"attributes": {
+								"difficulty": {
+									"kind": "enum",
+									"default": "",
+									"required": false,
+									"values": [
+										"hard",
+										"medium",
+										"easy"
+									]
+								},
+								"status": {
+									"kind": "enum",
+									"default": "",
+									"required": true,
+									"values": [
+										"in-progress",
+										"to-do",
+										"completed"
+									]
+								},
+								"priority": {
+									"kind": "enum",
+									"default": "",
+									"required": true,
+									"values": [
+										"high",
+										"low"
+									]
+								},
+								"deadline": {
+									"kind": "datetime",
+									"default": "",
+									"required": true
+								},
+								"duration": {
+									"kind": "duration",
+									"default": "",
+									"required": false
+								}
+							}
+						},
+						{
+							"id": "project",
+							"marker": ".project",
+							"shortcut": ".p",
+							"color": "",
+							"displayTemplate": true,
+							"attributes": {
+								"status": {
+									"kind": "enum",
+									"default": "",
+									"required": true,
+									"values": [
+										"in-progress",
+										"to-do",
+										"completed"
+									]
+								},
+								"priority": {
+									"kind": "enum",
+									"default": "",
+									"required": false,
+									"values": [
+										"high",
+										"medium",
+										"low"
+									]
+								},
+								"deadline": {
+									"kind": "datetime",
+									"default": "",
+									"required": false
+								}
+							}
+						},
+						{
+							"id": "implementation",
+							"marker": ".implementation",
+							"shortcut": ".impl",
+							"color": "",
+							"displayTemplate": true,
+							"attributes": {
+								"implemented": {
+									"kind": "enum",
+									"default": "",
+									"required": false,
+									"values": [
+										"true",
+										"false"
+									]
+								}
+							}
+						},
+						{
+							"id": "issue",
+							"marker": ".issue",
+							"shortcut": ".i",
+							"color": "",
+							"displayTemplate": true,
+							"attributes": {
+								"priority": {
+									"kind": "enum",
+									"default": "",
+									"required": false,
+									"values": [
+										"high",
+										"medium",
+										"low"
+									]
+								},
+								"status": {
+									"kind": "enum",
+									"default": "",
+									"required": true,
+									"values": [
+										"in-progress",
+										"to-do",
+										"completed"
+									]
+								},
+								"deadline": {
+									"kind": "datetime",
+									"default": "",
+									"required": false
+								}
+							}
+						}
+					],
+					"description": "Metadata type definitions used for .d.txt templates. New knowledge bases start with the bundled default set (concept, task, project, implementation, issue)."
+				},
+				"drip.metadataTypeColors": {
+					"type": "object",
+					"default": {
+						"new-type": "#4ec9b0"
+					},
+					"description": "Optional metadata type colors keyed by metadata type id."
+				},
+				"drip.tagsRelationsConfig": {
+					"type": "object",
+					"default": {
+						"relations": [
+							{
+								"name": "tags",
+								"description": "Special default relation for tags.",
+								"locked": true
+							},
+							{
+								"name": "pre-req",
+								"description": "Prerequisite relation.",
+								"locked": false
+							}
+						],
+						"allowed": [
+							"tags",
+							"pre-req"
+						],
+						"tagValues": [],
+						"relationKeywordColor": "",
+						"tagsKeywordColor": ""
+					},
+					"description": "Allowed relation names for bracket-list relations in .d.txt metadata."
+				},
+				"drip.refLinksConfig": {
+					"type": "object",
+					"default": {
+						"refKeywordColor": "",
+						"refValueColor": ""
+					},
+					"description": "Editor colors for ref: [@fN, @fN:hN] cross-file reference lines in .d.txt metadata."
+				},
+				"drip.dripMetadataMarks": {
+					"type": "object",
+					"default": {
+						"marks": [
+							{
+								"name": "L",
+								"description": "Link marker. Example: L: ![file-name - @fileid](rel/path/to/file)",
+								"markColor": "#ebc998",
+								"textColor": "#d2b7fb",
+								"locked": true
+							},
+							{
+								"name": "Q",
+								"description": "Question marker",
+								"markColor": "#e1a8a8",
+								"textColor": "#e1a8a8",
+								"locked": false
+							},
+							{
+								"name": "R",
+								"description": "Reference marker",
+								"markColor": "#ebc998",
+								"textColor": "#d2b7fb",
+								"locked": false
+							},
+							{
+								"name": "T",
+								"description": "terms and keywords in that specific paragraph or a particular metadata section",
+								"markColor": "#afcdf3",
+								"textColor": "",
+								"locked": false
+							},
+							{
+								"name": "Prob",
+								"description": "describe any problems",
+								"markColor": "#e3a0a0",
+								"textColor": "",
+								"locked": false
+							},
+							{
+								"name": "Sol",
+								"description": "describe a solution",
+								"markColor": "#c9f59e",
+								"textColor": "",
+								"locked": false
+							},
+							{
+								"name": "Impl",
+								"description": "implementation",
+								"markColor": "#c9f59e",
+								"textColor": "",
+								"locked": false
+							}
+						]
+					},
+					"description": "Metadata markdown markers and colors (case-sensitive; e.g. L, Q, R, Impl)."
+				},
+				"drip.metadataKeyColor": {
+					"type": "string",
+					"default": "",
+					"description": "Optional global override color for metadata keys."
+				},
+				"drip.metadataValueColor": {
+					"type": "string",
+					"default": "",
+					"description": "Optional global override color for metadata values."
+				},
+				"drip.canvasVisibleTypeIds": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"default": [],
+					"description": "Metadata type ids to show in DRIP Canvas (empty = all types). Controlled from the Canvas settings gear."
+				},
+				"drip.canvasShowHeadingsWithoutType": {
+					"type": "boolean",
+					"default": true,
+					"description": "When filtering Canvas by metadata type, still show headings whose section has no .type line."
+				}
+			}
+		},
+		"submenus": [
+			{
+				"id": "drip.kb.new",
+				"label": "New…"
+			}
+		],
+		"menus": {
+			"view/title": [
+				{
+					"command": "drip.openDripSettingsView",
+					"when": "view == drip.components",
+					"group": "navigation@99"
+				},
+				{
+					"command": "drip.createFolder",
+					"when": "view == drip.knowledgeBase",
+					"group": "navigation@1"
+				},
+				{
+					"command": "drip.createMarkdownFile",
+					"when": "view == drip.knowledgeBase",
+					"group": "navigation@2"
+				},
+				{
+					"command": "drip.createNoteFile",
+					"when": "view == drip.knowledgeBase",
+					"group": "navigation@3"
+				},
+				{
+					"command": "drip.refreshTree",
+					"when": "view == drip.knowledgeBase",
+					"group": "navigation@4"
+				},
+				{
+					"command": "drip.rebuildKbIndexNow",
+					"when": "view == drip.knowledgeBase && drip.startupCheckComplete",
+					"group": "navigation@5"
+				},
+				{
+					"command": "drip.selectKnowledgeBase",
+					"when": "view == drip.knowledgeBase",
+					"group": "navigation@6"
+				},
+				{
+					"command": "drip.refreshTree",
+					"when": "view == drip.drafts",
+					"group": "navigation@1"
+				}
+			],
+			"view/title/context": [
+				{
+					"submenu": "drip.kb.new",
+					"when": "view == drip.knowledgeBase",
+					"group": "1_new@1"
+				},
+				{
+					"command": "drip.selectKnowledgeBase",
+					"when": "view == drip.knowledgeBase",
+					"group": "2_kb@1"
+				},
+				{
+					"command": "drip.refreshTree",
+					"when": "view == drip.knowledgeBase",
+					"group": "2_kb@2"
+				},
+				{
+					"command": "drip.rebuildKbIndexNow",
+					"when": "view == drip.knowledgeBase && drip.startupCheckComplete",
+					"group": "2_kb@3"
+				},
+				{
+					"command": "drip.processPendingLinkMigrations",
+					"when": "view == drip.knowledgeBase",
+					"group": "2_kb@4"
+				}
+			],
+			"drip.kb.new": [
+				{
+					"command": "drip.createFolder",
+					"group": "1@1"
+				},
+				{
+					"command": "drip.createMarkdownFile",
+					"group": "1@2"
+				},
+				{
+					"command": "drip.createNoteFile",
+					"group": "1@3"
+				},
+				{
+					"command": "drip.createDripIgnore",
+					"group": "1@4"
+				}
+			],
+			"editor/context": [
+				{
+					"command": "drip.openHeadingInCanvas",
+					"when": "editorLangId == dripnote",
+					"group": "navigation@100"
+				},
+				{
+					"command": "drip.openFileInCanvas",
+					"when": "editorLangId == dripnote",
+					"group": "navigation@101"
+				},
+				{
+					"command": "drip.copyHeadingIdentity",
+					"when": "editorLangId == dripnote",
+					"group": "navigation@102"
+				}
+			],
+			"view/item/context": [
+				{
+					"submenu": "drip.kb.new",
+					"when": "view == drip.knowledgeBase && drip.kbEmptySelection",
+					"group": "dripEmpty@1"
+				},
+				{
+					"command": "drip.selectKnowledgeBase",
+					"when": "view == drip.knowledgeBase && drip.kbEmptySelection",
+					"group": "dripEmpty@2"
+				},
+				{
+					"command": "drip.refreshTree",
+					"when": "view == drip.knowledgeBase && drip.kbEmptySelection",
+					"group": "dripEmpty@3"
+				},
+				{
+					"command": "drip.rebuildKbIndexNow",
+					"when": "view == drip.knowledgeBase && drip.kbEmptySelection && drip.startupCheckComplete",
+					"group": "dripEmpty@4"
+				},
+				{
+					"command": "drip.refreshTree",
+					"when": "view == drip.knowledgeBase && viewItem == dripKbRoot",
+					"group": "dripNavigation@1"
+				},
+				{
+					"command": "drip.selectKnowledgeBase",
+					"when": "view == drip.knowledgeBase && viewItem == dripKbRoot",
+					"group": "dripNavigation@2"
+				},
+				{
+					"submenu": "drip.kb.new",
+					"when": "view == drip.knowledgeBase && (viewItem == dripKbRoot || viewItem == dripFolderNoIndex || viewItem == dripFolderWithIndex)",
+					"group": "dripCreate@1"
+				},
+				{
+					"command": "drip.createDripIgnore",
+					"when": "view == drip.knowledgeBase && (viewItem == dripKbRoot || viewItem == dripFolderNoIndex || viewItem == dripFolderWithIndex)",
+					"group": "dripCreate@3"
+				},
+				{
+					"command": "drip.copyPath",
+					"when": "view == drip.knowledgeBase && (viewItem == dripKbRoot || viewItem == dripFolderNoIndex || viewItem == dripFolderWithIndex || viewItem == dripNoteFile || viewItem == dripIgnoreFile || viewItem == dripImageFile)",
+					"group": "dripPath@1"
+				},
+				{
+					"command": "drip.renameItem",
+					"when": "view == drip.knowledgeBase && (viewItem == dripFolderNoIndex || viewItem == dripFolderWithIndex || viewItem == dripNoteFile || viewItem == dripIgnoreFile || viewItem == dripImageFile)",
+					"group": "dripPath@2"
+				},
+				{
+					"command": "drip.ignorePath",
+					"when": "view == drip.knowledgeBase && (viewItem == dripFolderNoIndex || viewItem == dripFolderWithIndex || viewItem == dripNoteFile || viewItem == dripIgnoreFile || viewItem == dripImageFile)",
+					"group": "dripIgnore@1"
+				},
+				{
+					"command": "drip.deleteItem",
+					"when": "view == drip.knowledgeBase && (viewItem == dripFolderNoIndex || viewItem == dripFolderWithIndex || viewItem == dripNoteFile || viewItem == dripIgnoreFile || viewItem == dripImageFile)",
+					"group": "dripDelete@1"
+				},
+				{
+					"command": "drip.updateIndexScope",
+					"when": "view == drip.knowledgeBase && (viewItem == dripFolder || viewItem == dripNoteFile) && drip.startupCheckComplete",
+					"group": "dripIndex@1"
+				},
+				{
+					"command": "drip.reconcileHeadingsScope",
+					"when": "view == drip.knowledgeBase && (viewItem == dripFolder || viewItem == dripNoteFile) && drip.startupCheckComplete",
+					"group": "dripIndex@2"
+				},
+				{
+					"command": "drip.createIndexHere",
+					"when": "view == drip.knowledgeBase && viewItem == dripFolderNoIndex",
+					"group": "dripIndex@1"
+				},
+				{
+					"command": "drip.removeIndexHere",
+					"when": "view == drip.knowledgeBase && viewItem == dripFolderWithIndex",
+					"group": "dripIndex@2"
+				},
+				{
+					"command": "drip.deleteItem",
+					"when": "view == drip.drafts && viewItem == dripDraft",
+					"group": "dripDelete@1"
+				}
+			]
+		},
+		"languages": [
+			{
+				"id": "dripnote",
+				"aliases": [
+					"DRIP Note",
+					"dripnote"
+				],
+				"extensions": [
+					".d.txt"
+				],
+				"configuration": "./src/document/language-configuration.json"
+			}
+		],
+		"grammars": [
+			{
+				"language": "dripnote",
+				"scopeName": "source.dripnote",
+				"path": "./src/document/syntaxes/dripnote.tmLanguage.json"
+			}
+		],
+		"keybindings": [
+			{
+				"command": "drip.openComposer",
+				"key": "ctrl+u",
+				"mac": "cmd+u"
+			},
+			{
+				"command": "drip.captureSelectionToComposer",
+				"key": "ctrl+shift+u",
+				"mac": "cmd+shift+u"
+			},
+			{
+				"command": "drip.openRetriever",
+				"key": "ctrl+shift+alt+r",
+				"mac": "cmd+shift+alt+r"
+			},
+			{
+				"command": "drip.retrieverQuickOpen",
+				"key": "ctrl+shift+alt+h",
+				"mac": "cmd+shift+alt+h"
+			}
+		]
+	},
+	"scripts": {
+		"compile-web": "tsgo --project ./tsconfig.json --noEmit"
+	},
+	"devDependencies": {
+		"@types/node": "22.x"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/microsoft/vscode.git"
+	},
+	"dependencies": {
+		"@xenova/transformers": "^2.17.2",
+		"sql.js": "^1.12.0"
+	}
+}

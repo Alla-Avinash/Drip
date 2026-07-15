@@ -1,0 +1,56 @@
+
+
+tightly and loosely coupled architectures
+    - Core (Workbench) = tightly coupled
+    - Features (Extensions) = loosely coupled
+
+
+UI Structure 
+    - 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

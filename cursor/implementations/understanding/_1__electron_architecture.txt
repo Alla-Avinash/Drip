@@ -1,0 +1,231 @@
+
+
+electron can be installed as a package with node.js
+
+
+Electron App = 
+    Backend (Main Process)
+  + Frontend (React UI)
+  + Secure API Layer (Preload + IPC)
+
+main components in electron 
+    1. Main process
+        Backend controller 
+        Runs in Node.js
+        Controls:
+            app lifecycle
+            windows
+            system APIs (file system, OS, etc.)
+        Responsibilities 
+            Create windows
+            Manage app lifecycle
+            Handle IPC
+            Run background tasks
+    2. Render process 
+        Runs in Chromium (browser)
+        This is where React lives
+        Handles UI, state, user interaction
+        Responsibilities:
+            UI
+            State management (Redux/Zustand)
+            Calling backend via IPC
+    3. Preload script / Preload layer / the need for IPC ??
+        Sits between main & renderer
+        Exposes safe APIs using contextBridge
+        Control gateway between frontend and backend
+        questions: 
+            why do we even need a front end and a backend here?? 
+            as we are directly interacting with the desktop application on our pc why not have just the whole thing as one? 
+            why to differntiate frontend and backend? why not let the frontend directly access the backend functions why do we even need this control layer in between??
+            why need backend --> to separate concerns about bussiness logic and security and keeping them private rather than public and accecible to the public 
+            why do we need API's here why not just use functions for the connection between the frontend and backend?
+            Do you even need IPC here why not just use the backend API's as just functions instead of API's? and what is the need for the preload layer here and what does it do?
+        Answers:
+            main reasons why we need IPC here in electron
+                - You are building a desktop app with web tech + system access so you need a communication layer between them both 
+                - for communication from the front end and the backend you need this IPC as it will be easier to make modular components and separation of concern
+                - For security reasons.. if your front end is fetching some data from the internet/ from a remote server through some API calls and if a hacker has intercepted this response message and had put some malicious script which gets run if it is rendered in your front end (in case there is no guard rails for separating the frontend and the backend)
+                    Your Electron app loads UI using Chromium (like a browser)
+                    That UI can:
+                        load remote content
+                        render user input
+                        run third-party scripts
+                    If any of that gets compromised (XSS attack):
+                    Without preload:
+                        attacker code runs in renderer
+                        renderer has Node access (fs, child_process)
+                        attacker can:
+                            read your files
+                            steal tokens/passwords
+                            run system commands
+                    Why preload fixes this
+                        Renderer gets zero direct system access
+                        Only allowed functions are exposed
+                        Even if hacked:
+                            attacker can only use limited APIs you exposed
+                            cannot access full Node
+                    why is content requied from the internet/remote in a desktop application??
+                        1. Loading remote content (very common)
+                            Apps like Slack or Discord load messages from the internet 
+                        2. Plugin / extension systems
+                            Example: Visual Studio Code extensions
+                        3. Opening external links or content
+                            User opens a link inside your app
+                        4. Dependency / supply chain attacks (very real)
+                            You install an npm package
+                        5. Stored data rendering (very common mistake)
+                            Example:
+                            Your app saves notes, markdown, or HTML
+                            Later renders it
+                    Any content inside your app = can act like a hacker with full system access”
+                    Content is sandboxed, only allowed actions are possible
+                - if you want to make use of the javascript libraries to get really good web/graphic/css designs you have to use the browser like setup which are widely used in webdevelpment
+            you need IPC, and the preload layer exists to make IPC safe.
+            originally electron allowed this --> to directly access the backend libraries within the frontend part
+                // inside React (renderer)
+                const fs = require('fs');
+                fs.readFileSync(...)
+            problems with this:
+                Your UI runs in a browser environment (Chromium).
+                If any malicious script gets injected (XSS attack)
+                It can now access:
+                    file system
+                    OS commands
+                    secrets
+                    user data
+                what if it can access the user file system?? it is already a desktop application and it is supposed to use the users file system..
+                no, -------------------------------------------------------------------
+            need for preload??
+                Instead of exposing everything:
+                You expose only what is needed
+                Example:
+                    contextBridge.exposeInMainWorld('api', {
+                    readFile: (path) => ipcRenderer.invoke('read-file', path)
+                    });
+                Now your UI can ONLY do:
+                    window.api.readFile()
+                Not:
+                    fs
+                    child_process
+                    random OS access
+                You technically can disable security and skip preload, with some flags 
+                But this is what happens:
+                    Your app becomes vulnerable
+                    Any injected script = full system control
+                Without preload:
+                Renderer → Main (direct, unsafe)
+                With preload:
+                Renderer → Preload → IPC → Main
+                Preload acts like:
+                    API gateway
+                    validation layer
+                    security filter
+                
+
+
+Further important components
+    1. IPC (Inter-Process Communication)    ----> this is like a communication protocol on how to talk and what to talk to..
+        these route to the correct API's 
+        Two types:
+            invoke/handle → request-response (recommended)
+            send/on → event-based
+        Flow of operations 
+            React UI → Preload → IPC → Main → Service → Response → UI
+    2. Services 
+        IPC just routes → services do real work
+    3. Window Management
+        Large apps have multiple windows
+        Each window = separate renderer instance
+        the window lifecycle management is like object life cycle management in springboot applications in java
+    4. State Management (Renderer)
+        Same as React apps:
+        Redux / Zustand / Context
+        BUT:
+        Sync with main process when needed
+    5. Build & Packaging
+        Big apps use:
+            electron-builder
+            or Electron Forge
+        Handles:
+            installers (.exe, .dmg)
+            updates
+            code signing
+
+
+Architecture / Folder structure 
+    my-electron-app/
+    │
+    ├── apps/
+    │   ├── main/                # Main process (Node side)
+    │   │   ├── index.ts         # entry point 
+    │   │   ├── windows/         # window creation logic
+    │   │   │   ├── mainWindow.ts
+    │   │   │   ├── settingsWindow.ts
+    │   │   │   ├── authWindow.ts 
+    │   │   │   └── ...
+    │   │   ├── ipc/             # communication handlers   --> IPC just routes → services do real work.
+    │   │   ├── services/        # bussiness logic seperated as functions
+    │   │   │   ├── fileService.ts
+    │   │   │   ├── authService.ts
+    │   │   │   ├── dataService.ts
+    │   │   │   └── ...
+    │   │   └── config/
+    │   │
+    │   ├── renderer/            # Frontend (React app)
+    │   │   ├── src/
+    │   │   ├── components/
+    │   │   ├── pages/
+    │   │   ├── hooks/
+    │   │   └── state/
+    │   │
+    │   └── preload/             # Secure bridge
+    │       └── index.ts
+    │
+    ├── packages/                # Shared logic (monorepo style)
+    │   ├── ui/                  # Shared UI components
+    │   ├── utils/
+    │   └── types/
+    │
+    ├── assets/
+    ├── build/
+    ├── electron-builder.json
+    ├── package.json
+    └── tsconfig.json
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

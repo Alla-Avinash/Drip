@@ -1,0 +1,148 @@
+# DRIP — Implemented features (current snapshot)
+
+---
+
+## Shell, views, and navigation
+
+- Activity bar container with views: Knowledge Base, Drafts, Settings (webview), Storage (secondary sidebar webview).
+- Standalone panels: Note Composer (`Open Composer`), Tags Graph (`Open Tags Graph`); subgraph editor opened from tags when needed.
+- Optional auto-open Composer when the Knowledge Base sidebar is first revealed (`drip.autoOpenComposerOnSidebarReveal`).
+- Keyboard: `Ctrl+U` / `Cmd+U` — Open Composer; `Ctrl+Shift+U` — Capture selection.
+
+---
+
+## Knowledge Base tree
+
+- Choose a KB root folder; tree honors configured note extensions (default `.d.txt`, `.md`).
+- Create: note, `.md`, folder, `.dripignore`.
+- Actions: refresh, copy path, rename, delete, add to `.dripignore`.
+- KB tree drag-and-drop operations.
+- Title bar shortcuts: refresh, new items, **`DRIP: Update _index`**, **`DRIP: Process pending link migrations`**.
+- Folder context: **`Create _index Here`**, **`Remove _index Here (merge)`**.
+
+---
+
+## Composer and drafts
+
+- Draft lifecycle (create, save, reopen, update, cleanup).
+- **Capture Selection to Composer** from the active editor.
+- Storage ↔ Composer ingest flows (open fresh composer / clear ingest context options as implemented).
+
+---
+
+## Storage / ingest UX
+
+- File-first navigation with heading-level placement options.
+- Suggestions UX: single-click flow, ranked folder/file mix, depth-capped behavior (with optional embedding-backed ranking below).
+- When a concrete file target is chosen, picker UI focuses on placement under that file’s headings.
+
+---
+
+## Tags Graph (interaction and editing)
+
+- Pan/zoom, drag, layouts, persistent positions, undo/redo, context menu operations.
+- Add/remove/rename tags; directional links including remove/reverse; duplicate-link guards for privileged relations (e.g. `main`) via modal dialogs.
+- Sub-graph editing: compact fly-out vs detached window for nested topics.
+- Graph switching prompts when edits diverge from checkpoint.
+- Sidebar node details grouped (tag, group, parents, children, reciprocal “connection” bucket when inbound+outbound both exist).
+
+### Relations (per stored graph — not shared across graphs)
+
+- Named relation types besides default **main**, stored in graph JSON alongside nodes/links (`relationTypes`, per-link `relation`/`rel` where applicable).
+- Relation UI: dropdown with **Create new**, inline rename/delete controls, dropdown ↔ text-edit flow for naming.
+- New relation prompts: optionally duplicate **`main`** link set into the new relation or start empty.
+
+### Groups (colors and legend)
+
+- Named groups with colors; optional **legend** checkbox to show mappings.
+- Sidebar group controls: dropdown, create/rename/delete with color, **assign nodes**: multi-select toggle on canvas; optional **include all descendants**.
+- Nodes respect group tint when legends are visible; hierarchical assignment walks full subtree.
+
+### Derived graph tooling
+
+- **Split graph**: from node context menu — new subgraph with rename prompt (modal), downward-only ancestry (selected node roots the copy); saved beside other graphs as JSON.
+- **Combine graphs**: add multiple graphs, drag-reorder by priority when merging duplicate nodes/groups/link sets; persisted combined graph in graph folder.
+
+### Bulk operations
+
+- **Mass delete**: selection mode (toggle nodes; optional subtree); ESC clears; visuals for marked deletes; guarded delete with modal confirm.
+
+### Multi-graph UX (stored library)
+
+- Graph folder may be embedded default (`tag-graphs`) or **user-chosen folder** (toolbar controls + revert to default).
+- Multiple graph files (`<graphId>.json`), active graph from dropdown with new/rename/export/delete semantics.
+- Export portable JSON (`dripTagGraphExport` envelope or raw v2 graph).
+
+### Graph persistence format (conceptual)
+
+- Stored schema centered on `nodes[]`, `links[]`, plus `relationTypes`, `groups` (colors/names/groupIds on nodes).
+
+---
+
+## Dripnote (`.d.txt`) language integration
+
+- Custom language **`dripnote`** (`.d.txt`), TextMate grammar + **semantic tokens** provider for headings, `.concept/.task/.project` (including `.t/.p`/heading shorthand), `Q.`, `R.`, `L.`, `U.`, constrained metadata/tag blocks (single relation instance per heading where rules apply).
+- **Metadata/key diagnostics**: unknown/custom keys guarded by **`drip.dripnoteAllowedMetadataKeys`**; duplicate-field warnings within typed blocks where implemented.
+- **Unknown tags**: red underline diagnostics; Quick Fix paths to create/use graph-backed tags (**no silent auto-append** to graphs from typing alone).
+- **Tag IntelliSense**: after `tags: [`, shorthand `[…]`, and custom relation `[…]` lists (keys from settings/graphs); throttled sync from graph folder.
+- **`_index.d.txt`**: diagnostics intentionally relaxed/skip-managed where implemented so generated index churn does not noisy-error.
+
+---
+
+## Note identity (`filename`, `created`, `fileid`)
+
+- Top-of-file header identity (before first `---`) with canonical **`created`** ISO (ms fidelity) driving a **deterministic hash** (`fileid`).
+- Normalize on KB-wide maintenance and on KB-scoped lifecycle events; **`fileid`** may be forced coherent on drift (via open/save/normalize flows as wired).
+- **Managed lines**: normalization + hover/help text on identity/header lines discouraging manual edits; status hints when referencing `L.` / identity edits.
+- **Rename** through DRIP KB actions: regenerate identity as appropriate and propagate **`L.`** reference updates toward the new canonical target where applicable.
+
+---
+
+## File references (`L.` lines)
+
+- Accepted shapes include markdown-style `L. ![name - @fileid](relative-path)` plus tolerant plain forms such as **`L. [@fileid]`** / **`L. @fileid`**.
+- Drag/drop KB note into open dripnote inserts a canonical-ish `L. ![…]` line (when supported by host drop APIs).
+- **Go to definition**: Ctrl-click / **F12** on `@token` spans **within `L.` lines** resolves KB note owning that `fileid` (streaming search to avoid lumping entire vault in RAM at once).
+
+---
+
+## `_index.d.txt` (knowledge index)
+
+- **Per-folder `_index`** with hierarchical **ownership**: nested index absorbs subtree from parent index bookkeeping.
+- **Generated fields** (conceptual): per-file **`fileId`**, tab-indented **`file-level-relations`**, **`all-tags`**, **`children-links`**, **`parent-links`**, excludes self-listing **`_index`**, folder display name vs `(root)`.
+- **Startup reconcile** refreshes indexes with **streaming scans** aimed at sane memory use on large KBs vs full multi-copy loads.
+- **Signals**: selective refresh on `.d.txt` saves when tracked signals differ (links/tags deltas as implemented).
+- **Pending id migrations** preamble section documenting `old → new | rel/path` tuples when identity drift/remaps occur outside immediate link cleanup.
+- **Commands**: **Update `_index`** (normalize identities then rebuild hierarchy); **`Process pending link migrations`** rewires lingering `oldId` usages and clears preamble rows once safe (notes + body-of-index cleanliness checks vs stale ids).
+
+---
+
+## Images and pasted media (notes)
+
+- Image paste/drop integrations for dripnote/note workflows where registered (composer/KB-facing surfaces as shipped).
+
+---
+
+## Settings (VS Code DRIP scope)
+
+| Setting | Purpose |
+|---------|---------|
+| `drip.knowledgeBaseFileExtensions` | Extensions treated as KB notes in scans/suggestions/tree. |
+| `drip.defaultNewNoteExtension` | Default suffix for KB-created notes. |
+| `drip.autoOpenComposerOnSidebarReveal` | Auto-open Composer on first KB sidebar reveal per window/session behavior. |
+| `drip.experimentalEmbeddings` + `drip.embeddingModel` | ONNX embedding path for suggestions/deeper matching workloads. |
+| `drip.dripnoteAllowedMetadataKeys` | Allow-list extra dripnote relation/metadata keys besides built-ins (`tags`, `pre-req`, etc.). |
+
+---
+
+## Developer ergonomics / repo meta
+
+- **Cursor rule**: `.cursor/rules/drip-light-context.mdc` — lightweight AI guidance and a compact map of modules (`dripnoteFileIdentity`, `dripnoteIndex*.js`, `dripnoteReference*.js`, etc.).
+- Embedding benchmark developer command (**Run Embedding Benchmark**).
+
+---
+
+## Out of scope / not guaranteed here
+
+- External references outside configured KB folders are outside automated rewrite coverage.
+- Embedding download/caching/network behavior depends on user environment/HF cache norms.

@@ -1,0 +1,388 @@
+
+Important shortcuts 
+fold all    ----> ctrl K + ctrl 0   for VScode
+            ----> for cursor ---> ctrl M + ctrl 0
+unfold all  ----> ctrl K + ctrl J
+------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+DRIP project (Data Retrieval and Ingestion Platform)
+
+------------------------------------------------------------------------------------------------------------------------------------
+
+
+About:
+    this is like a notes app which helps with providing you an user interface, where you can write some notes in a specific format and then let the platform pick up a spot in your knowledge base to store that information.
+    you just have to specify a knowledge base folder which acts as a knowledge tree for your retrieval and ingestion/storage
+
+Working of this DRIP Application: 
+    - tech stack
+    - main components 
+        - Knowledge Base
+        - Platform
+        - Ingestion
+        - Retrieval 
+
+
+Tech Stack:
+    - explored the widely used programming languages that are widely used in code editors and text editors and seen how performance and developability factor in this space and how electron outweights some traditional c++ most efficient platforms as electron has easy usability and can really help with faster developement
+    - seen the various architectures to build this platform, seen other already implemneted solutions like obsidian, vscode. which doesn't make use of a database but only rely on the existing folder structure which is used as a database.. and I have also learnt an intersting thing about the differences between electron(desktop-web-app) and a standard web interface which makes uses of system folder structure from the browser. why electron like desktop-web apps are prefered to web interface to access the system folder strucrtures, because browsers are not permited to have complete access to system files.. and electron has many such 
+    - got to conclude it is better if we can clone the open source code of vscode and understand the working of it and get to konw the basics of electron and its specific features and components and API which are specific to it..
+    - start working on this open source code as a base foundation, remove all the unnecessary parts which are not required now and keep the folder structure as simple as possible and modify the code as required.. to implemnted the features that you want to design
+    - 
+    - 
+
+
+Main Components:
+
+    1. Knowledge Base:
+        - Talks about the database structure i.e the database folder structure
+        - the main knowledge base folder has a specific folder structure that the project follows:
+            - each folder/ sub-folders
+                - has a .dripignore file that has a list of all the files which are not to be included in the platform's knowledge base/tracked by it
+                - has a index.json file that has the metadata like: 
+                    tags (indicating it as a project/concept folder)
+                    list of all the file names and sub-folders present in that specific folder
+                    linear/chronological hierarchy of the current files if there are any present
+                        linear hierarchy -> this helps when you have split the file into 2 files and you have a first and second part just broken based on the amount of content/ topic wise sections where you can say part 1 is the pre-req of part 2
+                        chronological hierarchy -> this helps when you have split the file and you have some time dependent learnings of how a particular problem was implemented a while ago and how it is utilized now in modern times.. 
+            - each file 
+                - follows a strict markdown format so that it becomes easier to parse when you want to do some modifications to the file from the application platform
+                - has metadata in the header which is parsable by the platform, this includes
+                    about: a brief explanation of what is in this file
+                    index: list of all the contents present    
+        - metadata 
+            - for folders in index.json
+            - for files at the header
+            - metadata includes
+                - tags: 
+                - priority:
+                - timestamp:
+                - modified: 
+        - 
+
+
+    2. Platform:
+
+        - Markdown for the file structure
+            - do you require a special markdown or is the standard readme markdown fine enough?
+            - I want the spacing of tabs to be good like in vscode editor 
+            - want a custom markdown that gets all the features from a standard markdown but also just renders things a bit different form the standard; it has to be a mix of markdown and a normal text file where you can see all the indentation/spaces at the start of the sentence
+            - I really like the line to line indent and space between 2 lines in the vscode text editor or in that of a normal text file.. 
+            - can create a feature in the settings tab (extension like code) to create custom markdown components to make certain components look/render different with making them separate/hilighted or making them as placeholders like keeping something as important/ please take a note/ must use this resource as prereq
+            - these can also act as tags in the file to highlight different components in a file
+            - can create a feature to link up other files within the text so that it opens when we click on that file name.. can also do the same with linking up images like pasting the images and then when rendered you can see the actual image => similar to how obsidian handles this..
+
+        - User Interface (UI/UX)
+
+            1. Navigation & Viewing & Editing the KB:
+                - Navigation
+                    the Knowledge base tree/graph helps to 
+                        view the hierarchy tree(in a folder/file) 
+                        selecting a folder to get a zoomed view/ selecting a file to open it up, to view/edit the file contents
+                        - folder 
+                            take the reference of the graph in obsidian but a bit more rigid, than the graph nodes moving around
+                        - file
+                            can see up all the various headings/subheading structure in the markdown of that file as a tree to the right as you can see in modern readme docs/ in platforms like obsidian...
+                - Viewing 
+                    - viewing of the entire knowledge base: 
+                        - seeing a tree/graph structure like the one you see in obsidian; option to toggle between a 
+                            - strict (tree view) only have the real connections where the files are really stored
+                            - graph view; you can see all the minor connections by special tags 
+                        -  seeing a standard linear structure of the folder like the one's you see in vscode about a file explorer to the left
+                    - Text Editor that opens the file/ when writing the notes
+                        - similar to vscode style 
+                        - able to collapse the different sections present so that it will be easier to view and only see the section-headings
+                        - important shortcuts --- for fold all and unfold all 
+                        - able to see line numbers when seeing the file contents
+                        - able to see the (section pointer of the entire file) the current cursor is pointing to the coloured section of the entire file contents at the right side as you can see in vscode
+                        - have a commit log to the right bottom corner with date-time stamps to just get a chonological order of how the you learnt a topic or how a project has been develped over time from the very start of creating a file..
+                    - toogling day and night view
+                    - toogling the option to see metadata when you are viewing a file
+                    - spaces: 4 (include a settings for the indentation/spaces for tab)
+                    - can have an taggle between cursor modes like in vscode -- You have activated Overtype Mode, where new characters replace existing ones. To switch back to the normal "insert" mode in VS Code by clicking "insert" key on the keyboard
+                - Editing file contents
+                    - you need to look at how modern text/code editors are built 
+                
+            2. Ingestion Tab
+                - Used to write modular notes so that the platform allows you to store it in a suggested location(a specific path/to/folderA/fileX/sectionD/subsectionJ) of the knowledge base folder
+                - CRUD Operations related to notes
+                    - Add notes
+                    - Delete notes
+                    - Update notes
+
+            3. Tasks Tab   
+                - daily tasks that you have listed with their priority 
+                - you can have checkboxes to mark completion 
+                - keep the previous 10 day tasks to see them if needed; an option to force delete this list
+                - inlcude feature to filter the tasks based on topic or priority or day added
+                - extension to include this base filtering to something more custom
+            
+            4. Activity Tab
+                - should you include something like a .git repo to keep track of things or should you do something custom just to tackle this issue and not keeping a track of all the modifications this can be too hectic and hard to manage on the project knowledge base as you can have folder and sub-folders instatntiated like a project knowledge base themselves..
+                - maintain the timestamps for all the various activities done throught the platform 
+                - logs on the actions like creation/deletion/modifications of notes; making changes to a file; creation of a file; update operation etc along with the timestamps
+                - keep the activity log for 10 days and them removes the older logs later on.
+                - can go to the location of the updation when you click on a specific action log item...
+                - how will you handle a case when there is a note added, updated later on 4 times and finally ... deleted. all this happened within the 10 days frame so what constraints are present for this feature and see the best optimal way for this to be implmented 
+                - include the feature to filter the activity based on different topics to see the modifications on how you have changed the things and how a particular file has evolved. you can include something like commit messags so that you can have a progress of all the notes how they have been modified.. and you can have a chronological view of what ever is added and how you have learned a particular topic.. 
+                - main problem with this approach of maintaining a commit log
+                    - how will you maintain this commit log if you have split the file into its constituent sub parts/ sub files then how will you divide the commit log??
+                    - 
+
+            5. Question Tab
+                - when you generally explore some topics you will obviously want to go to look up into various sub-topics which are not directly related to your topic but you want to explore these topics later on... 
+                - you will just ingest these questions and they have a priority assigned to them and you can see their pirority in the question tab.. 
+                - but how will you keep this metadata tagged to a question?? won't it be like having to go through the whole file to get the questions listed?? like how general search engines search for a ? sign...... and look up its priority?
+                -  to the activity tab, you keep a track of all the questions that you point out
+                - 
+            
+            6. Tags Metadata Tab:
+            - one place to organise all the tags and store them up in a single place 
+            - you can easily view all the tags and see how they are dependent on each other and manage them up as a graph structure to connect various tags so that the original files which are tagged with these also follow the same hierarchy
+            - can see a list or all tags or the graph view of the tags which are connected by strong and weak connections
+            - you can also define something like pre-requisite or related topics for the edges of the tags graph  
+            - can also have different sections of tags like domain tags, sub topic tags etc.. 
+            - for the projects you can have a seperate section of priority tags
+            
+        - NOTE: 
+            - You must to have a main knowledge base folder provided for the task, activity, question, metadata tags, updation button as these depend on the whole database/entire folder structure rather than a small modular part..
+            - you can provide a sub folder for just the ingestion and retrieval platform to only load up a smaller part in memory and to keep the application light instead of making it too heavy.. 
+            - you can have the below things able to filter with only what is required... 
+            - you can use color coding to highlight the different sections of the file/notes/tasks/questions/activity/metadata tags
+            - you can use a different font color/font background color for the different specifics which are present in file like tasks, questions etc ... to differentiate them from the rest of the notes/text you can put them in different color when you are rendering the file to view it.
+            - most widely used programming language to desing a text/code editor
+            - most widely used language to deal with modifying a lot of files 
+
+        - Update operation: 
+            - checks if all the folder structure and files are up to date with all the modfications done internally or externally..
+            - used when there are some external operations done without going throught the platform i.e modifications done externally rather than with the platform operations; like any deletions/updation/addition of files notes => this can cause missmatches with the metadata and can cause problems
+            - making the application compatable and handle cases such as this so there is no breakage in the application...
+            - a separate button which you can press for updations to happen, this acts as a separate modular component which can be implemented...
+            - ensure that this operation is optimal and performant and ensure that it does not go through all the files again and then do the updation individually
+            - can have features like strict mode (like a checkbox) to force to use all the .md files in the knowledge base folder/sub-folders
+            - can also include a special .dripignore to ignore specific file paths and only do the updation operation on a smaller sub set of the folder...
+        
+
+    3. Ingestion:
+        - selecting the Note Template
+            - you have a list of different types of notes to choose from and you select one of these note types 
+            - you can add these different note types as extensions of the common note interface
+            - each note type is designed individually according to the user needs
+            - note types 
+                - question answering
+                - short concept 
+                - long concept 
+                - project type 
+                - research oriented 
+        - filling the note template with the data what you have in mind/ what you have learned about 
+            - maybe you can have a rough notes written in a paragraph format and an ai model API can be used here to make this paragraph into a proper structured format by a custom prompt given by you. 
+        - in the training phase/ when you have time to look at where exactly is this note placed, you will go through the entire below process 
+            or the retriever selects a suitable place and places your newly created note there in a simple manner without any complication/ training
+        - searching the entire knowledge base to find the closest folder/ file name to keep this note in 
+            - create a new file under the referenced folder name 
+            - create a new section under an existing referenced file 
+        - note: this only checks the .md files in the folders of your knowledge base but don't touch any code files present or any .txt files present 
+        - platform gives you the top 10 choices of the file names/ folder names 
+            - you have to choose from these options 
+            - if nothing within a specific score range got retrieved by the retriever you will make a new file from a given list of folder names 
+        - Extracting the data --> each of your choice gets saved in a training data format to train the Retriever AI
+        - from the choice of the file, you will get the required markdown tree of the file structure 
+            - choice of top 5 positions to choose from  
+            - choices to choose from 
+                - create a new section/ sub section
+                - add the note to an existing section 
+
+
+    4. Retrieval:
+        - you go to the retrieval tab 
+        - you give a query => converts the query into an embedding
+        - searches the entire knowledge base
+        - get the top 10 closest nodes(folder/file names) closest to the query 
+        - folders -> get files 
+        - files -> get sections/ sub-sections 
+        - collecting the training data to train the ai when you have time/ when your application is in the training phase 
+            - explore each file/section among the given choices and give rating which is the closest to update the AI 
+        - note: Implementing an Algorithm to retireve these similar nodes to the query, in the knowledge base is soo hard 
+        distance between the query and the nodes must be the least 
+    
+
+reference applications
+    - vscode/cursor ui with .txt files or readme.md files
+    - saner.ai features, super good features exactly what you envisioned
+    - tech stack used for this saner.ai --> postgresql/mongodb/s3 storage with complete ui in react/ next.js??
+    - obsidian for file storage and graph features 
+    - can you make a web/ browser extension for your desktop application?? 
+    - notion 
+
+------------------------
+sort these out and put them in the correct locations 
+    - 
+    
+out of context things
+    - keep a small simulation game of a small terrarium pet of a centipede, milliepede, isopod and a spider to create a small game like thing to play with.. giving it some feed and just watching it interact with the environment and food..
+
+different interesting concepts and know their implementations:  
+    - how do vscode or obsidian keep track of the current workspace and open the correct files after we close and reopen the application.
+    does it require a central repository of all the workspaces and it keeps track of everthing??
+------------------------
+
+Amazing UI/UX Ideas which are new and good....
+    - having a temporary questions tab at the bottom like how we have a vscode terminal at the bottom 
+        - this helps in looking up concepts which you can keep as a short note to have a temporary notes kind of thing where you later decide where to keep those notes 
+    - having a small tag like note, for certain keywords in the notes or doubts that you have at certain areas in the notes
+        - when you hover over a hilighted text/ coloured text you will have a text box appearing and you can see the questions for that hilighted text 
+        - these questions can be like what is xyz? why this is imp? etc ...
+        - view -> these questions will appear like a carrousal where you have side buttons to push to the next cauroussal/ question along with the answer text below them taking about the question
+        - when you have the cursor away from the cauroussal text box this box gets dissapeared.. 
+    - understand the HLD architecture of what is happening in the repo and what each component does 
+    - understand the folder/project structure of the repo and where each of the component in the HLD is at.. 
+    - having an AI chatbot like openai or claude integrate with the notes application to generate the answers to the questions that you have written in the notes... after a while.
+        - like those answers generated will have a specific writing style and format and will have a fixed specific prompt or can act according to your previous notes writing styles trained automatically like in github copilot finishing up.. 
+    - i need the proper headings/titles stacked at the top when you scroll down to view the indented content like in vscode so that you can have a clear hierarchy of what is getting installed..
+    - make a pinboard like tab where you just sticky notes the required ideas in the users mind like how you will use sticky notes on the wall
+        - want these sticky notes to be of just some text boxes with the outline and the ability to place one box on top of the other or can pin it up to the side like drag and drop 
+        - can also connect these notes together with a string or connection between them to make them look complex if required 
+    - what kind of tech stack is used for saner.ai ?? 
+    - making a chrome/ browser extension to get the notes ingestion data to a note and have a featue to write the note within the webbrowser to save it with the application 
+    - using windows speech to text writing "Win + H" and making an extension with that ai to have the text written in a better format at the cursor 
+
+
+
+Software Design Principles
+    - functionality that you want this application to follow
+        - the data must be portable if you want to move it up to another platform, i.e. the parsing logic must be soo good and it has to be perfect to be used by another platform if it wants to extract the data from these files
+        - you must have the ability to instantiate different folders within the main folder with this DRIP framework and the application must not fail or break any where if you made changes to these specific project files externally outside the framework
+        - you must have a .dripignore file to ignore any files or folders so that you only work with a little subset of the entire folder structure of the project instead of working with all the files/folders present in the project which might make it more complex.. you use this just for the ingestion/retireval tabs but not for the activity/tasks/questions tab as they should have a whole picture rather than looking into individual paths, but you can have filters to just filter out only those activities with the sub folder which is selected.. 
+        - 
+    - 
+    - 
+
+
+Retriever model Research
+    - want to test the best open source retriever and embedding models 
+    - problem statement/ situation
+        you have a certain text/note and a group of labels/ file names (these files/labels can increase or decrease as time passes by..) 
+        you need to place the text/note in one of these files which is the most related to that file/label 
+    - Assumptions
+        - you do hierarchal filtering - At selecting a file or folder for a given note/text you only deal with max 20 labels at a time..
+            - reason for this is this is the max number of files or folder within a folder is just atmost 20 and not more than that.. 
+        - assume that the concepts in the file names/labels are mutually exclusive of the concepts which are covered in some other file names
+            - you make the system follow this particular design principle to keep the organising of the knowledge base simple and upto the standards
+    - challenges in this problem 
+        - can differentiate between 2 different labels but the problem is with differentiating 2 similar kind of labels which are soo close to one another in meaning
+            - how should you design this problem to address this problem 
+            - the problem should 
+        - implementation challenges 
+            - in a folder you can have different sub-folder names or file names
+            - sub-folder names --> can be different from one another if that folder is at the top of the tree knowledge base
+            - file names  ---> these can be similar to one another(as they all are in the same folder but at the bottom of the tree knowledge base)
+            - the text/ note can be closer to more than one file/folder name /label..... what to do then?? 
+            - should you implement a scoring function
+            - should you have a threshold to say the confidence 
+            - should you follow a selecting function like a softmax to only choose one?? 
+    - solutions/ approaches
+        - given text, labels ; output need to find the correct match label which is the closest to the text
+        - semantic search over the current labels (embedding + similarity function)
+            convert the text to its embedding vector  (will change everytime so you have to compute this everytime)
+            convert the labels to embeddings    (one time thing as the labels won't change drastically everytime)
+            choose a similarity function like cosine similarity
+            compare the similarity of each of text, label pair => similarity(text, label) and choose the one with the highest similarity score
+        - can we compare with different similarity functions??
+            difference between dot product and cosine similarity 
+        - NLI (natural language inference)
+            - input 
+                - text and label sentence mixed as hypothesis sent to the model
+                - text/notes ---> premise 
+                - this text/notes is realted to the label "xyz" ---> hypothesis
+            - output 
+                - it gives probabilities for these three: entailment, neutral, contradiction
+            - process   
+                - model takes the (input hypothesis); passes them through transformers and then will have a softmax classification head at the end to give the probabilities of the 3 classes
+            - you select the lable with the highest entailment probability
+            - can be slow to get the results as we have to pass the labels everytime with a new text/notes to get the inference 
+            - but has greater accuracy than semantic search as we have attention to look up the relation between both.. 
+        - cross encoder similarity 
+            - it is similar to the above approach but instead of getting probability scores you will get a similarity score 
+            - model(text + label) --> similarity score 
+            - input: [CLS] text [Sep] label; label description [Sep]
+            - you pass the input through transformer blocks and at the end you will have a pooling function; then finally you have a regression head which gives a similarity score as output
+            - pooling function 
+                - cls token:
+                - vector addition of all the tokens at the end of the transformers blocks: 
+            - this helps in capturing deep interaction through attention rather than with embedding in the case of semantic search
+            - bi-encoder → compare vectors
+            - cross-encoder → jointly understand text + label
+        - contrastive learning models 
+            - to pull similar labels together and push different ones apart
+            - this also helps to better separate similar closely associated labels ?????
+            - problem you have to put the text in a folder at the leaf of the knowledge base and you have similar file names in that folder ----> how to increase the contrast to select the best file label for that text???
+                - train 2 separate models??
+            - SimCSE, CLIP style architectures... 
+            - is contrastive learning models only different based on the type of the data used and the training methods and the loss functions or is there any difference in the architectural pattern too???
+        -  clustering and then labeling notes/text 
+            - group similar texts and then assign labels to the formed clusters... 
+            - this is more of an unsupervised approach.. but we are looking into to get a supervised labeled data which is to follow user specific file arranging system depending on his preference 
+            - for this clustering to work you already need to have a well established dataset to train the model on the clustering to get a good idea of how text should be encoded to go near a specific cluster
+            - classify new text by nearest cluster 
+            - good for discovering new labels 
+        - sparse retireval models 
+            - instead of dense embeddings used in search systems... you can simply have a simple binary representation of the embeddings 
+            - this is exteremely useful if you have large label space
+    - prerequisites
+        - how embedding models work and what does its architecture look like and what kind of loss function is used here? and how is training done and how should the dataset look like if we want to create one using this application 
+        - any other alternatives to embedding models in this use case of this application? 
+    - intelligent smart things to implement:
+        - instead of just implementing a single solution/ approach you can mix up 2 or more of these implementations to perform better 
+        - each label should have a textual description to provide better context when comparing labels with the text or when converting the label to an embedding... for folder names this can also include all the file names present inside it and some other context about what kind of data is present in that file/folder
+        - 
+    - 
+    - 
+    - 
+    - 
+    - 
+
+
+
+
+
+MVP Implementation/ Prototype-1 Features/ Phase - I
+    - only implement the question-answering type notes
+    - 
+
+
+
+
+
+
+
+
+
+
+
+Phase - II 
+    - Updated features compared to phase I 
+    - Implementing design choices for the below 
+        - do we have to consider the folder/ file names to be representive of the content in them with each addition of new content/notes to them?? 
+        - do the folders have mutually exclusive files in them so that no files in the folder can have similar kind of content or can them like interconnect with each other?? which is a good design principle 
+            - this destroys connectivity/graph structures between the files but can get good retrieval properties as a specific content can only be found in a specific region without any connections with the other files 
+            - but this is a tradeoff so you have to find balance between them both.. 
+        - finding the right balance and seeing what the tradeoff is between a human organization of the folderstructure and letting the ai completely take over this structure and file/folder names 
+    - shortening the file/folder 
+        - when there are too many files in a folder --> spliting the folder and creating a new folder
+        - when there are too many sections in a file --> create a new file and split the contents of the old file 
+        - what is the best methodology to implement this feature??
+        - is it like a clean button that we run once in a while to make sure that the optimal structure is maintained in the knowledge base so that all the files are well balanced and not too heavy at some parts 
+    - shorten function algorithm
+        - to shorten files/folders and split some heavy content into 2 or more parts 
+        - include code for agentic AI to suggest suitable names to do a split
+    - how to deal with files with code scripts inside them and how to extend this application to act like a knowledge base even for learning code bases... 
+    - support for images in marddown?? 
+    - updating the retrieval/embedding model & finetuning it better 
+    - knowledge base from tree to graph connections how to extend this functionality to have multiple connections
+
+
+
+
+

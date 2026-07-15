@@ -1,0 +1,54 @@
+---
+description: DRIP extension identity — what the application is and where to find documentation
+alwaysApply: true
+---
+
+# DRIP overview
+
+**DRIP** (Data Retrieval & Ingestion Platform) is a VS Code extension at `vscode/extensions/drip/`.
+
+A notes app with a **file-based knowledge base**: user selects a KB folder, writes structured `.d.txt` notes, and uses the platform to **ingest** (store) and **retrieve** (search) content across that tree.
+
+## Canonical spec
+
+**`@cursor/new/features.txt`** — product architecture, userflow, SQLite index design, heading IDs, UI layout (LHS / Editor / RHS), `.d.txt` format. **This is the main document.** Read relevant sections before features, planning, or structural work.
+
+## Supporting docs
+
+| Doc | `@` path |
+|-----|----------|
+| Spec section index | `.cursor/context/features-index.md` |
+| Spec vs current code | `.cursor/context/project-overview.md` |
+| System flows | `.cursor/context/system-flows.md` |
+| **App startup (boot)** | `.cursor/context/app-startup.md` |
+| Architecture ADRs | `.cursor/context/architecture-decisions.md` |
+| Code file map | `.cursor/context/module-map.md` |
+| Developer ergonomics | `.cursor/context/developer-ergonomics.md` |
+
+## UI layout (from spec)
+
+| Area | Role |
+|------|------|
+| **LHS** | Components (Composer, Retriever, Tags graph, Canvas), Knowledge base tree, Drafts |
+| **Editor** | `.d.txt` dripnote editing; panel UIs for Composer, Retriever, Canvas, Graph |
+| **RHS** | Storage webview — ingest placement and suggestions |
+
+## Run extension
+
+From `vscode/` repo root:
+
+```powershell
+$env:VSCODE_SKIP_PRELAUNCH = "1"
+.\scripts\code.bat
+```
+
+Reload window after changes to `extension.js` or `lib/*`.
+
+## Developer ergonomics
+
+Codebase must be **easy for frequent and new developers** to navigate — obvious folders, clear names, minimal hunting. Follow `@.cursor/rules/core/developer-ergonomics.mdc` and `@.cursor/context/developer-ergonomics.md`. Find code via `module-map.md` before wide greps.
+
+## Discipline
+
+- Do not open `cursor/features.txt` (legacy snapshot) unless user `@` it — prefer `cursor/new/features.txt`.
+- Update `features.txt` when shipping behavior described there.

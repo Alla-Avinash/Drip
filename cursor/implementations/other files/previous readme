@@ -1,0 +1,164 @@
+
+
+for important => * 
+for questions => ?
+review and remove these parts later on => % (not to be removed/no tampering is allowed by any AI tool, must be reviwed by human and be done manually, and these sections are not to be mendeled with while consuming context for the AI)
+
+
+About:
+    creating a new project to ingest and retrieve notes
+    An intelligent content router that classifies input content and places it into a folder structure.
+    tech stack: java, springboot, python
+
+
+
+INDEX
+    what is the project about
+    starting the project
+
+
+
+
+RESOURCES
+
+
+CONTINUATION
+
+
+
+----------------------------------------------------------------------------------------------------------
+
+Project DRIP (Data Retrieval and Ingestion Platform)
+
+what is the project about
+    - Notes routing to storage - ingestion of notes to the storage
+    An intelligent content router that classifies input content and places it into a folder structure.
+    So the system has four responsibilities:
+        Accept content (text / files)
+        Decide where it belongs
+        Place it into folders
+        Allow future changes without breaking everything
+    - Inside the file structure - to retrieve the content/notes
+
+
+
+starting the project 
+    - how developers start the system design project
+        - start with one very small, boring, working thing/feature
+        - Make it work → Make it clean → Make it scalable
+    - what is the project MVP?? And what are its features?
+        - list all the features which you want to implement and then select the project MVP.. 
+        - what to include in the project MVP - get the most important featrues and keep them as the first priority and not try to compromise on the performance on these features with future developemnts (this is how new languages are developed, revolving around a few concepts to solve a few specific problems rather than implementing all the features and being second best at nothing)
+        - MVP GOAL: Given a text input, return the best matching label, If this works, everything else is easy.
+    - 
+    - 
+    - 
+    -
+    - 
+
+
+
+
+How to select the tech stack??
+    -  ????
+    - % for this project the main goal is to show case the knowledge of springboot so you choose this tech stack 
+    -  ???
+
+    - After selecting the tech stack, segregate the tasks among the tech stack to better get a sense on how to assign the workload...
+        - Java: 
+            Spring Boot, WebClient (for calling Python)
+            APIs, business logic, orchestration
+        - Python: 
+            sentence-transformers, FastAPI
+            ML models, embeddings, scoring
+        - Storage
+            local file system
+
+
+% understanding some critical topics of the tech stack
+    - understand the file io packages in java with the springboot framework??
+    - what is the optimal project folder structure in springboot??
+    - how does python and java run with the same application?? how are they both integrated?
+    - 
+    -
+
+
+HLD Architecture
+    layered + modular architecture
+    Input Interface  (CLI / API / UI) -> Content Processing  (cleaning, chunking) -> Routing Engine (embedding + scoring) -> Storage Manager (folders, metadata)
+
+Software Architecture
+
+
+
+
+Core Design Principles to follow
+1. Single Responsibility Principle (SRP)
+    Each module does one thing only.
+        Bad: Routing logic writes files, UI decides thresholds
+        Good: Router → returns a label; Storage → handles folders
+
+2. Open–Closed Principle
+    you must be able to: Add new labels, Add new routing logic, Add new similarity metrics
+    without rewriting existing code.
+    This means:
+        Use interfaces / abstractions
+        Avoid hard-coded logic
+
+3. Configuration over hard-coding
+    Anything that might change goes into config:
+    Labels
+    Folder paths
+    Thresholds
+    Model choice
+    This avoids redeploying for small changes.
+
+4. Deterministic core logic
+    Routing must be:
+        Repeatable
+        Explainable
+        Loggable
+        Avoid “magic behavior”.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

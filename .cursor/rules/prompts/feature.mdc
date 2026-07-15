@@ -1,0 +1,17 @@
+---
+description: Use when implementing a new DRIP feature, adding commands, extending UI panels, or building a vertical slice
+alwaysApply: false
+---
+
+# Feature implementation mode
+
+Follow `@.cursor/rules/core/workflow.mdc` (New feature section).
+
+**Full prompt template:** `@.cursor/prompts/feature-implementation.md`
+
+1. Read matching section in `@cursor/new/features.txt` (use `@.cursor/context/features-index.md`).
+2. Break into numbered tasks; map files from `@.cursor/context/module-map.md`.
+3. Implement thinnest vertical slice first.
+4. Wire `extension.js` + `package.json` only when the slice needs new surface area.
+5. Report **Changed** + **How**; tell user what to test manually.
+6. End with **Where to edit next time** — one line pointing to the module(s) for this feature (`@.cursor/rules/core/developer-ergonomics.mdc`).

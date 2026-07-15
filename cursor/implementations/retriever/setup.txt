@@ -1,0 +1,35 @@
+
+
+Need to have the cache folder setup to get all the model weights stored in this local folder instead of the system cache
+windows power shell --> 
+just for the single terminal window what every models that you load in this terminal will be stored in this local cache directory instead of the system cache folder
+    ~ $env:HF_HOME = ".\model_weights_cache"
+
+----------------------------------------------------------------------
+Run retriever tests (CPU-only, same note/labels in all; compare speed & scores)
+  From repo root or from retriever folder:
+  - pip install fastembed
+    python retriever/test_fastembed.py
+  - pip install sentence-transformers
+    python retriever/test_minilm.py
+    python retriever/test_mxbai.py
+    python retriever/test_mpnet.py
+  Optional: set HF_HOME before running so weights go to .\model_weights_cache
+
+Advanced tests (mxbai only):
+  python retriever/test_mxbai_advanced.py
+----------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+

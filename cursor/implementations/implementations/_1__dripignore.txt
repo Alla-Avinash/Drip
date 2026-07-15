@@ -1,0 +1,22 @@
+
+how to ensure that the .dripignore is maintained uptodate with sub knowledge bases within the main knowledge base 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

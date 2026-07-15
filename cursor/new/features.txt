@@ -1,0 +1,803 @@
+
+
+
+DRIP application planning 
+
+    About
+    initial setup and running the application... 
+    Main Components
+    UI sections
+    features for each UI section, in-detail explanations of all the features and how they are implemented with what happens internally..
+    sample.d.txt format, the markdown etc
+    future implementations & ideas => update the current features section with what is newly implemented and updated.. 
+
+
+
+
+About:
+    this is like a notes app which helps with providing you an user interface, where you can write some notes in a specific format and then let the platform pick up a spot in your knowledge base to store that information.
+    you just have to specify a knowledge base folder which acts as a knowledge tree for your retrieval and ingestion/storage
+
+
+
+initial setup and running the application 
+    - go to vscode directory and run
+        $env:VSCODE_SKIP_PRELAUNCH = "1"
+        .\scripts\code.bat
+    - [temp data, a folder is created in the vscode files and it stores all the persistant data of the drip application]
+        what is stored.. and where is it created..
+        you have a testing environment to check what all models are downloaded and where is the hugging face libraries loaded on to??
+
+
+
+
+Userflow 
+
+	- user opens the drip application 
+
+	- if a previously opened window opens up then the application runs as is with a simple check done with the index (runs a initial startup_check function) 
+
+	Impl: { startup_check function --> this happens before the "update" icon } ===========================================================================================
+		what this startup_check function does is that it will make basic checks on to see if the data is relavant  
+            more on what these checks are will be discussed later on..  
+
+	- if there is no previous opened window with the "knowledge base folder already selected"
+		user selects a new folder/ an already existing .driplock folder to be the knowledge base folder
+
+	- when the user selects the new folder to be the new knowledge base 
+		
+		- if the selected folder is not with the extension of .driplock, then the drip application will check its parent directories and checks if they have .driplock 
+		- if they do have .driplock then they will give a prompt to the user to select the parent folder as a knowledge base..
+		- if they don't have a .driplock in its parent directories then it will ask if the user wants to initialize this folder as a .driplock knowledge base folder 
+			
+			- it will then convert this folder into a .driplock extension name 
+			
+			- and will initialize the .dripindex folder which contains all the below files/folders	
+				
+				- an SQLite database db file (it is short refered to as index.drip in some instances in the below cases..) --> which is a db folder which acts like a database to store all the information about the headings, metadata and tags in the knowledge base 
+				
+				- graphs.drip folder --> which stores all the graph files for this particular knowledge base..
+					- by default only the graphs from this folder are usually loaded up for the tags and if it is initially created then an empty graph is created here..
+					- if the user wants to load any other graph outside the knowledge base then he can load up any other graph form the previous options from the tags graph
+					- I don't want the option of "use default extension storage folder" when i want to select the graph folder.. I want it to be to select the "default knowledgebase graph folder" where we have in the graphs.drip folder 
+				
+				- settings.drip file, this stores all the drip settings and will load up all the settings from this file when you load up an already existing drip application or else it will go with the default settings and will still create this settings.drip and store the same default settings in this file
+					this helps in keeping a stable format among the projects i.e one project => one drip settings. 
+					and if you have done any modifications in the drip settings in the application and saved them, then this settings.drip is saved with these changes..  
+                
+                - drafts.drip folder --> stores all the drafts in the current knowledge base and these will be loaded up and showed to the user when the user opens up any .driplock folder; these drafts are stored in this folder
+
+		- this now has to update the index.drip folder/ sqlite db folder with all the heading information along with the heading id.. 
+			- the same thing happens with the "update" icon in the knowledge base too
+				- when you click on the "update" icon..                  ==================================================================================================================================================
+					- it will check if all the files are present in the index.drip file as specified in the knoweldge base or if there are any new files added up.. 
+					- if no new files are found then it won't make any changes 
+					- if new folders/files are found then it will parse the headings in the new files.. 
+			- more about the format of what exactly is stored in the index.drip file is written below 
+
+	- if the user wants to load up an already existing .driplock folder 
+		- then firstly the information from the .dripignore is loaded up.. and only the file information of the visible files from the overall index.drip file is loaded up into the memory / these specific file id's are made into a particular 
+        - only those specific files metadata and their component headings are shown in the results of the retriever/ composer/ canvas view for any search results that you make..   
+	
+	- what to do when you have loaded up a folder and you have made that into a .driplock and you have a child .driplock in the later hierarchy of the sub-folders of this selected folder?
+		- then you will not touch that .driplock folder and you will build an index out of the remaining folders and you will leave that already present .driplock as is and you won't parse the heading data from this..
+	- if you have loaded up a .driplock folder and then there is a child of that .driplock to be another .driplock 
+		- the same rules apply as the above when we do this "update" icon operation in the knowledge base 
+		- the smaller .driplock folder will not be index with the newer index file rules.. and the files inside the smaller .driplock won't even be accessed by the parent .driplock
+	- when you want to merge 2 different drip lock folders, then you need to load up the parent drip lock folder 
+		- option 1
+            - you can move the smaller .driplock folder into a sub-folder of the parent .driplock folder externally and it will work out perfectly.. 
+            - then the smaller.driplock folder in the hierarchy will be entirely parsed again and given new heading id's according to the count of the loaded .driplock knowedge base index file..
+            - so only the child .driplock is parsed again with the heading id's continued from the parent .driplock index file...
+		- option 2 
+            - if you remove the .driplock extension for the child and then press the "update" icon.. it will then merge up that child .driplock folder with the parent knowedge base folder
+		- option 3
+            - when a parent .driplock folder is loaded up and it has a child .driplock, then it will not show the contents of the child .driplock but it will display the child_folder_name.driplock as a folder and you can just see its name but not do anything in the file tree structure which is displayed in the LHS file view
+            - when you right click on the child .driplock folder in the explorer, it will have an option of "merge with the parent .driplock" and what it does is remove the .driplock extension and will make use of the child .dripindex folder to make get the hierarchy information and then just updating the filepaths and the heading id's to suit the parent .driplock index count
+
+
+
+Prob: handling external and internal file/folder changes or transfers or copy/paste moves in a knowledge base 
+	how do you handle a folder which is copied or moved to a particular knowledge base?? 
+	that folder can have a different heading convention so how do you handle this use case? 
+	this is similar to the case where we update the knowledge base when a child .driplock folder is being mixed in with the parent knowledge base.. 
+	you can have a fault tollerant system by making the system search for the files available in the index file and to search for any external changes done to this .driplock or to even look at new file/folder additions through copy/pasting and these files (if bought from the outside of the knowledge base) have to be checked again..
+	if files/folders are restructured within the knowledge base we can apply something like a update functionality to get the updated information after the change happens..  
+
+
+
+
+
+
+Why do we even need a heading id?? 
+
+	# why do we need to store the heading titles ?? why do we need heading id's?
+		for quicker search and retrieval and ingestion??  --> you need to store the heading titles to do the similarity/word search for all the files in the knowledge base
+		you don't need to parse all the files when you want to do a search of a particular topic or when you want to ingest some file
+		
+		Impl: if we can store the list of ( "heading title"; "filepath" ) it will be enough to do the search/ ingestion of the notes quickly and easily..
+		
+		Prob: we can't really search on the metadata and store the other fields like tags if we keep them as a primary id... the space they consume is not an issue as it will be a reference value to this primary key row..
+			main problem is that we can have same titles in the same file --> like "todo", "notes", "resources" which can create duplicates of the same heading but are complete ddifferent contents inside them..
+			operations like file rename or file move can cause a lot of compute to change the filepaths in each of these headings..
+				renaming headings
+				moving files
+				duplicating headings
+				restructuring hierarchy
+
+		Sol: we need to have a separate heading id's maintaining a count which act like a primary key then.. 
+
+
+	# best places to store heading id's?
+
+		Impl: does having a heading id in the index db enough or should we have the heading id present in the files too?
+
+		Prob: having heading id's just in the index db files will make the system guess where exactly is the heading in the entire file
+			and the system has to reparse the whole file again whenever a reanme in the heading is done..   
+
+		Sol: heading id's should be emebedded into the source files and also stored in the index/db files because the files are editable and they have to be the source of truth 
+			hide the heading id below the # heading title and don't show it to the user while rendering the ui 
+			this helps in renames and moves and change of hierarchies in the headings 
+				If IDs are NOT in the file:
+				- heading identity becomes guesswork after edits.
+				If IDs ARE in the file:
+				- updates become deterministic and reliable.
+
+
+
+Heading id 
+
+	# folder id
+		you will have a separate count for this folder id in the index file
+		format -> @ F123
+
+
+	# file id, heading id
+		should we have a different file id or is heading id sufficient?
+
+		you can have a fileId as the reference to the whole file
+		file id format -> @ f292
+			file id is present at the top near the metadata for the file, and also below the heading line of the file level metadata..
+
+		heading id format -> @ h329
+			heading id is present below the heading line of all headings
+
+		Impl: should we have the heading id start with the starting character of the heading so that we can keep the headings stored in a dictionary order?
+		Prob: this can be a lot of hassle to maintain.. and in search/retrieve we don't really depend only on the word search but also depend on the embeddings.. 
+			and in this implementation it can only keep the first letter of the first word to put in a dictionary order but in headings they can have multiple words, and also the hierarchy of the headings from the folders/files matter a lot rather than just the heading title.. 
+
+		Impl: heading id with it just being a primary key and autoincrement the count in the index file to get the latest heading id...
+
+		format of the heading id -> h1, h3453, h584939
+
+
+	# should you have a heading id in the .d.txt files also?
+		
+		Impl: yes, you should have the heading id to be present in both the index files and also the .d.txt files.. this helps in properly maintaining the required data in the index files when some changes are made in the file.. 
+	
+		Prob: this is all a hassle on making the id display after the heading as there might be cases of accidental changes to the heading id 
+		
+		Sol: maybe have the heading id below the heading and not show that to the user...
+		can have a setting like show heading id in the drip settings and by default the heading id's will always be hidden
+		don't render it to the user but the user can copy the heading id on right clicking the heading and an option to copy the heading id is shown in the dropdown 
+		he can use that coppied heading id to link up different headings too.. 
+		so we will have a separate field for connected headings too.
+
+
+	# how to generate it and where to store it?
+		you will generate a heading id each time a new heading or a new file is created.. and it be stored in the .d.txt file along with that heading and also in the index file.
+		you will have the heading id count and the available heading id's in the index file.. 
+			index file has the below 
+				heading id 
+					count: 70   --> represents there might be approx 70 headings in the knowledge base 
+					available: [47, 29, 34, 8, 42] --> these might be the heading id's which might be available for use as their headings might be deleted or moved away from the knowledge base 
+
+
+
+
+
+
+
+
+
+
+==================================================================================================================================================
+
+
+DB schema for the indexing of the 
+# This system is designed around these principles:
+	Headings are the primary searchable entities
+	Files are containers of headings
+	Hierarchy is maintained through parent heading references
+	Metadata is strongly typed and indexed
+	Incremental parsing is used to minimize reparsing and DB updates
+	SQLite is used as the persistent indexed storage layer
+	Hidden stable heading IDs are embedded in files
+	Graph relations between headings are supported
+
+
+    1. File Structure Design
+
+        Each file contains:
+
+        File-level hidden metadata
+        Multiple hierarchical headings
+        Hidden heading IDs
+        User-visible metadata fields
+        Tags and relations
+
+        Example:
+        `
+        filename: database
+        filepath: relative/path/from/kb/to/this/file.d.txt          --> this file path is used to check if this file is moved from somewhere else or if it is the correct filepath and if it is the actual file path and check if it is not moved
+        fileid: @f23 
+        headings: 4
+
+        # database                                   --> the same file name is present here again as a heading.. and this is a special heading as the heading id is h0 and this has to be 0 to mark a differnce... 
+            @f23:h0 #jd784sk2                           --> hidden to the user & not rendered in the user editor.. defines the file id and the 8 digit hash computed out of the metadata & tags & parent id & references of this heading    (we have more about the references in the below sections)
+            .concept                                 --> can define the file metadata type here
+                difficulty: hard
+            [architecture, search system]            --> file level searchable tags, can also define relations in here..
+            ref: [@f26, @f45:h18]                    --> file level references which are stored.. 
+
+        ---
+            
+
+        # Authentication System
+            @f23:h1 #he83ujd34                               --> hidden to the user, an 8 digit simple has that acts like a signature to detect if there are any changes made to this metadata 
+            .project
+                status: active
+            tags: [backend, auth]
+            ref: [@f39:9, @f3]                               --> these are heading level references to other files or other file headings.. 
+
+            can have some content here about authentication systems
+
+            # Login API
+                @f23:h2 #ghtr4567
+                .issue
+                    priority: high
+                    deadline: 1746874820
+                    tags: [api, jwt]
+
+                # JWT Expiry Bug
+                    @f23:h3 #ytr345th
+                    .issue
+                        priority: 40
+                        deadline: 1746000000
+                        tags: [bug, security]
+                        ref: [@f57, @f73:h3]
+
+        `
+
+    2. Heading Identity Model
+
+        Every heading has:
+            @fileid:headingid
+
+        Example:
+            @f23:h9
+            @f45:h0   ---> this is also a heading id but just a special case as it can also be refered to as file level metadata
+
+        Rules:
+            file_id uniquely identifies the file
+            heading_id is unique only inside that file
+            (file_id, heading_id) together form the true unique identifier of identifying a heading in the knowledge base
+            IDs remain stable even if titles change
+            IDs are hidden from normal users
+
+    3. Hierarchy Model
+
+        Hierarchy is represented using:
+            parent_id
+
+        Rules:
+            Parent heading must exist in same file
+            Cross-file hierarchy is NOT allowed
+            Cross-file connections use references table instead
+
+        Example:
+        h1
+        └── h2
+            └── h3
+        
+        can also be in the below order, if h3 is added later on.. so we don't have to change the heading numbering each time a new heading is inserted.. 
+        h1
+        └── h3
+            └── h2
+
+        Stored along with the heading data in memory/ db:
+            h2.parent_id = h1
+            h3.parent_id = h2
+
+
+    4. SQLite Schema
+
+        FILES TABLE
+        CREATE TABLE files (
+            id INT PRIMARY KEY,
+
+            path TEXT NOT NULL UNIQUE,      --> relative file path from the knowledge base folder..
+
+            name TEXT,                      --> file name 
+
+            created_at INTEGER,             --> this is a unix timestamp
+            updated_at INTEGER              --> this is a unix timestamp
+        );
+
+        HEADINGS TABLE
+        CREATE TABLE headings (
+
+            file_id INT NOT NULL,
+            heading_id INT NOT NULL,
+
+            parent_id INT,
+
+            title TEXT NOT NULL,
+
+            metadata_type TEXT,
+
+            hash TEXT,                               ---> an 8 digit simple hash created from a-z + A-Z + 0-9 these characters
+
+            PRIMARY KEY(file_id, heading_id),
+
+            FOREIGN KEY(file_id)
+            REFERENCES files(id)
+        );
+
+        Reference headings table 
+            I will create a separate field called "ref: " which can be present below the key-values of the metadata type, just after the tags and realtions.. this "ref: " will also follow the same indent level as the tags and the same red underline errors for any of the differences in the indent or structure or format 
+            ref: [list of the fileid:heading id's and file id's to make this heading id/ file id connected to.. ]
+            here there can be references of other "files"/ "other file headings" for a "specific heading in another file" or it can also be a reference to another "file" entirely and be stored in the file level metadata 
+        
+        CREATE TABLE references (
+            source_file_id INT NOT NULL,
+            source_heading_id INT NOT NULL,                  --> Cause when we link up different files they also have a heading id of h0
+
+            target_file_id INT NOT NULL,
+            target_heading_id INT NOT NULL,                 --> Cause when we link up different files they also have a heading id of h0
+
+            PRIMARY KEY (
+                source_file_id,
+                source_heading_id,
+                target_file_id,
+                target_heading_id
+            )
+        );
+
+        outgoing references 
+            CREATE INDEX idx_ref_source
+            ON references(source_file_id, source_heading_id);
+
+        Backlinks
+            CREATE INDEX idx_ref_target
+            ON references(target_file_id, target_heading_id);
+        
+        these indexes are used when there is a deletion of a file or heading.. 
+
+
+    5. Metadata Tables
+
+        Each metadata type has its own strongly typed table, depending on the key-values present in the metadata type's drip settings...
+        I want the drip settings for the metadata type key-value's to be of only enums or int (will store int or date-time in the unix timestamp or the time duration) or date-time(will store them as int internally) or time duration (will store them as int internally) or float types only.. 
+        I want to remove the "options" column which is present to define the key-value pairs types in the metadata types.. the user cannot type any custom text in the values of the key-values in the metadata types  
+        I will convert the date types to be of unix timestamps to store them as int --> for example used to store the duedate/ deadline field in a single format 
+            we can reder these date time values in a different format like "MM-DD-YYYY HH:MM" OR "April 04 2024 hh:mm" or "April 09 2026"
+        I will also keep the time interval range as to define estimated work duration in the format of minutes, to store the time duration in a common format and then we can reder this minutes format to any other defined below formats like	
+            "5 days 2hr 30min " or "5 months" or "2 years"
+        we can also make the user define the enum order, as it can be used to define the order of the ascending or descending order to sort this particular field in the key of the metadata type
+
+        This allows:
+            fast indexing
+            efficient sorting
+            proper enum usage
+            optimized filtering
+
+        ISSUE METADATA
+            for example the issue metadata has these fields in the drip settins for metadata type of "issue" 
+                status: enum()
+                priority: enum()
+                deadline: int (timestamp)
+                work time: int (time duration)
+                
+        CREATE TABLE issue_metadata (
+            file_id int NOT NULL,
+
+            heading_id int NOT NULL,
+
+            status enum,
+
+            priority enum,
+
+            deadline INTEGER,
+
+            work_time INTEGER,
+
+            PRIMARY KEY(file_id, heading_id),
+
+            FOREIGN KEY(file_id, heading_id)
+            REFERENCES headings(file_id, heading_id)
+        );
+
+        the below are also samples of how things can look.. and this schema is completely built from the metadata types from the drip settings..
+
+        PROJECT METADATA
+        CREATE TABLE project_metadata (
+            file_id int NOT NULL,
+            heading_id int NOT NULL,
+
+            progress INT,
+            owner enum,
+            PRIMARY KEY(file_id, heading_id),
+
+            FOREIGN KEY(file_id, heading_id)
+            REFERENCES headings(file_id, heading_id)
+        );
+
+        CONCEPT METADATA
+        CREATE TABLE concept_metadata (
+            file_id int NOT NULL,
+            heading_id int NOT NULL,
+
+            difficulty enum,
+            domain enum,
+            PRIMARY KEY(file_id, heading_id),
+
+            FOREIGN KEY(file_id, heading_id)
+            REFERENCES headings(file_id, heading_id)
+        );
+
+
+    6. Tags Table
+
+        these tags are being extracted from the various tags graph which are present in the graphs folder in the index folder.... 
+        when ever a new tag is written within the tags enclosure and if this tag is not present in any of the tags graph.. then we will get an red underline error message as defined in the logic.. and if we have this red-underline error then these tags don't get added to the database but all the other tags get added properly 
+
+        create table tags (
+            tag_id int NOT NULL,
+            tag_name TEXT NOT NULL
+
+            PRIMARY KEY(tag_id)
+        )
+
+        CREATE TABLE searchtags (
+            file_id TEXT NOT NULL,
+            heading_id TEXT NOT NULL,
+
+            tag_id int NOT NULL,
+
+            FOREIGN KEY(file_id, heading_id)
+            REFERENCES headings(file_id, heading_id),
+            FOREIGN KEY(tag_id)
+            REFERENCES tags(tag_id)
+        );
+
+
+    7. Relations Table
+
+        Represents graph edges between headings.
+
+        CREATE TABLE relations (
+            from_file_id TEXT NOT NULL,
+            from_heading_id TEXT NOT NULL,
+
+            relation_type TEXT NOT NULL,
+
+            to_file_id TEXT NOT NULL,
+            to_heading_id TEXT NOT NULL
+        );
+
+
+    8. Important Indexes
+        Heading Type
+        CREATE INDEX idx_heading_type
+        ON headings(metadata_type);
+
+        Hierarchy
+        CREATE INDEX idx_parent
+        ON headings(file_id, parent_heading_id);
+
+        Tags
+        CREATE INDEX idx_tag
+        ON tags(tag);
+
+        Issue Sorting
+        CREATE INDEX idx_issue_sort
+        ON issue_metadata(deadline, priority);
+
+
+    9. Enum Design
+
+        Enums are stored along with their order when we specify them in the metadata type key-values...
+        we store these in the ascending order by default.. starting from ascending to descending order..
+        this is used when we try to sort any data in this particular key in the metadata types
+
+        Example:
+
+        Priority
+        LOW      
+        MEDIUM   
+        HIGH     
+        CRITICAL 
+
+        Status
+        TODO         
+        IN_PROGRESS  
+        BLOCKED      
+        DONE         
+
+        Rules:
+            can reorder meanings or orders and then the whole database have to be modified according to that new order which is given to the user..
+            can add new values and modify the order of these enums 
+
+
+    10. Time Representation
+
+        All dates and durations are stored numerically.
+        Deadlines
+        Stored as:	unix timestamps
+        Example:	1746874820
+
+        Durations
+        Stored as:	minutes
+        Example:	120
+
+
+    11. Hash Design
+        hashes are maintained.
+
+        Content Hash
+        Generated from:
+            title
+            parent_id
+            metadata
+            tags
+            references 
+
+        Purpose: detect semantic content changes
+
+
+    12. File Open Flow
+
+        When a file is opened:
+
+        Step 1
+
+            Read file-level metadata.
+
+            Extract:
+                file_id
+                file path 
+            check if the filepath stored is the same as the filepath at which it is stored.. if different update the file info in the db 
+
+        Step 2
+
+            Parse file into heading tree.
+
+            Extract:
+                heading hierarchy
+                metadata
+                tags
+                relations
+                line positions
+                hidden heading IDs
+
+        Step 3
+
+            Build in-memory AST/tree representation.
+
+            Each heading node contains:
+
+            {
+            fileId,
+            headingId,
+
+            parentHeadingId,
+
+            title,
+            content,
+
+            metadata,
+            tags,
+            relations,
+            references, 
+
+            Hash
+            }
+
+        Step 4
+
+            Compare hashes with indexed DB state.
+
+            Determine:
+                UNCHANGED
+                UPDATED
+                NEW
+                DELETED
+        
+        Step 5
+
+            Mark affected headings as dirty.
+            Only dirty headings will be written back.
+
+
+    13. Incremental Editing Flow
+        User edits file
+
+        VSCode emits document change event.
+
+        System determines affected line range
+
+        Example:
+
+        lines 40-65 changed
+        Find nearest affected headings
+
+        Only reparse affected subtree.
+
+        Do NOT reparse whole file.
+
+        Recompute hashes
+
+        For affected headings only.
+
+        Compare with previous hashes
+
+        If hashes changed:
+
+        mark dirty
+        queue DB update
+
+
+    14. DB Update Flow
+
+        Dirty updates are batched.
+
+        Recommended debounce:
+
+        10-15 seconds
+        Batched transaction
+        BEGIN TRANSACTION;
+        ...
+        COMMIT;
+
+        This minimizes SQLite write overhead.
+
+
+    15. File Close Flow
+
+        When editor closes file:
+
+        Flush all pending dirty headings
+        Final synchronization pass
+
+        Ensure:
+
+        deletions handled
+        relations updated
+        tags synced
+
+
+
+
+
+
+
+UI/UX 
+
+    DRIP application sections 
+        1. LHS => left hand section (this is where the primary side bar of the vscode is.. )
+        2. Editor section => the middle part of the interface... this is where the editor window is and where the tabs will open up when we tried to open up any files present in the file tree in the file tree explorer 
+        3. RHS => right hand section (this is the secondary sidebar and where the chat window of the vscode is.. ) 
+
+    the features are divided by the views/ sections/ the areas where they appear
+
+
+    1. LHS 
+
+        [components] -- with [settings button] just beside it (this settings button opens up the drip settings..)
+            - drip composer 
+            - retriever 
+            - tags graph 
+            - canvas 
+            
+
+        
+        [knowledge base] 
+            - special folder/explorer/ directory tree structure for the knowledge base 
+                .dripignore files   
+                    which acts just as gitignore 
+                    only show the 
+
+        [drafts]
+            current drafts in the drip application
+            these drafts are also stored in the .dripindex folder
+
+        
+
+
+    2. Editor section 
+
+        [.d.txt files with special markdown rules]
+            special markdown template rendering format rules for the .d.txt files 
+                metadata at the top  
+                ---
+                # ## headings 
+                [tags, tags ]
+                indentation spaces --> hierarchy 
+
+
+        [Drip composer UI]
+
+
+        [DRIP retriever UI]
+
+
+        [DRIP canvas view]
+
+
+        [DRIP graph view]
+
+
+
+
+    3. RHS 
+        
+        storage area and selection logic with AI suggestions 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,17 @@
+---
+description: Use when debugging DRIP — errors, regressions, broken commands, webviews, editor language, or index/link issues
+alwaysApply: false
+---
+
+# Debugging mode
+
+Follow `@.cursor/rules/core/workflow.mdc` (Debugging section).
+
+**Full prompt template:** `@.cursor/prompts/debugging.md`
+
+1. Map symptom to flow in `@.cursor/context/system-flows.md`.
+2. Grep only files from `@.cursor/context/module-map.md`.
+3. Root cause → minimal fix → describe manual verification for user.
+4. **Where to edit next time** — `path/file` → function (`@.cursor/rules/core/developer-ergonomics.mdc`).
+
+No refactors. No unrelated files.

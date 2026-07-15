@@ -1,0 +1,100 @@
+
+check the most important cases where you have 
+    a generic note that can fit into multiple labels, these labels which are closely associated with each other and have similar meaninig
+    see how the model scores them... does it give almost same similarity or any difference in similarity? 
+
+
+
+--- Test 1: Near-duplicate labels (decorator note) ---
+  1. Function Decorators in Python: 0.8099
+  2. Python Decorators: 0.7816
+  3. Python Wrappers and Decorators: 0.7380
+  4. Python Decorator Pattern: 0.7195
+  5. Python Metaprogramming and Decorators: 0.6582
+  Gap (1st - 2nd): 0.0284
+  Gap (2nd - 3rd): 0.0435
+  Expected best 'Python Decorators' rank: 2, score: 0.7816
+  Time: 0.1550s
+
+--- Test 2: Generic note (fits many labels) ---
+  1. Python Functions and Scope: 0.6007
+  2. Python Best Practices: 0.5987
+  3. Python Design Patterns: 0.5060
+  4. Python Decorators: 0.4567
+  5. Python Metaprogramming: 0.4478
+  Gap (1st - 2nd): 0.0019
+  Gap (2nd - 3rd): 0.0928
+  Time: 0.1211s
+
+--- Test 3: 20 labels – correct: 'Database Indexes' ---
+  1. Database Indexes: 0.7399
+  2. Index Types and Use Cases: 0.5620
+  3. Query Optimization: 0.4379
+  4. NoSQL vs SQL: 0.4205
+  5. Database Sharding: 0.3318
+  6. Database Normalization: 0.3137
+  7. Database Security: 0.2795
+  8. Database Migrations: 0.2750
+  9. SQL Queries and Joins: 0.2696
+  10. Schema Design: 0.2605
+  11. Database Locking: 0.2470
+  12. Caching Strategies: 0.2180
+  13. Stored Procedures: 0.2052
+  14. Transaction Isolation Levels: 0.1920
+  15. Data Modeling: 0.1748
+  16. ACID Properties: 0.1352
+  17. Database Backup and Recovery: 0.1182
+  18. ORM and N+1 Problem: 0.1100
+  19. Connection Pooling: 0.0635
+  20. Replication and Failover: -0.0050
+  Gap (1st - 2nd): 0.1779
+  Gap (2nd - 3rd): 0.1241
+  'Database Indexes' rank: 1, score: 0.7399
+  Time: 0.1758s
+
+--- Test 4: Wrong-but-similar labels (Python note, JS/TS distractors) ---
+  1. Python Decorators: 0.7949
+  2. JavaScript Decorators: 0.6069
+  3. TypeScript Decorators: 0.5528
+  4. Python Functions and Scope: 0.3766
+  5. Python Metaprogramming: 0.3114
+  Gap (1st - 2nd): 0.1879
+  Gap (2nd - 3rd): 0.0541
+  'Python Decorators' rank: 1, score: 0.7949
+  vs JavaScript Decorators: 0.6069
+  vs TypeScript Decorators: 0.5528
+  Time: 0.1044s
+
+--- Test 5: Very short note ---
+  1. Python Decorators: 0.7599
+  2. Python Functions: 0.4813
+  3. Python Logging: 0.4510
+  4. Python Caching: 0.4180
+  5. Python Best Practices: 0.3514
+  Gap (1st - 2nd): 0.2785
+  Gap (2nd - 3rd): 0.0303
+  'Python Decorators' rank: 1, score: 0.7599
+  Time: 0.0996s
+
+--- Test 6: Ambiguous note (async + performance) ---
+  1. I/O and CPU Bound Tasks: 0.5769
+  2. Multiprocessing vs Threading: 0.5749
+  3. Async Programming and Concurrency: 0.5324
+  4. Performance and Profiling: 0.4868
+  5. Python asyncio: 0.3582
+  Gap (1st - 2nd): 0.0020
+  Gap (2nd - 3rd): 0.0425
+  Time: 0.1250s
+
+============================================================
+SUMMARY
+============================================================
+Total inference time (after load): 0.7809s
+
+Pass criteria (for your review):
+  Test 1: 'Python Decorators' should be top or near-top among near-duplicates.
+  Test 2: Generic note – expect small gap; top label may vary.
+  Test 3: 'Database Indexes' should be top-3 (ideally #1) among 20 labels.
+  Test 4: 'Python Decorators' should beat JavaScript/TypeScript.
+  Test 5: Short note – 'Python Decorators' should still lead.
+  Test 6: Ambiguous – top 2 should be async and performance related.

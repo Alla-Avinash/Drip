@@ -1,0 +1,245 @@
+
+
+please go throught the readme file and then follow up on the bellow tasks given 
+
+You can report back on each completed task before processing to the next task in the chat
+after each completed task please report what is done and what should i do if i need to run any commands, 
+after each task done please fill this [] with a [x] mark so I know it is completed 
+
+i need the format of the report summary to be infromative on what is done and only giving the important parts
+
+don't run any commands without my permission
+you can look up any resources online if you need to get more context without my permission
+don't change any readme/text files wihout specific instructions form me, mentioning in this tasks bellow 
+
+
+
+Testing phase for the --->  "retirever selection" 
+[x] reasearch on the retriever/embedding models --> give me some opensource models to test their performance and speed with some sample code template
+[x] test the retriever on some sample labels (contrasting labels and similar/closer labels) and test the performance as what kind of label is the sample note/text assigned, review the result as a human and decide
+[x] selecting a retirever model based on the performance and the satisfaction by me
+[x] now for the advanced tests to get a good understanding of the limits of the model and see its performance in really hard cases where the labels are soo close to each other and the note seems to be soo generic to all the labels and then seeing the similarity scores 
+
+
+Understanding phase ---> understanding the tech stack and the vscode architecture; and how to build and run the application for testing
+[x] give proper commands to git clone the opensource vscode github repo 
+[x] remove the unnecessary components in the gitrepo if it doesn't match any of the functinality mentioned in the readme for this application.
+[x] I want you to remove the previous git tracking and have a new git initialized as i want this to be a new application
+[x] understanding the working of the current trimmed vscode repo and understanding the project structure 
+[x] understanding the basic architecture of the electron framework.
+[x] understanding the basic features of a text/code editors in general and understanding how these features are implemented along with how vscode features are implemnted and understanding its high level architecture
+[x] understanding what is in each of the folders in the vscode application skeleton so that i can learn what all these folders do.. and its high level architecture HLD and how is main components communicate and share services 
+[x] understanding the extension/ plugin architecutre of this applicationa and seeing how it is implemented and how it works internally 
+[x] trying to build an extension that builds the basic ui of the note application and see how is it rendered..
+    Features of this extension 
+        - you don't modify any of the code provided in the main vscode application src code, but just add an additional feature 
+        - you just want the UI of the extension at this point.. I will ask for the implementation of the functionality later on in the further tasks  
+        - i want an icon in the activity bar to load up the interface in the edotor window when clicked, or I want this interface to be opened when i click on a specific keyboard shortcut like Ctrl+U 
+        - this editor window must be a custom interface with some of the minimal features from the readme.txt provided, we use this interface to write notes like keep headings and write the content under it and this will have to go on to the right locaiton of the file in the correct position in the file according to the right content... 
+        - also this editor not only is useful to get an interface for me to write new notes but it also has an interface to help me choose between the right folder or file among the top results when i try to ingest a new note 
+        - you can also suggest me some methods or ui implemetations according to the readme file and i would appreciate any ideas that you have. i need the ui feature ideas and also i need the ideas for the BACKEND api's which are used here so please help me out.. and give the tasks which i have to implement in a structured manner..
+        - please don't create any readme or any markdown files just give the output in the chat window itself and add the additional extension code to make this work.. 
+[x] please implement the backend structure of the extension logic so that it works and implements the below functionality 
+    - you can write a note and it will be saved in the drafts.. and you can see those drafts in the side bar 
+    - but if you have to ingest a note you have to first select a folder to loadup in the main file explorer thing which we get when we first open vscode
+    - and please implement the given model of the retriever in the selection and load up the minimal working code of the applicaiton backend according to the one in the readme.txt 
+    - I don't want anything more complex but i want it to be simple and working on the retirever and the ingestion engine 
+    - for this prototype also please help me choose a simple format for the files of the notes.
+    - like I said in the files I want a simple .d.txt format for the filenames of the notes and also i need a .dripignore in the main folder which is loaded up so that we can ignore any note files that we don't want to reference when we run the ingester or the retirever with the current note or query
+    - i need a simple working model and later we can work on the finetuned details 
+    - i also need help with putting the retiever model with the above referenced retriever model.. let me know if it is not possible as the model is in python??
+[x] implement the following  => note gets added to a new file in the best folder in the kb 
+    - the main functionality is that the note heading has to be converted into emebedding by an embedding model and then the folder names in the knowledge base are also converted into emdebddings and these are compared 
+    - the folder name which has the most closest similarity is given priority for this particular note to be placed in that folder, if there are sub folders in that selected folder, then it will also check these sub folders names along with the parent folder name and compare the similarity again, then choose where to keep this note in..
+    - i want the file tree to be shown as the same in a file explorer but in this side bar instead of the standard file explorer tab as i want for the vscode to open up another folder strucutre in the main file explorer 
+    - in the file tree of the drip extension i just want the folder names and its strucutre as that of the file explorer, and also i need the file names of the .d.txt files present in the folder tree, i also want to see the .dripignore files but please don't show any other file extension formats and other files which are present as i only want to deal with these..
+    - i want the feature to click on these files/ folders in the file tree and have the ability to open them up as regular files in the editor rather than just having the same UI interface be it notes or dripignore 
+[x] implement the following => note gets added to the best file in the kb 
+    - now i want you to implement a feature to add the note in the ingester to the best file present in the knowledge base, so please give me an architecture for this approach in the implementations/_2__file_format ??
+    - please talk about if we have to need any specific file format to add the note in there?
+    - I am thinking about the standard markdown format, like do we have to know where exactly in the file does the note that I make will be located? does the retriever need to check up all the headings and sub headings in the markdown file and then put the note in that structure?? 
+    - please refer to the readme.txt file for what i meant here and what my vision is..
+[x] implementing the following => selecting the location for the note storage according to the user choice and decision 
+    - when you give the top 5 suggestions, i want you to give me the .d.txt files or the folder names which ever suggestion is at the top 
+    - the user can decide if he wants the note to go to a specific .d.txt file or he wants to create a new .d.txt file in the best closest folder 
+    - if he selects an already present .d.txt file he will select the parent heading in that specific file with a list of headings and subheadings
+        - for this part i need you to parse the .d.txt file according to the headings/ sub-headings and display that tree structure
+        - and then compare which heading is the best fit according to the note made 
+    - if he wants to create a new .d.txt file in the best closest folder 
+        - he will have to give the new file name for that note file
+    - i need to test out the ui for this and can suggest any further improvements here..  
+    - i just want a simple setup for the note and nothing complex as of now i will later go to the depts of what additional features i want to implement so please help me keep the note tags to a minimum 
+        - i just want a heading followed by a description.. for the description I want you to have a standard text like editor format like having the line numbers on the left and not a simple text box.. just imagine if i have a long note and i wish to write it all now i don't wnat to clutter the ui with a small text box for the note 
+[x] implement these 
+    - you select a piece of text in a normal file and then press the keyboard shortcut ctrl + shift + U, this will convert the selected text to a note and will put this content in the note composer
+    - also can you make a settings tab for the drip extension so that the user can change their preferences of their custom command shortcuts in this tab..
+
+
+[x] implementation of headings parsing logic 
+    - heading and subheading parsing in the file for the ingestor to understand the strucutre better and have the note even process the location to be stored within the .d.txt file 
+    - i have a standard markdown format for the note files like this in the prototypes you can refer to the type1.txt 
+    - the basic strucutre is that the file only have one metadata at the top consisting of the filename: and created:
+    - the below is separated by a ---
+    - now the headings are to be specified by a # at the start of the line 
+    - you have the heading and sub heading like sections in the .d.txt files by the indentation lines 
+    - you will have to compare the best fit among these headings for the note ingestion after you have choosen the file.. this acts as a second selection by the user 
+
+    - consider the design choice of the two syntax hilighting for the headings as it becomes easier to identify them when we open these kind of .d.txt files 
+        - for this implementation maybe you can give a standard language support like intelisense or using the parsing logic for hilighting with a different color for these files  
+   
+[] implement custom file/folder from the knowledge base 
+     - how to give a specific path to store the note --> how to give the ui/ux?? 
+     
+[] implementation of the metadata tags and a separate tab for the metadata 
+    - 
+
+
+
+
+current limitations for the prototype 
+    - only text files and no markdown .md files to be supported 
+    - no need to change the size of the text (no change in font size as it is not rendering markdown files)
+    - you need syntax hilighting with a good difference in color
+    - what is the markdown of the specific text file system .d.txt 
+        - why need special markdown separaters?? 
+            - because of easier view of the notes 
+            - to give indentation and easier view 
+    -
+
+
+
+
+understanding 
+    - where does the drafts get stored?? are they stored in the user data which gets loaded up later on? 
+    - 
+
+
+
+[] implement in future ideas 
+    - the user gets to choose their note format type --> txt, .d.txt, .md etc 
+    - the user can set up their custom templates for the new note or when note gets appended 
+        - problem with templates as the user don't program they don't know what to program to get their metadata from??
+        - to implement this metadata you need to have extension within extension to have the data comming with simple template format,
+        - it will parse the special template with the specific metadata tags which are already defined and then it will bring the required metadata in the notes 
+    - the user also gets access to the parsing logic to parse their notes if they have programming experience
+    - 
+
+
+
+
+Implementation Phase 
+[] 
+[] 
+[] 
+
+
+
+
+sort these and put them in the right places: 
+    - 
+
+
+todo 
+    - support for the readme file .md files 
+    - markdown of your .d.txt files 
+        - R: resources  ref: sdfslkhf
+        - [[path/ link]] 
+        - reference to other notes/ resources like links/ websites 
+        - default templates to understand the markdown structure    
+
+            filename: 
+            created: april 06 2026 
+
+            type: concept 
+            level: advanced
+            tags: 
+                [   
+                    concept:
+                        level: advanced/ beginner
+                        
+                    project
+                    task:
+                        priority(high/ low)
+                        deadline(15 days/ 6:00pm / April 05 2026)
+                    pre-req: concept, concept      ----> edges/ relations list 
+                    
+                ]
+
+
+
+            tags are used for searches across folders 
+
+            file specific searches include listing all the questions? or the future work that you want to do.. when you have the time.. 
+            Q:    ---> these questions you have the answers but these act as FAQ and to understand the concept better when revising the concepts again or they explain the architectural choices made in a project on choosing specific tech stack
+            F:    ---> you don't have answers for these but these are just interesting topics that you want to explore when you have time  
+                you can even have a specific tab of getting the random F: to just work on those interesting things when you have the time 
+            
+            
+
+
+
+
+    - retriever pannel 
+        - ctrl + shift + U ---> INGESTER 
+        - ctrl + U -----> retriever/ search 
+        - 
+    
+    - metadata tags
+        - including tags pannel in the center editor like drip compose 
+        - including these tags in the search and filter operations of the retriever and storage suggestions 
+        - default tags tree structure 
+            - tags
+                - special 
+                    these are the default tags tree that come up with the drip application.. the user can change or modify these 
+                    concept
+                        advanced / basic / "None" --> none is used for default if it is not specified and these fields are not compulsary anyway
+                        implementations / usecases (real world usuage)
+                    project / research 
+                        imp - (1* to 5*)
+                        tasks/ concepts --> specific project connections 
+                    tasks 
+                        priority -- high/ low / NONE 
+                        status --- todo/ in-progress/ completed/ review
+                        deadline -- (date time or just month or in number of days)
+                - user defined tag tree structure 
+        - different features in the tags:
+            - tags store the tag tree --> this defines the grouping logic and hierarchy  
+            - temperary tags (exam prep/ interview prep with deletable tags later on ) and permanant tags ()
+            - tags also store the edge relations like "pre-req", "implementation/ real world use cases/ applications"
+                - [ edge: concept, edge: concept ]
+        - each file save of .d.txt triggers a chain of feedback back to the .d.index files all the way to saving the new tags if they exist and to the current knowledge base to keep a centralized temp database in memory
+        - how do you store the persistant memory of the knowledge base when you have to level 
+
+    -  
+
+
+
+
+
+
+ok now i have decided that if i want this tags graph to be portable I need to implement a feature of changing the tags graph.. firstly i need the system to ask the user to select the tags graph or select the defautl location where the tags graph will be stored locally in th persistence globalState and when the user wants to export or save the graph or even change the graph then the user will be prompted to save the previous tags graph in a particular location which can be loaded up again when the user wants to load it up.. i want the storage of these tags location to be in the drip extension code itself so that it can easily load up and the user can easily change form one  graph to another and can also delete the not used graph structures.. and he can even have the option to download the same graph structure to another pc with vscode to load up that tags graph structure... where when a user specifies that specific tags structure it will be automatically copied into the required drip extension file in vscode and it will modify this file and when the user wants to download and export this graph node file he will try to download this tag graph.json...
+
+
+
+
+# next steps: 
+here i don't see the options to rename a tag graph or delete a tag graph so please also put these options in the same editor tab interface and put the add tag in the side bar where we have the text box to type in the new tag name... 
+please remove the links in the side bar where there is a list of all the links in the current graph.. and also if i have selected a node in the graph
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,48 @@
+---
+description: DRIP architecture constraints — use when changing module structure, index/DB design, heading/file identity, webview protocols, or cross-cutting data flow
+alwaysApply: false
+---
+
+# Architecture rules
+
+**Canonical spec:** `@cursor/new/features.txt` (DB schema ~L206+, heading identity ~L111+)  
+**ADRs & gaps:** `@.cursor/context/architecture-decisions.md`  
+**Flows:** `@.cursor/context/system-flows.md`
+
+## Core principles
+
+- **Developer-navigable structure** — domain folders, clear names, small modules; see `@.cursor/context/developer-ergonomics.md`. Avoid growing god files and flat `lib/` sprawl.
+- **Files are the source of truth** — `.d.txt` notes portable outside DRIP; index DB is derived.
+- **Headings are primary searchable entities** — stable `@fileid:headingid`; IDs hidden in files, stored in index.
+- **Hierarchy within file** — `parent_id` in same file; cross-file links via `ref:` / references table.
+- **Incremental updates** — reparse affected subtree on edit; hash compare; debounced batch writes to index.
+- **`extension.js` wires only** — register commands/providers; delegate to `lib/*`.
+- **`DripState`** owns KB root, drafts, settings-derived session state — avoid duplicate state.
+- **Webviews** — explicit `message.type` handlers; no hidden globals between webview and extension host.
+
+## Patterns
+
+| Change type | Pattern |
+|-------------|---------|
+| New command | `package.json` contributes + `extension.js` register + handler in target `lib/*` |
+| KB / index | Consider `dripnoteIndex.js`, `dripnoteIndexSync.js` |
+| Links / refs | Consider `dripnoteReference*.js`, migration commands |
+| Editor feature | `package.json` language contribution + register in `extension.js` |
+| User-facing setting | `drip.*` config + settings webview if needed |
+
+## Avoid
+
+- `activationEvents: ["*"]` or full-workspace scan on startup
+- Breaking `fileId` / link contracts without migration path
+- Silent tag creation outside tags graph (spec: unknown tags → diagnostic)
+- New architectural layers without justification
+- Tight coupling between webviews and index internals
+
+## Before structural changes
+
+1. Which `features.txt` section applies?
+2. Affected modules from `@.cursor/context/module-map.md`
+3. Migration / backward-compat risk
+4. Non-goals for this phase
+
+**No code** until user approves if data formats or module boundaries change.

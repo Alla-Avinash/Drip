@@ -1,0 +1,280 @@
+{
+  "autoOpenComposerOnSidebarReveal": true,
+  "knowledgeBaseFileExtensions": [
+    ".d.txt",
+    ".md"
+  ],
+  "defaultNewNoteExtension": ".d.txt",
+  "experimentalEmbeddings": true,
+  "embeddingModel": "Xenova/all-MiniLM-L6-v2",
+  "dripnoteAllowedMetadataKeys": [],
+  "dripnoteCustomTypeMarkers": [],
+  "dripnoteCustomColors": {},
+  "metadataTemplatesEnabled": true,
+  "metadataStrictValidation": true,
+  "metadataIgnoreErrors": false,
+  "metadataAutoInsertTemplate": true,
+  "metadataShowIndentErrors": true,
+  "showHeadingHierarchyIndentErrors": true,
+  "metadataUseCustomColors": false,
+  "metadataTypes": [
+    {
+      "id": "concept",
+      "marker": ".concept",
+      "shortcut": ".c",
+      "color": "",
+      "displayTemplate": true,
+      "attributes": {
+        "difficulty": {
+          "kind": "enum",
+          "default": "",
+          "required": false,
+          "values": [
+            "hard",
+            "medium",
+            "easy"
+          ]
+        },
+        "status": {
+          "kind": "enum",
+          "default": "",
+          "required": false,
+          "values": [
+            "completed",
+            "active",
+            "pending",
+            "do-research"
+          ]
+        },
+        "importance": {
+          "kind": "enum",
+          "default": "",
+          "required": false,
+          "values": [
+            "high",
+            "low"
+          ]
+        }
+      }
+    },
+    {
+      "id": "task",
+      "marker": ".task",
+      "shortcut": ".t",
+      "color": "",
+      "displayTemplate": true,
+      "attributes": {
+        "difficulty": {
+          "kind": "enum",
+          "default": "",
+          "required": false,
+          "values": [
+            "hard",
+            "medium",
+            "easy"
+          ]
+        },
+        "status": {
+          "kind": "enum",
+          "default": "",
+          "required": true,
+          "values": [
+            "in-progress",
+            "to-do",
+            "completed"
+          ]
+        },
+        "priority": {
+          "kind": "enum",
+          "default": "",
+          "required": true,
+          "values": [
+            "high",
+            "low"
+          ]
+        },
+        "deadline": {
+          "kind": "datetime",
+          "default": "",
+          "required": true
+        },
+        "duration": {
+          "kind": "duration",
+          "default": "",
+          "required": false
+        }
+      }
+    },
+    {
+      "id": "project",
+      "marker": ".project",
+      "shortcut": ".p",
+      "color": "",
+      "displayTemplate": true,
+      "attributes": {
+        "status": {
+          "kind": "enum",
+          "default": "",
+          "required": true,
+          "values": [
+            "in-progress",
+            "to-do",
+            "completed"
+          ]
+        },
+        "priority": {
+          "kind": "enum",
+          "default": "",
+          "required": false,
+          "values": [
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "deadline": {
+          "kind": "datetime",
+          "default": "",
+          "required": false
+        }
+      }
+    },
+    {
+      "id": "implementation",
+      "marker": ".implementation",
+      "shortcut": ".impl",
+      "color": "",
+      "displayTemplate": true,
+      "attributes": {
+        "implemented": {
+          "kind": "enum",
+          "default": "",
+          "required": false,
+          "values": [
+            "true",
+            "false"
+          ]
+        }
+      }
+    },
+    {
+      "id": "issue",
+      "marker": ".issue",
+      "shortcut": ".i",
+      "color": "",
+      "displayTemplate": true,
+      "attributes": {
+        "priority": {
+          "kind": "enum",
+          "default": "",
+          "required": false,
+          "values": [
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "status": {
+          "kind": "enum",
+          "default": "",
+          "required": true,
+          "values": [
+            "in-progress",
+            "to-do",
+            "completed"
+          ]
+        },
+        "deadline": {
+          "kind": "datetime",
+          "default": "",
+          "required": false
+        }
+      }
+    }
+  ],
+  "metadataTypeColors": {
+    "new-type": "#4ec9b0"
+  },
+  "tagsRelationsConfig": {
+    "relations": [
+      {
+        "name": "tags",
+        "description": "Special default relation for tags.",
+        "locked": true
+      },
+      {
+        "name": "pre-req",
+        "description": "Prerequisite relation.",
+        "locked": false
+      }
+    ],
+    "allowed": [
+      "tags",
+      "pre-req"
+    ],
+    "tagValues": [],
+    "relationKeywordColor": "",
+    "tagsKeywordColor": ""
+  },
+  "refLinksConfig": {
+    "refKeywordColor": "",
+    "refValueColor": ""
+  },
+  "dripMetadataMarks": {
+    "marks": [
+      {
+        "name": "L",
+        "description": "Link marker. Example: L: ![file-name - @fileid](rel/path/to/file)",
+        "markColor": "#ebc998",
+        "textColor": "#d2b7fb",
+        "locked": true
+      },
+      {
+        "name": "Q",
+        "description": "Question marker",
+        "markColor": "#e1a8a8",
+        "textColor": "#e1a8a8",
+        "locked": false
+      },
+      {
+        "name": "R",
+        "description": "Reference marker",
+        "markColor": "#ebc998",
+        "textColor": "#d2b7fb",
+        "locked": false
+      },
+      {
+        "name": "T",
+        "description": "terms and keywords in that specific paragraph or a particular metadata section",
+        "markColor": "#afcdf3",
+        "textColor": "",
+        "locked": false
+      },
+      {
+        "name": "Prob",
+        "description": "describe any problems",
+        "markColor": "#e3a0a0",
+        "textColor": "",
+        "locked": false
+      },
+      {
+        "name": "Sol",
+        "description": "describe a solution",
+        "markColor": "#c9f59e",
+        "textColor": "",
+        "locked": false
+      },
+      {
+        "name": "Impl",
+        "description": "implementation",
+        "markColor": "#c9f59e",
+        "textColor": "",
+        "locked": false
+      }
+    ]
+  },
+  "metadataKeyColor": "",
+  "metadataValueColor": "",
+  "canvasVisibleTypeIds": [],
+  "canvasShowHeadingsWithoutType": true
+}

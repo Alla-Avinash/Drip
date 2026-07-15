@@ -1,0 +1,460 @@
+
+development environment initial setup
+
+
+what all library packages do you need to run this project  -----> you have a list of them in package-lock.json
+
+
+different developemnt environments 
+    - containerized docker development of the application / codespaces 
+    ** what are codespaces?? 
+        GitHub Codespaces is a cloud-based development environment.
+        Instead of running your project on your laptop:
+            it runs on a remote server (cloud VM)
+            you connect to it through VS Code (or browser)
+    - local dependency installation and compiling => developing and compiling the application from source code on your local pc  
+    - 
+
+
+what kind of packages or tools are required to build/compile this application software from the source code into an installer .exe file??
+
+need the vscode build tools 
+    vs/17 = Visual Studio version 17 → which is VS 2022
+    form this link --> https://aka.ms/vs/17/release/vs_BuildTools.exe
+    you can't find this specific version from the official microsoft visual studio website 
+    But this is an official Microsoft redirect link (aka.ms) ---> you can refer to it in the docs
+        aka.ms = Microsoft’s official short-link service
+        vs/17 = Visual Studio version 17 → which is VS 2022
+        release = stable version (not preview)
+
+    using windows 10 currently so installed the windows 10 SDK in that build tools 
+    but when you update your system to windows 11, it still works fine 
+
+    select the 
+        Desktop Development with C++   
+        go to the individual components, this is NOT THE SAME AS selecting the CHECKBOXES under "Desktop Development with C++"
+            MSVC v143 - VS 2022 C++ x64/x86 Spectre-mitigated libs (Latest) (use ARM64, not ARM for Windows on ARM, but the x64/x86 may still be needed)
+            C++ ATL for latest build tools with Spectre Mitigations
+            C++ MFC for latest build tools with Spectre Mitigations
+            Windows on ARM only: Windows 10 SDK (10.0.20348.0)
+
+
+
+setup the correct version of node with fnm
+    # install fnm (via winget)
+    winget install Schniz.fnm
+
+    fnm needs to inject environment variables into your shell
+    Without that → it can’t control Node versions
+    run this in your powershell once 
+    ~ cd vscode      --> opening the vscode application source code 
+    ~ fnm env --use-on-cd | Out-String | Invoke-Expression 
+    ~ fnm use
+
+    fnm changes the node version used => only inside that current terminal (shell), not your whole system permanently
+    so if you have closed or killed the terminal you have to run this command again
+
+
+installing the required dependencies 
+    ~ npm install
+
+dev mode ==> running the application  --> testing and running the application in dev env 
+    1st terminal 
+    ~ npm run watch 
+    watch
+        compiles TypeScript → JS (out/)
+        keeps running
+        rebuilds only changed files
+    
+    2nd terminal --> split 
+    $env:VSCODE_SKIP_PRELAUNCH = "1"
+    .\scripts\code.bat
+        code.bat
+            launches Electron using local compiled code in the out/ folder 
+        uses AppData
+        When you run Code OSS (dev mode), it stores data (user data) locally on your machine, not inside the repo.
+        => C:\Users\allaa\AppData\Roaming\code-oss-dev
+        => C:\Users\allaa\AppData\Roaming\code-oss-dev\User
+
+        .\scripts\code.bat --verbose
+        It will print:
+            userDataDir: <ACTUAL PATH>
+
+    .\scripts\code.bat --user-data-dir temp-data
+        Use --user-data-dir → creates new folder inside repo
+        used to simulating first-time user
+        makes a "temp-data" directory in the repo itself... 
+        a new folder temp-data/ is created in your repo, and all the settings are stored here
+        you can delete this directory so that it will act as simulating for a first-time user with a fresh start 
+
+
+    Characteristics
+        fast iteration
+        auto-rebuild on change
+        debugging enabled
+        no packaging
+        runs from source
+
+
+can we directly remove the unnecessary files/folders
+build system + runtime + extensions + scripts are tightly coupled
+
+    In VS Code (Code OSS):
+        files are not independent
+        build scripts dynamically reference files
+        extensions have their own build pipelines
+        gulp tasks assume files exist
+
+    So when you deleted things:
+        you didn’t remove “extra files”
+        you removed files that are referenced indirectly
+
+    delete file → build system crashes
+    because:
+        tasks are hardcoded
+        extensions auto-build
+        cross-platform scripts run always
+
+    Correct approach is:
+    “run first → understand → then modify carefully”
+
+
+production env ==> compiling the application  --> converting to a production env 
+    ~ npm run compile
+        Compiles source code:
+            TypeScript → JavaScript
+        Output goes to out/
+        No bundling, no packaging
+        Used as a base step
+        “convert code to runnable JS”
+    ~ npm run build
+        Does everything compile does plus more
+        Includes:
+            bundling
+            optimization
+            preparing extensions
+            packaging assets
+        Often used for production-ready output
+        doesnot generate .exe/installer file
+        “prepare full app for release”
+    ~ npm run gulp vscode-win32-x64            
+        (internally via gulp tasks) 
+        modify this gulp tasks to do what you intend to do
+        .exe generated
+        where are the gulp tasks located ==>  gulpfile.mjs
+        what is included in the gulpfile.mjs :
+            build tasks
+            watch tasks
+            packaging tasks
+            platform-specific builds
+
+    What actually happens
+        full compile (no watch) --> no dev logs, no watchers
+        minification + optimization
+        extensions bundled
+        assets prepared
+        platform-specific packaging
+        packaged into installer, runs standalone (no Node needed)
+    Final output:
+        .exe (Windows)
+        .app (Mac)
+        .deb / .rpm (Linux)  
+    where is this output .exe installer file generated??
+        it is not located in the out/      
+        
+        
+
+
+
+
+
+
+
+
+
+
+
+
+
+-----------------------------------------------------------------------------------------------------
+
+Theory of what is done.....
+
+
+Tools required:
+    Node.js
+        This is the main thing. You need this to run Electron and VS Code source.
+        when you install node it comes with npm
+
+    nvm
+        Lets you install and switch between Node versions.
+        Useful because big projects (like Code OSS) depend on specific Node versions.
+
+    fnm
+        Same idea as nvm, but faster and simpler.
+        Better choice on Windows (less headaches).
+        manage Node versions
+
+    npm 
+        install dependencies
+        npm (comes with Node)
+        npm install → flexible (may change versions)
+        npm ci      → strict (exact versions from lock file)
+        ~ npm ci
+            what it does??
+                Installs exact versions from package-lock.json
+                Ignores version ranges in package.json
+                Deletes existing node_modules and installs fresh
+            when to use it? 
+                Cloning a repo (like Code OSS)
+                You want exact same environment as others
+                avoid version mismatch bugs
+
+    npx
+        Runs npm packages without installing globally.
+        Some npm packages are not just libraries—they are tools (CLI programs)
+        Here you are running the package as a program
+        They expose a command you can execute.
+        ex: create-react-app, 
+        linters (eslint)
+        formatters (prettier)
+        bundlers (webpack)
+        scaffolding tools (create apps)
+        These are programs, not just libraries
+        ~ npx electron .
+            Runs the Electron CLI, Starts your app
+
+
+Installation:
+    # install fnm (via winget)
+    winget install Schniz.fnm
+
+    # install Node (LTS)
+    fnm install --lts
+    fnm use --lts
+
+    # verify
+    node -v
+    npm -v
+
+
+
+what is Node.js 
+    what is Node.js written in? 
+        Node.js is mainly written in C and C++
+        some small featrues of node.js are written in javascript 
+        Core engine → C/C++
+        Some built-in APIs → JavaScript
+    what is the use of node.js? 
+        - it is a javascript runtime env 
+        - it is used to run javascript
+        - it uses system api's to use the system calls to the low level system API's like accessing file system and other features 
+    It uses:
+        V8 engine (written in C++) to execute JavaScript
+        C/C++ code to interact with the operating system (files, network, etc.)
+
+platform builds?
+    Node.js → precompiled binary (you download it)
+        Node.js is written in C/C++. So:
+            There is a Windows build of Node
+            A Linux build of Node
+            A macOS build of Node
+        These are all precompiled binaries that you download.
+        When you install Node using the official installer, You’re not compiling anything, You’re downloading a ready-made build for your OS
+        Why you don’t compile Node yourself? Because the Node team already does it for you: They compile Node for each platform and distribute them as prebuilt binaries for the differnt platforms
+    Your JS code → runs inside Node (no compile)
+        Your JavaScript code:
+            is not compiled ahead of time
+            is interpreted/executed by Node (V8 engine)
+        That’s why it works across platforms without recompiling
+    Native addons → search if there are precompiled binaries for your platform or you will have to compile locally for compatibility
+        Native modules (C/C++) are built on your machine
+        Because they must match:
+            your Node version
+            your OS
+            your CPU architecture
+
+
+why do node use some native libraries in C++/C ??    
+    node engine => v8 engine is made up of c++ 
+    here node also uses system API for file system and other operations 
+    but these native libraries are different from these system API/system calls
+    For simple Electron apps you can use just Node.js + system APIs. Most small apps do.
+    sometimes Native modules act as a bridge between JS and system APIs
+    But VS Code is huge, performance-heavy, and extensible:
+        Needs fast file watching in large projects
+        Needs low-latency UI updates
+        Needs extension host communication
+    Pure JS/system APIs are too slow for these workloads. Native modules make things fast.
+
+    there are some native libraries which are used by the node.js env for some of its functionality
+    They expose functions that JS code can call directly in machine code.
+    Without them, JS alone is much slower for things like:
+        File system watchers
+        High-performance text search
+        Git operations
+        Compression or encryption
+
+    some of these native libraries (source code) have prebuilt packages for the platform which you are running 
+        prebuilt binaries (.node files)
+
+    Because prebuilt binaries are only available if:
+        exact OS matches (Windows/Linux/macOS)
+        exact architecture matches (x64, ARM)
+        exact Node/Electron version matches
+
+        If ANY of these don’t match:
+            fallback → build from source (using C++ tools)
+
+
+
+** why does electron need a different version of node rather than how is electron even installed if we have to use a differernt version of node from how is it installed? 
+
+** why do we have 2 separate files for package.json and package-lock.json?? do they both not store the same thing? 
+
+
+Dev mode vs packaged mode in electron.. 
+    In dev mode, you never produce an .exe.
+    You run Electron pointing at the compiled output in out/.
+    Packaging (.exe) happens only if you run a full release build, which is separate.
+
+    Why dev build cannot just produce .exe like a tiny Electron app?
+    In dev, you want:
+        Hot reload
+        Continuous TypeScript compilation
+        Testing extensions
+    If you just pre-build an .exe, you can’t test live changes or watch TS files.
+    Native modules still need compilation before Electron can use them—even in dev.
+
+
+general electron applications can easily get converted into .exe files or general installer files according to the platform specified by you...
+so tell me why do vscode application need something extra like visual studio build tools for converting into an installer file?? 
+    Node modules and TypeScript code need to be compiled to JS and native modules need to be built for your OS.
+    native modules exit => these dependencies include C++ code (e.g., file watchers, search helpers, Git integration).
+        Electron can’t run C++ directly—you need MSVC + Windows SDK to compile them into .node binaries.
+    Code OSS source is in TypeScript, not plain JS.
+    You need Node + npm + tsc (TypeScript compiler) to transform the TS code into JS that Electron can execute.
+
+
+Visual Studio Build Tools
+    Visual Studio Build Tools is a lightweight version of Visual Studio that only installs the compiler, linker, and libraries—you don’t need the full IDE. 
+    It’s used to build native code modules that Node.js or Electron depends on.
+    we need the “Desktop development with C++” for the application
+    Why “Desktop development with C++”??
+        Some npm dependencies in Code OSS have native C++ components (for example, text search, Git integration, or performance-critical modules).
+        Node.js uses node-gyp to compile these modules on your machine.
+        The “Desktop development with C++” workload provides:
+            MSVC compiler
+            Windows SDK
+            C++ build tools
+
+Can you use other C++ compilers? instead of the ones in visual studia build tools?
+    In theory, yes—any compiler that can build Windows binaries for Node.js can work.
+    In practice, Node.js on Windows expects MSVC (Visual Studio compiler) for ABI compatibility with Node’s V8 engine and headers.
+    Using MinGW or others often causes build failures or runtime crashes.
+
+
+
+
+Important Project folder structure files
+
+    .nvmrc → tells which Node version to use
+        A .nvmrc file is just a text file with one line:
+        18.17.1
+        It tells tools like fnm/nvm: “this project requires this specific Node version”
+        So when you run:
+            ~ fnm use
+        fnm:
+            reads .nvmrc
+            switches Node to that version
+
+    .npmrc → controls npm behavior
+        It controls npm behavior, like:
+            registry URL
+            cache settings
+            install behavior
+            auth tokens
+        It has nothing to do with Node version
+        
+    gulpfile.mjs → defines how the project is built
+        gulpfile.mjs = script that defines build tasks
+        Used by Gulp (task runner)
+        Code OSS has:
+            complex build steps
+            multiple pipelines (compile, bundle, package)
+        so Instead of running many commands manually, they define tasks in ---> gulpfile.mjs
+        Inside it, you’ll see things like:
+            compile TypeScript
+            bundle code
+            optimize assets
+            prepare Electron build
+        it basically tells “how to build the project”
+        what is with the extension .mjs??
+            .mjs = ES Modules (modern JS)
+            instead of old require, uses import
+        How it is used
+            Commands like:
+            npm run build
+            internally trigger Gulp tasks defined in gulpfile.mjs
+
+
+** what is gulp (task runner) ?? what is this tool used for ?? 
+
+
+
+how to setup fnm?? and understanding the basic operations of fnm
+
+    fnm needs to inject environment variables into your shell
+    Without that → it can’t control Node versions
+    run this in your powershell once 
+    ~ fnm env --use-on-cd | Out-String | Invoke-Expression
+
+    fnm changes the node version used => only inside that current terminal (shell), not your whole system permanently
+
+    If a project has .nvmrc:
+    ~ fnm use
+    Automatically switches to required Node version
+
+    If you enable auto-switch
+    ~ fnm env --use-on-cd
+    When you cd into a folder:
+        fnm reads .nvmrc
+        switches Node version automatically
+
+    What “inject environment variables into your shell” means
+        Your terminal (PowerShell) runs with a set of variables like:
+        PATH = where programs are located
+        When you type:
+            node -v
+        PowerShell looks inside PATH to find which Node to run
+        What fnm needs to do
+            fnm works by changing which Node version is active.
+            To do that, it must:
+                modify the PATH
+                point it to a different Node version folder
+        What “inject” means here
+            When you run:
+            ~ fnm env
+            fnm prints commands like:
+            set PATH=...fnm\node-versions\...
+            But PowerShell does NOT apply them automatically.
+            inject ==> fnm is inserting its configuration into your current terminal session
+
+Build
+    Install and build all of the dependencies using npm:
+    ~ cd vscode
+    ~ npm install
+
+
+
+
+
+
+
+
+
+
+
+
+
+

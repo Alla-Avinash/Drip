@@ -1,0 +1,80 @@
+
+
+vscode project structure 
+
+    - src
+        This is the actual application code. 
+        Everything that makes VS Code work lives here—main process, renderer (UI/workbench), editor logic, services, extension system.
+
+    - extensions
+        Built-in extensions that ship with VS Code (like Git, JSON, TypeScript).
+        These are real extensions running through the same extension system as external ones, not special-cased logic.
+    
+    - build
+        Scripts and configs used to compile, bundle, and prepare the app for development and production.
+        This is how raw source code becomes something Electron can run.
+
+    - scripts
+        Utility scripts used by developers and CI (installing deps, running tasks, etc.).
+        Not part of runtime—only used during development/build.
+
+    - resources
+        Static assets used by the app (icons, images, native resources).
+        Things the UI or app needs but doesn’t compute.
+
+    - test
+        Test suites for validating functionality.
+        Ensures features don’t break, not part of runtime behavior.
+
+    - .vscode
+        Workspace config for developing VS Code itself.
+        Only useful if you’re contributing to the repo.
+
+    - package.json
+        Defines:
+            dependencies
+            scripts
+            Electron entry points
+        This is what ties the whole project together and tells Electron how to start.
+
+    - product.json
+        Configuration for branding and product-level behavior (name, extensions, features).
+        This is what differentiates builds like OSS vs Microsoft VS Code.
+
+    - tsconfig.json
+        TypeScript configuration.
+        Controls how the entire codebase is compiled.
+
+    - gulpfile.js
+        Task runner for builds and automation.
+        Coordinates complex build steps.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

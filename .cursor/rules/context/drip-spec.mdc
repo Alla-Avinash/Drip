@@ -1,0 +1,36 @@
+---
+description: DRIP product spec — use when implementing features, UI behavior, index/DB, heading identity, or KB userflow from the canonical spec
+alwaysApply: false
+---
+
+# Spec-driven implementation
+
+**Read first:** `@cursor/new/features.txt` for the behavior you are implementing.
+
+**Section index:** `@.cursor/context/features-index.md` — jump to Userflow, DB schema, UI/UX, heading IDs, etc.
+
+## Spec highlights (target architecture)
+
+- **KB root:** `.driplock` folder + `.dripindex/` sidecar
+  - `index.drip` — SQLite (headings, metadata, tags, references)
+  - `graphs.drip/` — tag graphs for this KB
+  - `settings.drip` — per-KB settings snapshot
+  - `drafts.drip/` — drafts for this KB
+- **Search unit:** headings with hidden `@fileid:headingid` in `.d.txt` files + index DB
+- **Incremental parse:** content hashes; dirty headings only; batched SQLite writes
+- **Nested `.driplock`:** child KB isolated from parent index until merge
+
+## Spec vs current code (common gaps)
+
+| Spec | Current prototype |
+|------|-------------------|
+| `.driplock` KB root | Plain folder via `drip.selectKnowledgeBase` |
+| `index.drip` SQLite | `_index.d.txt` text (`lib/dripnoteIndex.js`) |
+| `@f` / `@h` hidden IDs | `fileId` header + partial heading model |
+| `ref:` references | `L.` links (`lib/dripnoteReference*.js`) |
+
+When implementing, **move toward the spec** and state remaining gaps in your response.
+
+**Flows:** `@.cursor/context/system-flows.md`  
+**Code map:** `@.cursor/context/module-map.md`  
+**Ergonomics:** place changes in obvious modules — `@.cursor/rules/core/developer-ergonomics.mdc`

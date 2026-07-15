@@ -1,0 +1,316 @@
+
+filename: react basics 
+created: April 02 2026 
+fileId: @sok02394          ----> starts with @ and this is a unique id made up of the hash of the created date and filename
+
+
+// this is the filelevel metadata so that this file can be searchable with this file level information
+.concept                                                     ---> type: concept / project / task 
+    importance: advanced/basic 
+    tags: [ react, react-hooks, framework, frontend  ]       ---> tags represent the searchable tags for us to identify this file information, i don't want any duplications of the file level tags with the tags inside the subheadings.. so in the autosuggestions i need for you to show the already present file level tags in the relation "tags" in a separate color in the autosuggestions for the below tags.. so the user knows even if he selects this tag it won't appear here as it is already present at the top of the file
+    pre-req: [ javascript, webdev, DOM ]                     ---> this represent the relations after the tags(searchable), these relations give meaning to the tags which connect to it
+
+
+//  other types 
+
+    here we can have a specific graph named metadata which lets us see the heirarcy of the special metadata like tasks --> concept, project, tasks --> and each of them having a specific children like status, priority, etc 
+    this metadata graph cannot be deleted or renamed 
+    i want to have some defaults in this like i want to make concept as default so that anything which is not specifically marked as task or project gets to be automatically as concept.. and also when i just add [react, react hooks, framework] near the start of the first lines of a heading i want it to be considered as tags: [... ] as i want the tags to be a default for the tags unless i mentioned a relation
+
+
+    .task                      
+        status: in-progress 
+        priority: high
+        deadline: 3 days / 2 hrs / specific date
+        difficulty: hard 
+        tags: [ programming languages, react, dsa, search algorithms ]
+
+    .project    
+        status: in-progress 
+        priority: high
+        deadline: 6 days 
+        tags: [ programming languages, react, dsa, search algorithms ]
+
+
+//
+
+
+// other markdown conventions
+
+    Q. questions 
+    R. Resources --> can be links to websites.
+    L. Link to another file, other files in the knowledge base which are linked up.
+    U. usecases and real life examples and implementations 
+
+    I want to have the option to change the defaults color for each of these as these are to be in different colors so can you please help me put these in the settings so that i can change these later on when i want to have custom colors for these.. and also i need to have an option to add new custom tags according to the users specification
+    and also I want you to keep a description for these options as this will help..
+
+    for easier managing of the links to other files i want to create an index file in the folder of the selected knowledge base.. 
+    I want to create an _index file which holds all the infromation of 
+    for each file --> stores the file id, file tags (at the top most of the file), all the tags present in the file (no duplicates of the same files), links to any other files in the current file, these links are just a list of the fileid's. doesn't include any image links..
+    I also want an option to make an _index in a sub folder by right clicking on that file and selecting the option of creating an index file here
+    and also if i want to remove the _index file here and merge this index file with the previous hierarchy level.. if no hierarchy exists it should mix up with the index file of the knowledge base folder.. 
+    when we first load the knowledge base folder if there is no index file here it has to load up the files and then in the background it can create the _index file in the knowledge base. 
+
+//  
+
+
+# About React	
+    [react components, hooks]
+
+    React is a JavaScript library for building user interfaces. It works using components, which are reusable pieces of UI.
+    Components can be functional or class-based
+    State is used to manage dynamic data
+    Props are used to pass data between components
+
+# Main Components in React
+	[hooks, react]
+
+	# hooks: 
+        what are hooks and how are they helpful... 
+    
+    # use-state: 
+        what is use state and how is it useful....
+    
+    # use prop: 
+        [properties in react]
+        how are the properties used in react 
+
+
+# .p making a simple application in react 
+    [create react app, basics] 
+    
+    # .t Installation of the required libraries 
+        how to install the required libraries and how to manage other things here.. 
+    
+    # .t commands to run under this 
+        .task
+            status: in-progress 
+            priority: high
+            deadline: 6 days 
+            tags: [ commands, cli ]
+        what are the list of commands to run for us to do the installation and get the basic template or the broiler plate
+
+    Q. why did facebook release react? what is the need for it?
+        well they released this because ...
+
+    R. the link to the resource that you have watched is below 
+        https://sdfs.com
+
+
+Q: what is react??
+
+
+
+
+
+
+testing implementations 
+    - understanding the update button of the knowledge base folder 
+        - understanding what happens at startup of the drip application will index files check each and every file in the directory or just check the names?
+    - how to handle accidental changes to the reference files which are marked just by the L. @o8484ow0w 
+        - maybe you can create a digital signature/hash of the fileid and its filename L. @fileid - filename - [hash/digital signature] so that we know it is not accidnentally changed
+        - you can test this hash to see if it is modified or not accidentally... 
+    - testing out the rename logic when we have rename something from a sub index and then later on load up a bigger hierarchy of fieles which contain its parent or child reference file 
+        - testing out if the index files gets updated properly 
+        - testing out if we have updated the same file twice will it recognise the changes twice (will it store the history properly untill all the reference files are changed properly??) and update properly?? 
+    - save the .task .project, deadline and status and file level metadata in the index file to maintain a proper structure
+    - preventing tag exploding by not making the same tags present in the file level tags to be present in the heading level tags
+    - keeing the proper logic of the sub tags so that they make sense rather than just keeping them in the graph without any usecase...
+    - mixing up individual tags with the graphs of other tags graph and if we make any connections to those tags then these tags get removed from the individual tags.. 
+    - when deleting a tag in a graph it has to tell if we have these tags in any of the files in the knowledge base... if there is a relation it has to be added to the recently deleted tags 
+        - these recently deleted tags when we finally decide to delete these tags they have to be deleted in the .d.txt files too and not just delete from the tags graph of the "recently deleted"
+    - saved draft when reselected it is modified in the saved draft and not creating a new draft here.. 
+
+
+slow bug fixing 
+    - ui changes in the drip settings 
+        - not able to add new metadata types and their types and have them in the proper color as dispalyed in the other metadata types like concept, project etc 
+        - change the ui by viewing the details and the icons carefully ... some have too redundant data and we can keep small icons and make it look clean and easy to follow 
+        - allow other should only be for enums and allow relative should only be for datetimes 
+        - color pallete color dropper icon feature should not be present as it is opening the display outside its color pallete window
+    - coloring logic  
+        - the coloring logic should be properly updated to only get the rules form the drip settings and not implement the previous logic for the pre-req and tags: keywords and other..  
+    - when you have deleted a metadata type in the drip settings.. it has to go through the index file and search for any file metadata with that metadata type and intimate the user 
+    - when a tag relation is deleted from the drip settings.. 
+        - it has to be properly updated in the index files.. firstly it will go to these file metadata and delete those information present 
+        - it has to go throught these files which have that metadata type and it will then 
+        
+
+
+further implementations 
+    - the delete button for the metadata types is not working  
+    - implementing something like "create new file with a linkup" in the drop down when we right click on a particular  heading..
+        - it will create a new file with the heading as the filename and it will link up the selected section under that heading into that new file and will create a file id and will link up the fileid to the previous file where you have selected the "create new file with a linkup"
+    - making a .driplock folder to only load the entire folder all together and not have _index files inside this foldername.driplock folder
+        - can have a primary key in the metadata types so that we can keep track of the number of issues in the whole folder, these metadata types are incremental with the number and will keep track of the global number to increase that number when a new issue is assigned and will put that new number as the issue number or the issue id for that issue
+        - will have to maintain a global dictionary of the total number of pimary key in metadata to keep track of that number and to increase or decrease that number when a new issue is created or deleted..
+        - will have a single index file in that folder and have to keep track of all the issues present in the project and can also keep track of all the research areas that we have marked to look at all of them in a single glance.. 
+        - the index will keep another field to store if that file has an pirmary key metadata type key and it will store how many are present in the file but it won't store all the information under that metadata file
+        - how to unlock that locked folder??? how to revert back the numbering given to the primary key's and change all those to a proper link of fileid's ??
+    - project --> workflows --> different tasks --> issues --> solution tasks to resolve the issue and continue 
+    - issues --> small bugs, resolved, 
+    - project  --> feature A (can have different connection workflows) --> task A --> issue 342 (when there is some issue with implementing the task define the problem and work on that issue if it is a blocking issue rather than a minor bug) --> implementations 
+        - implementations (can have multiple but you only choose one based on what works really well in the long term.. you will keep a list of implementations and why you only selected a particular path and what design choices did you make.. and why is it the best practice among the other options ) 
+    - project --> phase 1 --> feature 1 (can have different implementations but only one implementation is followed to implement)(different tasks are present in one implementation) --> each task can be completed or have issues --> these issues can be solved in one steps or can have further tasks/ workflows
+    - each of these project files must have a graph like view to see the workflows (no other implementations are shown here, only the main workflow is shown here) along with the priorities, deadlines, and other metadata of users or team members working on it.. 
+        - you can have a filter to only see certain information in a list or a graph view
+        - for the list view you can see all the issues/research topics which are currently present.. you can even filter them based on certain logics 
+        - you can also get their contents/text which are present in the different files... you can look at them and see its contents too.. 
+    - why did you consider the naming convention of the heading id's of the issues to be a primary key (they keep on increasing in number no matter the hierarchy.. It doesn't store the hierarchy information..)
+        - thought of someother naming convention like " Projectid. phase_num. feature_num. task_num. issue_num. " but the id will be too long and unpractical to look at instead having a single number id for the issue is a lot easier to look at.. 
+        - you can even think of having all the task id's to start from 1 when they are in a hierarchy of a feature at the top.. in the same way how we have features ordered from number 1 when we are in a project... 
+    - strict ordering issues with these.. how do you properly design this system?? 
+        - in the previous cases of just concepts we don't require proper ordering but here we need ordering so how do we work this problem??
+        - 
+    - 
+    - 
+    - tag graphs 
+        - you have to see if the graphs present are a sub graph newly created from an already existing graphs or are seperate graphs all together... which can be merged with the other graphs later on..
+            - this should show up as merge with parent later on.. so that we could know that this is a child graph of a bigger parent graph 
+        - how does the sub-tags come into the play here?? do them make any sense??
+            - the sub-tags of a tag should also be maintained as a particular alias/ other names ??? 
+            - should you maintain a sub-tag and maintain a structure there too?? 
+            - these should be like a part of the "self" relationship rather than being like a part of the "main" relationship..
+        - how to handle the main, pre-req relationships in the graphs?? 
+            - should you even have different relationships in the graphs? 
+            -
+        - when deleting a tag from the graph permanantly a seperate option which can be added.....   so those tags get deleted from all the graphs present 
+            - you can have a view of where these all tags are presently in the various graphs.. 
+            - it will create a recently deleted tags graph in the graph folder and I want these tags to be kept for atleast 30 days 
+            - when the drip application is opened everytime it has to check if the index file has any of these recently deleted tags 
+    - index file to store the metadata too 
+        - the current index update only extracts and stores the tags and file metadata 
+        - they don't store the metadata type of the file so you can store this infromation if the file has it or else you can leave that empty.. 
+        - it should not show metadata errors in the index files 
+    - improving the search/retrieval and ingestion capabilities 
+        - making a ui for the retrieval/search queriable logic 
+            - to search for files with specific tags and filelevel metadata... when browsing through files 
+            - to search for the metadata and tags inside a file... when browsing through headings in a file 
+        - implementing ingestion logic with the tags 
+        - making a ui for the searchable query logic ui/ux to ingest and search the knowledge base effectively 
+            - searching by tags with relationships 
+            - searching by metadata 
+            - searching by specific file level data and filtering.. 
+            - see the things in the .d.txt files clearly and good and only displaying what is required.. 
+                - if the user only wants to search for questions in a file... 
+                    only the questions will be displayed in the file and when we click on them... the area of the file gets opened up.. 
+        - having the features for the grouping and ordering logic... 
+            - grouping by a metadata or metadata key.... you can only group by one key but not multiple keys as this becomes confusing later on 
+            - ordering by a metadata or metadata key's values..... you will specify the order if it is an enum or you will have a simple increasing or decreasing for the dates and for the number fields 
+            - 
+            - 
+        - updating the ui for the drip compose when a note is ingested..
+            - when doing ingest i can have an option of a checkbox in the drip settings,
+                -  to see where exactly it is ingested by opening that file in the editor where the content is ingested.. 
+                - it will show up like how content in the cursor is displayed like in green when new lines are added here.. and we can have an option of "keep all" or review the files.. 
+    - making a canvas 
+        - apart from code graphs how to properly render the file level .d.txt file heading information and show up the tags and metadata properly?? 
+        - how to properly get the UI/UX ideology in order for me to drag drop the files on to the canvas.
+        - option to save those diagram data for further usecase  
+        - can use the same logic with the vxplain.. code file to show the code flow of certain features.. 
+    - 
+    - option to have a default value for some of the keys in the metadata type keys.. so that when we have a template to display a default value in the enum is selected instead of empty values in the template... or if a field is empty the default is assumed the value here or none is considered as default 
+        - created date - default date with datetime and non-modifiable 
+    - add the retriever model settings in the drip settings 
+        - everything which is related to the retirever model and its properties are to be put in this section 
+        - 
+    - I need an MCP for an ai agent like cursor to control the text generation and format of the generated autosuggestions for the things when the user wants to ingest new notes or when the ai wants to actually search for already present things in the knowledge base 
+        - this should be the MCP needed for an ai agent needed for tool usuage for the drip application.. 
+    - 
+    - making an agentic ai agent using claude with the api credits that you have.. 
+        - implementing the vxplain like structure.... 
+        - having the vxplain like code graphs with input, output, calls and references 
+    
+    - how does this application help in working problems with teams in real big projects 
+    - how to track the progress and collaboration of a particular issue over multiple people 
+    - workflows like in linear 
+        - started/ in progress
+        - unstarted/ todo
+        - backlog 
+            - issues 
+        - in-review 
+        - ready to merge 
+        - completed 
+        - cancelled
+    - projects --> Workflows/ different dags present to complete a project.. can have different phases to complete a project --> different tasks for each workflow/dag --> different issues present for each task.. 
+    - problem: there can be a single line for the issue and a whole file link up might not be needed to define an issue.. so how do we keep track of the dag diagram within the file itself and not create new files for each of these issues?? 
+    - creating task flows so that some of the projects will be displayed as a graph on the canvas
+        - so that the issues and tasks can be visualized and completed on time 
+        - you can have dag like structures with the metadata and the issues or the tasks specified so that we can link up files to those nodes in the DAG workflow 
+        - can have blocked or blocking tasks in the sidebar to see what is being blocked and what are to be completed..
+    - how to connect to other applications like slack, github 
+    - ticketing system goes to slack notifications and the relavant people are tagged/notified in the application 
+        - teams
+            - issues 
+                - issue 1
+                    - assignees/group members for that specific issue
+            - users 
+                - user 1 
+                    - assigned issues for that specific user
+    - 
+    - when you package the application separately 
+        - issue with managing a centralized database & syncing with the current user's local session so that things are updated and you get the updated information from the central database 
+        - defining various access levels for different people in the organization, IAM 
+            - only some operations can be done for some specific people with that level of access.. 
+        - for you to lock the drip settings across an organization it have to be loaded up form the database when the user tries to login into the drip applications with this credentials 
+    - automations in the application 
+        - auto-close will close issues that have not been updated in a set period of time
+            - auto close stale issues 
+            - status converted to cancelled 
+        - auto-archive 
+            - auto-archive issues closed for 1 month 
+            - auto-archive completed tasks after 10 days 
+        - 
+    - 
+
+
+immediate features to implement 
+    - right click on the heading then the dropdown options is 
+        - "create new file with reference"
+            - 
+        - show the graph view of the current heading hierarchy.. it grabs all the reference files in that heading hierarchy too..
+            - clarity: how does it provide clarity with 
+            - same metadata type ==> thick line [in the case of task and its sub task in the hierarchy]
+            - different metadata type ==> dotted line [in the case of issue raised with a particular task ==> tasks can have issues with them and they might not be perfect, so a dotted line connects them..]
+    - 
+    - 
+    - need to have a dropdown in the intellisense autosuggestions for the metadata type key's values which are specified if they are enums and have some already given values.. 
+    - option to select multiple selections in the autosuggestions intellisense of the metadata type key's values.. you can have a special option for this in the drip settings 
+    -
+    - when a file is created with a note ingestion --> have an option to enter the file level metadata in that newly created file..  
+    - drip application is giving AI suggestions when there is nothing in the drip composer.... and no draft selected but it still gives scores to 3 of some random locations..
+    -
+    - hierarchy of name selection logic in the .metadata type key's values 
+        - different teams can have different employees 
+        - so when the metadata key is selected as a finance 
+        - then the next metadat type key of assignee: should only show the people in the finance dept and not from the development team.. 
+        - also implement the logic of what will happen if there are multiple teams (team a and team b) can be selected for a particular task.. then the people from different teams have to be merged into the employees autosuggestion list given 
+        - maybe if you have a team have a separate logic for this..? as they also will be working in colaboration with each other maybe?? and they all should use the same drip application for writing any changes to the knowledge base.. 
+    - 
+    - 
+    -
+    - in the display options of the drip settings.. you can have a view to show the deadline in the form of # of days or # of hours instead of a fixed date time as this might be hard for the viewer to get an idea of the exact date-time 
+    - have a tooltip for the special markdown defined in the drip settings.. L. Q. R. ....
+    - 
+    - 
+    -
+    - 
+    - in the keyboard shortcuts include a section where we can implement something like using keyboard shortcuts for the markdown of the selection text 
+        - making the text strikken down
+        - making the text hilight with a specific color 
+        - to make this possible we don't have any markdown or special characters for a general text file so we have to introduce somethings like rules to keep them sustainable
+    - have a keyboard shortcut defined in drip settings tooo to "Toggle Render White Spaces"
+        - the default one is present in the vscode settings itself..
+        - this helps us see the whitespaces as either Tab or space bar spaces... really helpful in determining what is going on here.. 
+    - 
+    - 
+
+    
+
+
+database to store the headings for a quick retrieval and searchable capability: 
+    - faiss database need for it?? want to store the embedding for the heading and it's metadata  
+    - 
+    - 
+

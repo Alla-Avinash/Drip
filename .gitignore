@@ -1,0 +1,18 @@
+
+# deps / build
+node_modules/
+
+
+
+# local scratch (keep project-specific)
+temp-data/
+*.tmp
+
+
+
+
+
+
+
+
+

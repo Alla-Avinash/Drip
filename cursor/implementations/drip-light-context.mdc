@@ -1,0 +1,24 @@
+---
+description: DRIP — minimal context; grep-first; thin module map
+alwaysApply: true
+---
+
+# Minimal context
+
+- Work from **this message + code only** — no leaning on chat history or long pasted recaps.
+- **Grep/read single files**; avoid whole-repo scans and opening `features.txt` unless the user **`@`** it for an inventory refresh.
+- **Smallest viable diff**: only files needed for the request; no refactors/spin-off docs unless asked.
+
+# Where to edit (`vscode/extensions/drip/`)
+
+- **Wire-up:** `extension.js`
+- **KB CRUD / tree:** `lib/state.js`, `lib/knowledgeBase.js`
+- **Identity header / hash:** `lib/dripnoteFileIdentity.js`
+- **`_index` + startup reconcile:** `lib/dripnoteIndex.js`, `lib/dripnoteIndexSync.js`
+- **`L.` links + migrations:** `lib/dripnoteReferenceSync.js`, `lib/dripnoteReferencePhase3.js`, `lib/dripnoteReferenceAssist.js`, `lib/dripnoteReferenceDefinitions.js`
+- **Editor (color/diag/tags complete):** `lib/dripnoteSemanticTokens.js`, `lib/dripnoteMetadataDiagnostics.js`, `lib/dripnoteTagCompletion.js`
+- **Tags graph UI/backend:** `lib/views.js`, `lib/tagsWebview.js`, `lib/tagGraphStore.js`
+
+# Commands
+
+- `drip.rebuildKbIndexNow` • `drip.processPendingLinkMigrations`

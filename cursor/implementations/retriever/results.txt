@@ -1,0 +1,101 @@
+
+comparing the results between the models tested on  
+
+what is the metric which is followed:
+    first check if the model gave the highest similarity to the correct label or not
+    list all the models as rows and then get the correct label similarity and then the second best similarity score in the labels and compare the gap/differnce between both. if the gap is large it is good performing model
+    also check the performance in easy to dirrerentiate and hard labels to differentiate 
+    time taken for the inference after loading the model 
+
+
+selected finalized model 
+    mxbai 
+
+----------------------------------------------------------------
+
+fastembed 
+
+--- Situation A (obvious choice) ---
+  Python Basics: 0.6655
+  Software Design Principles: 0.4741
+  Database Normalization: 0.4710
+  JavaScript Async Programming: 0.4671
+  Networking Concepts: 0.4609
+  Time (after load): 0.2607s
+
+--- Situation B (hard to differentiate) ---
+  Python Decorators: 0.8602
+  Python Functions and Scope: 0.6892
+  Python Best Practices: 0.6558
+  Python Design Patterns: 0.6344
+  Python Metaprogramming: 0.5874
+  Time (after load): 0.2686s
+
+
+--------------------------------------------------------------
+
+minilm 
+
+
+--- Situation A (obvious choice) ---
+  Python Basics: 0.5048
+  Software Design Principles: 0.0755
+  Networking Concepts: 0.0625
+  JavaScript Async Programming: 0.0342
+  Database Normalization: -0.0259
+  Time (after load): 0.0855s
+
+--- Situation B (hard to differentiate) ---
+  Python Decorators: 0.7685
+  Python Functions and Scope: 0.5216
+  Python Design Patterns: 0.4476
+  Python Best Practices: 0.4319
+  Python Metaprogramming: 0.3586
+  Time (after load): 0.0548s
+
+
+--------------------------------------------------------------
+
+mxbai 
+
+--- Situation A (obvious choice) ---
+  Python Basics: 0.4864
+  Software Design Principles: 0.1003
+  Networking Concepts: 0.0818
+  JavaScript Async Programming: 0.0467
+  Database Normalization: -0.0007
+  Time (after load): 0.0942s
+
+--- Situation B (hard to differentiate) ---
+  Python Decorators: 0.7816
+  Python Functions and Scope: 0.4813
+  Python Design Patterns: 0.4342
+  Python Best Practices: 0.4124
+  Python Metaprogramming: 0.3409
+  Time (after load): 0.0626s
+
+
+--------------------------------------------------------------
+
+mpnet 
+
+--- Situation A (obvious choice) ---
+  Python Basics: 0.5142
+  Networking Concepts: 0.2089
+  Software Design Principles: 0.1939
+  JavaScript Async Programming: 0.0553
+  Database Normalization: 0.0166
+  Time (after load): 0.3978s
+
+--- Situation B (hard to differentiate) ---
+  Python Decorators: 0.7696
+  Python Functions and Scope: 0.5185
+  Python Design Patterns: 0.4816
+  Python Best Practices: 0.4370
+  Python Metaprogramming: 0.3451
+  Time (after load): 0.2810s
+
+Total inference time (after load): 0.6788s
+
+
+--------------------------------------------------------------

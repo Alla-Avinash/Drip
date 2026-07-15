@@ -1,0 +1,77 @@
+<body>
+	<div class="storage-root">
+			<div class="storage-toolbar-actions">
+				<button id="suggestions-btn" type="button">Suggestions</button>
+				<button type="button" class="secondary" id="ai-paths-btn" title="Deep match: top 3 paths across the whole knowledge base">AI</button>
+				<button type="button" class="secondary" id="btn-custom-select">Browse</button>
+				<button type="button" class="secondary" id="btn-open-tags-graph" title="Open tag graph in an editor tab">Tags graph</button>
+				<button type="button" class="secondary" id="btn-open-retriever" title="Open DRIP Retriever — search, filter by metadata type / tags">Retriever</button>
+			</div>
+			<div id="error" class="error"></div>
+			<div id="storage-main-panel">
+			<div id="storage-path-bar" class="storage-path-bar" aria-label="Storage path"></div>
+			<div id="selection-controls" class="selection-inline"></div>
+			<div class="row storage-flow" id="suggestions-flow">
+				<p id="suggestions-hint" class="storage-section-hint meta" hidden></p>
+				<div id="suggested-folders"></div>
+				<div id="suggested-files-wrap" hidden>
+					<div id="suggested-files"></div>
+				</div>
+				<div id="suggested-headings-wrap" hidden>
+					<div class="heading-tree-toolbar">
+						<span class="meta" style="margin:0;font-size:11px;">Headings</span>
+						<button type="button" id="ht-expand-flow">Expand all</button>
+						<button type="button" id="ht-collapse-flow">Collapse all</button>
+						<button type="button" id="ht-refresh-flow" class="secondary">Refresh</button>
+					</div>
+					<div class="ht-tree-resize-wrap">
+					<div id="heading-tree" class="heading-tree"></div>
+						<div class="ht-tree-resize-grip" id="heading-tree-resize-grip" role="separator" aria-orientation="horizontal" aria-label="Resize headings list height"></div>
+				</div>
+			</div>
+			</div>
+			<div id="ai-paths-panel" class="row storage-flow" hidden>
+				<div id="ai-paths-list"></div>
+			</div>
+			<div id="custom-picker" class="picker-panel" hidden>
+				<div class="picker-breadcrumb" id="picker-breadcrumb"></div>
+				<div id="picker-explore-body">
+				<p class="picker-search-label">Search this folder</p>
+				<input type="text" class="picker-filter" id="picker-filter" placeholder="Filter files and folders…" />
+				<div class="picker-list" id="picker-list"></div>
+				</div>
+				<div id="picker-heading-wrap" hidden style="margin-top:10px;">
+					<div class="heading-tree-toolbar">
+						<span class="meta" style="margin:0;font-size:11px;">Headings</span>
+						<button type="button" id="ht-expand-picker">Expand all</button>
+						<button type="button" id="ht-collapse-picker">Collapse all</button>
+						<button type="button" id="ht-refresh-picker" class="secondary">Refresh</button>
+					</div>
+					<div class="ht-tree-resize-wrap">
+					<div id="picker-heading-tree" class="heading-tree"></div>
+						<div class="ht-tree-resize-grip" id="picker-heading-tree-resize-grip" role="separator" aria-orientation="horizontal" aria-label="Resize headings list height"></div>
+				</div>
+			</div>
+			</div>
+			<div id="shared-folder-actions" class="shared-folder-actions" hidden>
+				<div class="create-row">
+					<label for="shared-new-folder-name">New folder</label>
+					<input type="text" id="shared-new-folder-name" placeholder="Folder name" autocomplete="off" />
+					<button type="button" id="shared-create-folder" class="secondary">Create</button>
+				</div>
+				<div class="create-row">
+					<label for="shared-new-file-name">New file</label>
+					<input type="text" id="shared-new-file-name" placeholder="Note title" autocomplete="off" />
+					<button type="button" id="shared-create-file">Create</button>
+				</div>
+			</div>
+			<div class="storage-actions">
+				<div class="storage-actions-buttons">
+					<button id="save-draft-storage" type="button" class="secondary">Save draft</button>
+					<button id="ingest-note-storage" type="button">Ingest</button>
+				</div>
+				<div id="storage-status" class="storage-status-below" aria-live="polite"></div>
+			</div>
+			</div>
+	</div>
+	

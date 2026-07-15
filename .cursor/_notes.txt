@@ -1,0 +1,335 @@
+
+to run
+    cd vscode folder
+
+    # Enable fnm in this shell
+    fnm env --use-on-cd --shell powershell | Out-String | Invoke-Expression
+    fnm use 22.22.1
+
+    node -v
+
+    npm run compile
+
+    $env:VSCODE_SKIP_PRELAUNCH = "1" 
+    .\scripts\code.bat
+
+
+currenlty working on
+startup flow of the user..   
+finalizing the data types of the drip settings 
+seting up the startup logic for the saving file id's and heading id's of the files..
+setup the indexing code and maintaininig a db from sqlite db
+database setup..... 
+
+
+making the db dynamic to the drip settings so that any updations to the drip settings create new table column added schema accordingly 
+or having it follow a standard template which is not changed much.. or have a default value present for the metadata types.. 
+update button to notify (information notification/ error notification at the right bottom) if there are any errors and to fix them up.. 
+
+
+for these metadata type keys, 
+    i want the metadata type key data types to be 
+        - enum
+        - datetime
+        - duration
+        so please remove the range and free and make the duration(float + unit) into duration.. 
+    now for storing these data types in the schema i want to have the above in the below format
+        - enum --> text, can included null
+        - datetime --> unix timestamp as an int (will store the seconds), can include null
+        - duration --> unix timestamp as an int, can include null
+    now if a particular 
+
+for the metadata type keys, I want to remove the options column in the settings..
+    by default i want the functionality to act like this 
+        - by defautl i want the enums to not allow other data values other than the ones specified.. if there is no value specified by the User it gets a null value or it will get the default value specified by the user (more about the default value below)
+        - for the datetime it will always be datetime and there is no other thing here.. and if there is no value specified by the user then the default value will be null value, the same goes for the duration too.. 
+instead of options column i want to have the "Default" value column
+    - so for enums we will have a list of values present and if the user hasn't specified up any of the specific enum value we can select a default value for that instead of keeping a null value for it.. 
+
+so the main funtionality is that, proper updation always only occurs through the validation of the matadata which is parsed
+so if some metadata is left empty, it will get the default values from the settings or get a null value.. 
+the same goes for any tags or any relations with a red - error underline..
+    If the tags specified is not identified then it won't be saved to the db..
+
+you need sqlite for easy and fast retrieval of things from the db 
+retrieval ==> what you would search for frequently and how will you search them 
+    - completely based on tags getting the results 
+    - looking for a concept with react with certain tags.. 
+    - 
+
+
+logic for the user not been able to modify the heading id's and the file level metadata even by accident.. 
+
+logic for if the user deletes a particular tag.. it should also be deleted in the db and also all the references to that tag must also be deleted in those .d.txt files
+
+
+why you need workflow 
+you can create a new schema table for the workflow heading 
+it can be workflow task 
+head, end, etc..
+
+heading         parent           child 
+workflow         head             headings (t1, t2, t3)
+t1             workflow           t4, t5 
+t5               t1               end
+this will be easy to get the entire hierarchy 
+
+[ .t1 get utensils        ]
+    |
+    ├── [ new task         ]
+    |
+    └── [ another heading  ]
+        |
+        └── [ nested child ]
+
+@f7:h15 #ZHVWqQ5v
+# .c concept - 234
+    .concept  
+        difficulty: hard 
+        status:active
+        importance:low
+        parent: 
+        workflow: 
+        tags: []
+        pre-req: []
+        new-things: 
+        new: new new things and have been going on for days?? 
+we need to have the strict checks when we have such a thing present.. 
+here the workflow and the parent are considered metadata of the concept but the concept has no such things present..
+if it parses then will the logic also get us the tags and pre-req below it??
+
+
+have the task id simutaneously concatenated to the task shortcut .t when the heading is typed in by theuser 
+when it is in the workflow.. 
+
+why do we need workflow as a seperate metadata type?? 
+why not have the task as the only one single metadata type, and we have a field called workflow: true??
+
+
+
+     _ t2
+t1--|
+  
+
+
+
+
+
+bubbles and filter canvas view to view the tasks and features in a colored view and also to filter out the tasks which are done and in active with proper color grading 
+    each bubble will only have a bubble of the metadatatype if there is a plain heading it is represented with "#" all the others are represented as ".p" ".t" etc where you can see the heading names when the user hovers over them 
+    this will be a top-down horizontal view  i.e. project on level one, features on level 2, tasks on level 3 and any tasks workflows on the next or any concepts or any other metadata types in between.. 
+tear drop canvas view
+    if every task has a strict time deadline you can also mark the edge lenght with the amount of time to be done.. really good representation to assign people accordingly.... so that we can have tasks done parallely and efficiently planning the time before hand..
+    the tear drop => bubble at the bottom, edge of that heading to the top which signifies the duration of the task,
+    you can also give the deadlines and the scheduled start dates of those tasks, having to keep a horizontal lines for the current times or similar to a google calender.. and also we can keep this 
+file tree view & hierarchy view
+    you can see the project hierarchy present and see it in that format
+graph like view 
+    you can see the file tree like structure in vxplain  
+
+
+
+
+
+@f7:h3 #NmS54TdL
+# .t3 making chicken corn soup 
+	workflow: true
+	.task
+		status: in-progress
+		tags: [cooking, recipies ]
+		
+
+	
+	@f7:h12 #ZrrZwWtz
+	# .t12 get all the required utensills
+		.task
+		get the soup making steel pot 
+		get the cutting board 
+		get the knife
+	
+	@f7:h20 #1yX5pKeZ
+	# .t20 get the required ingredients
+		.task
+		get the corn  
+		get the chicken breast
+		get carrots
+		get spring onions
+		get blackpepper
+		get potatoes
+		get cornstarch
+		
+
+	@f7:h17 #RpfQSrSN
+	# .t17 boil the water in the pot 
+		parent: [] 
+		.task
+
+
+	@f7:h14 #PAikEU6A
+	# .t14 chopping process
+		parent: [t12, t20]
+		.task
+
+		cutting the chicken breast into tiny cubes 
+		cutting the veggies into tiny pieces
+			
+		
+	@f7:h39 #nGrsk03i
+	# .t setting up the project structure
+		workflow: true
+		.task
+
+			
+	@f7:h7 #UgKVH2MA
+	# .t3 making the postgresql db table with the entitites as 
+		parent: [t1, t2]
+		.task
+
+
+
+
+should have a standard simple template for even the content inside the metadata types 
+introduce versioning how?? project version:?? 
+decision lifecycle: 
+    issue -> causes -> question -> decision -> implementation -> workflow -> tasks
+
+the updation history in the kb actually comes form the tags which you have specified as searchable 
+    you can keep the relation as below for the feature.. 
+    components: [authenticaiton, database etc]
+    and any decision in that feature will automatically get these components in their tags 
+    updation history => we need version numbers..
+
+keep the issue metadata as you need it to represent the problems faced 
+    REMOVE THE CATEGORY IN THE TASKS
+
+In big enterprise you will have multiple project teams and they all work together.. 
+    so tell me if one team takes a huge architectural decision which will effect the other teams how will it get updated to the other teams 
+    and tell me how will the updation history be maintained??
+
+how to implement different teams in the current kb 
+teams have various people.. do you need a synching engine or will you just use git for it?? 
+    just extracting the updations every 5 minutes 
+    or you can even have a updation server and use kafka to know when the updations are made and pull it over from git.. 
+
+team chat within the same application 
+    identify via git id's 
+    chat history in the kb itself and have it be comming as notifications..
+    chat
+        @user-123 
+        considering postgresql is the right choice rather than the sql..
+        
+        @user-124 
+        no, it is a bad choice...
+
+just how slack notifies new notifications / messages
+drip also does the same but it keeps them as green as what changes are made in a file when you pull from git..
+
+how do you keep dates in the KB 
+    creation date  -> can rename the file and use the same file--> issue with the created date 
+    modified date -> even a small addition of a space can be a modification..
+    chat dates?? 
+
+you might need the float variable for the project version.. 
+    you can take the example of when the applications release versions like 1.3.2 and then make such versioning in your kb for easier identification of versions in github..
+    and auto increment the version numbers with each new feature.. 
+    how will it have the same project name in 2 different files but with differnet version numbers?? how willl it identify they belong to the same project?? 
+    you get the updation history with the version numbers..
+
+connecting the same project into multiple files how to connect them up as continuation in different files if the file is become too big.. 
+file: @f6 [@f3:h67]
+this tells that f6 is in the sub-hierarchy of this heading id in another file..
+this file is just a continuation of another file.. 
+    if you need continuation of continuation we can have  
+    file: @f45 [@f6:h89]
+right click on any heading and you will get an option to do this "create new file"
+
+
+what is the best implementation??
+    updation history  
+        should we have the updation history for individual componenets like heading id's??? or should it be limited to features in the main project 
+        the updation history talks about the architecture decisions and tradeoffs of those decisions and what is given priority.. 
+        sometimes if we keep the updation history for individual components, they have to be duplicated in multiple individual components.. but if we have them as feature history then we can only keep a single instance of it.. 
+        FEATURE - 1
+        FEATURE - 2 => FAIL IMPLEMENTAITONS OTHERS ARE PREFFERED.. 
+            WHAT ARE THE TRADEOFFS AND WHY CERTAIN ARCHITECRURE DECISIONS ARE TAKEN?? 
+            YOU WILL TAG THEM WITH THE HEADING ID / THE COMPONENTS ID SO THAT IT WILL BE EASIER FOR YOU TO SEARCH THEM UP LATER ON.. 
+        FEATURE - 3 
+
+    we can also have the 'architectural-decision' as a searchable tag.. making a seperate graph called search tags.. 
+    so that we can keep headings about why certain decision / architectural choice is made out of the choices that we have and can tag that heading for easy search..
+
+
+
+
+
+
+
+--------------------------------------------------------
+startup checks items 
+
+- check if the kb has the .Editor.d.txt file 
+- 
+
+
+
+--------------------------------------------------------
+Assumption principles on which the application was built 
+
+- the user will only interact with the knowledge base by using the drip application and won't tamper with it outside.. 
+- 
+- 
+
+
+
+
+---------------------------------------------------------
+doubts 
+
+if you suddenly change the knowlege base folder from a .driplock to a normal folder name while opening the drip application, what is going to happen??
+
+
+
+
+----------------------------------------------------------
+future work 
+
+update the tags graph ui 
+    - only the current knowledge base tags graph folder is selected as the current graph folder 
+    - import only one graph or a group of graphs of the entire folder of graphs
+    - the + should be a button for create a new graph and not for the combine option 
+    - the combine option should be a seperate button like export  
+    - go see the internal storage of a graph.json and see what details are stored.. you don't need spatial information and some other information, so try to reduce the schema unless required..
+    - you don't need a sub graph for a graph.. but when you "create a graph with this node" you can have a combined view of all the tags in the graph folder 
+    - the sub graph should only have a list of the alias or other simillar names for that particular word so that you don't have to maintain a list of words.. 
+    - in the combine options.. create a new graph or save in the current top of the combine graph.. 
+
+in the drip settings metadata types 
+    - in the enums can keep a default value column for the metadata enum datatypes
+    - make a new data type to support the time duration, for having the datatypes as 3hrs, 5 days, 6 months etc without making a lot of datatypes of int or other..
+    - have a list of standard 3 templates for differnt usecases for the users who use this drip application.. 
+        these templates will be like 3 options in which the user can select one when he firstly initilizes a drip application 
+        he will also have the option to select this template after when he wants to have the template changed.. 
+        - template for project managers or product developers
+        - one for software developers 
+        - one standard template for the basic users 
+    - need a good templates for the coloring templates of the metadata types and markers as a general ui/ux designer.......
+    - need strict metadata shortcuts and only allow the metadata shortcuts already defined or else show up as error 
+    - when there is a tags in [react, hooks] it doesn't show up the errors, but when we mention tags: [react, hooks] it represent the errors when it opens up 
+    - when there is a duplicate metadata type key, it is showing error red underline but it is not showing a fix to remove the bottom most duplicate key 
+        # .t task - 1
+            .task
+                status:to-do
+                priority: high
+                deadline: 2026-06-29 02:15
+                deadline: 2026-07-30 22:26
+    - 
+
+
+    
+-----------------------------------------------------------
+previous doubts
+
+if we don't explictly save a tag graph and we don't have the autosave on will vscode automatically save the tags graph or will it prompt the user to save the tags graph before closing the application?
+    - it is not a problem, the tags graph gets autosaved when the user closes the window even with the autosave option turned off..
+
+

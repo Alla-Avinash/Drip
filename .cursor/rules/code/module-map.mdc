@@ -1,0 +1,28 @@
+---
+description: DRIP code module map — use when locating files, wiring features, or debugging which lib module owns behavior
+alwaysApply: false
+---
+
+# Code lookup
+
+**Full module map:** `@.cursor/context/module-map.md` — grep and read only the files listed for your subsystem.
+
+**Product behavior:** `@cursor/new/features.txt`
+
+## Defaults
+
+| Concern | Location |
+|---------|----------|
+| Command registration | `extension.js` |
+| Session / KB state | `lib/state.js` (`DripState`) |
+| Constants / view IDs | `lib/constants.js` |
+
+## Do not
+
+- Whole-repo scans
+- Edit files not tied to the current task
+- Assume architecture — read module map + spec section first
+
+When spec and code differ, treat `features.txt` as target behavior and document the gap.
+
+**Ergonomics:** If you add or move files, update `@.cursor/context/module-map.md` so the next developer finds the right module immediately. See `@.cursor/rules/core/developer-ergonomics.mdc`.

@@ -1,0 +1,99 @@
+Goal: when ingesting a new draft, store it in the “best existing” `.d.txt` file (not only the best folder), and keep the file structure machine-parsable so we can later insert under the correct heading/sub-heading.
+
+1. High-level architecture (2-stage retrieval)
+1) File-level retrieval (choose best target `.d.txt`)
+- Scan all candidate `.d.txt` files under the selected KB root (respecting layered `.dripignore` rules).
+- Build a candidate text for each file (examples):
+  - `relativePath + fullFileContent`
+  - optionally: index cached per file (later optimization)
+- Score with the retriever’s similarity function using the note’s input:
+  - `noteInput.title + noteInput.headings + noteInput.content (or a small excerpt)`
+- Pick the best file if score >= threshold; otherwise fall back to “create new file in best folder”.
+
+2) Section-level retrieval (choose best insertion spot inside the file)
+- Parse the chosen `.d.txt` into “entries/sections”.
+- Each entry must be identifiable (separator + metadata), and must carry a `HeadingPath` derived from the markdown headings in that entry.
+- Score each entry/section against the incoming note’s headings:
+  - Prefer exact/close `HeadingPath` matches (leaf heading and intermediate headings).
+  - If multiple are close, use a similarity score over entry text (entry headings block + a small chunk of entry content).
+- Choose the best section if score >= threshold; otherwise insert as a new section at the end of the file.
+
+2. Do we need a specific file format?
+Yes. If we want reliable “insert under the correct heading/sub-heading”, the file must be parseable.
+
+Recommended `.d.txt` format (v1)
+- A `.d.txt` is a concatenation of repeatable “note entries”.
+- Entries are separated by a sentinel line: `---`
+- Each entry starts with metadata lines, then a markdown headings block, then the entry content.
+
+Entry metadata fields (example)
+- `EntryType: note-section`
+- `Title: ...`
+- `Created: ISO-8601` (first insert)
+- `Updated: ISO-8601` (append/merge)
+- `Priority: Low|Medium|High`
+- `Format: drip-draft-v1`
+- `HeadingPath: A/B/C` (derived from markdown heading levels)
+
+Then:
+- headings block (markdown) e.g.:
+  - `# A`
+  - `## B`
+  - `### C` (leaf)
+- `draft.content`
+
+Practical note: for MVP, we can “append a new entry at the end” while still recording `HeadingPath`. In the next iteration we can physically insert at the correct place by parsing the file and placing new text under the target heading.
+
+3. Where exactly does the note go in the file?
+- MVP behavior:
+  - Select best `.d.txt` file.
+  - Append a new entry at the end of the file.
+  - Record `HeadingPath` so later improvements can insert under the precise heading.
+
+- Next behavior (full insertion under headings):
+  - When parsing, build an in-memory index:
+    - map `HeadingPath` -> location offsets in the file (or around nearest leaf heading inside the markdown headings block)
+  - Insert the new entry text right after the matched section’s leaf heading block.
+
+4. Does the retriever need to check headings/sub-headings?
+For “best file” retrieval only: not strictly required (file-level similarity is enough).
+For “insert under the correct section”:
+- Yes, the retriever (or a dedicated section-ranking layer) must understand the heading hierarchy.
+- That can be done by:
+  - parsing `HeadingPath` from existing entries, and/or
+  - scoring against heading text extracted from the file’s headings blocks.
+
+5. Why `HeadingPath` matters
+- It gives a deterministic bridge between:
+  - the user’s semantic structure (markdown headings hierarchy)
+  - the platform’s ability to insert/merge content in the right “spot”.
+
+6. Relationship to `.dripignore`
+- `.dripignore` affects which files/paths are candidates for file-level retrieval and ingestion.
+- The layered `.dripignore` rules ensure sub-KB (child) workflows can selectively exclude parts of the tree.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

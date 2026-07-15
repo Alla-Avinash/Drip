@@ -1,0 +1,215 @@
+
+
+application project folder structure 
+
+
+
+drip/
+│
+├── src/
+│   ├── extension/
+|   |   ├── extension.ts
+│   │   ├── activate.ts
+│   │   ├── commands/
+│   │   ├── providers/
+│   │   ├── views/
+│   │   └── state/
+│   │
+│   ├── document/
+│   │   ├── DocumentManager.ts
+│   │   ├── DocumentParser.ts
+│   │   ├── DocumentCache.ts
+│   │   ├── DocumentTypes.ts
+│   │   ├── parse/
+│   │   ├── analyze/
+│   │   ├── validate/
+│   │   └── model/
+│   │
+│   ├── indexing/
+│   │   ├── IndexManager.ts
+│   │   ├── FileIndexer.ts
+│   │   ├── HeadingIndexer.ts
+│   │   ├── TagIndexer.ts
+│   │   └── ReferenceIndexer.ts
+│   │
+│   ├── graph/
+│   │   ├── GraphManager.ts
+│   │   ├── BacklinkResolver.ts
+│   │   ├── RelationGraph.ts
+│   │   └── TagGraph.ts
+│   │
+│   ├── database/
+│   │   ├── Database.ts
+│   │   ├── migrations/
+│   │   ├── schema/
+│   │   └── repositories/
+│   │
+│   ├── knowledgebase/
+│   │   ├── KnowledgebaseManager.ts
+│   │   ├── DriplockManager.ts
+│   │   ├── WorkspaceResolver.ts
+│   │   └── IgnoreManager.ts
+│   │
+│   ├── retrieval/
+│   │   ├── SearchEngine.ts
+│   │   ├── RankingEngine.ts
+│   │   └── QueryParser.ts
+│   │
+│   ├── filesystem/
+│   │   ├── FileWatcher.ts
+│   │   ├── FileSync.ts
+│   │   └── FileOperations.ts
+│   │
+│   ├── shared/
+│   │   ├── constants/
+│   │   ├── errors/
+│   │   ├── types/
+│   │   └── utils/
+│   │
+│   ├── state/
+│   │   │
+│   │   ├── session/
+│   │   │   ├── SessionState.ts
+│   │   │   ├── ActiveDocumentState.ts
+│   │   │   ├── UIState.ts
+│   │   │   ├── OpenViewsState.ts
+│   │   │   └── SelectionState.ts
+│   │   │
+│   │   ├── workspace/
+│   │   │   ├── WorkspaceState.ts
+│   │   │   ├── KnowledgebaseState.ts
+│   │   │   ├── IndexState.ts
+│   │   │   ├── DraftState.ts
+│   │   │   ├── CacheState.ts
+│   │   │   └── PersistenceState.ts
+│   │   │
+│   │   ├── persistence/
+│   │   │   ├── WorkspaceStorage.ts
+│   │   │   ├── SessionStorage.ts
+│   │   │   ├── StateSerializer.ts
+│   │   │   └── StateRecovery.ts
+│   │   │
+│   │   └── StateManager.ts
+│   │
+│   └── views/
+│       │
+│       ├── lhs/
+│       │   ├── knowledgebase/
+│       │   ├── drafts/
+│       │   ├── retriever/
+│       │   ├── graph/
+│       │   ├── canvas/
+│       │   └── composer/
+│       │
+│       ├── rhs/
+│       │   ├── properties/
+│       │   ├── backlinks/
+│       │   ├── references/
+│       │   ├── metadata/
+│       │   └── diagnostics/
+│       │
+│       ├── editor/
+│       │   ├── overlays/
+│       │   ├── inlineWidgets/
+│       │   ├── decorations/
+│       │   └── previews/
+│       │
+│       ├── shared/
+│       │   ├── ui/
+│       │   ├── hooks/
+│       │   ├── messaging/
+│       │   └── styling/
+│       │
+│       └── ViewRegistry.ts
+│
+├── tests/
+├── docs/
+├── resources/
+├── package.json
+├── tsconfig.json
+└── README.md
+
+
+
+
+
+session/
+
+    session - Things that disappear when VS Code closes.
+    Examples:
+        active selections
+        open tabs
+        current graph focus
+        temporary UI state
+    
+    workspace/
+        Things tied to the actual knowledgebase/workspace.
+        the below are just examples but are not compulsarily needed features
+        Examples:
+            parsed document cache
+            graph cache
+            indexing metadata
+            draft persistence
+            hidden refs
+            hash state
+
+    persistence/
+        Handles:
+            saving/loading state
+            serialization
+            recovery
+            migrations
+
+
+
+
+
+
+
+
+
+
+
+
+settings 
+    persistant settings loaded up from the knowledgebase via this module 
+    also have the default settings in this module 
+indexing 
+    parsing logic of the .d.txt files to keep in the database
+database 
+    has all the schema from the settings
+    will loadup the database from the persistant storage provided in the knowledgebase .driplock folder via this module
+document 
+    .d.txt markup and errors 
+canvas  
+    will have the logic for the 
+    will take the required info from the database 
+    
+tags graph 
+
+
+    
+errors, dialogue boxes, information or warning errors 
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
