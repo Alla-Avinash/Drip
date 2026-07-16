@@ -983,10 +983,17 @@ async function reconcileHeadingIdentitiesForKbNote(kbRoot, text, options = {}) {
 		file = await resolveSequentialFileEntityForKbNote(kbRoot, options.noteUri, normalized);
 	}
 	if (!file) {
-		return { text: normalized, changed: false, nonH0Count: 0, usedNonH0Ids: [] };
+		return {
+			text: normalized,
+			changed: false,
+			nonH0Count: 0,
+			usedNonH0Ids: [],
+			lockedFile: null
+		};
 	}
 	if (!kbRoot) {
-		return reconcileHeadingIdentitiesInText(text, { ...options, lockedFile: file });
+		const result = reconcileHeadingIdentitiesInText(text, { ...options, lockedFile: file });
+		return { ...result, lockedFile: file };
 	}
 
 	const pool = options.headingIdPool || null;
@@ -1010,7 +1017,7 @@ async function reconcileHeadingIdentitiesForKbNote(kbRoot, text, options = {}) {
 		void syncFileHeadingAllocatorFromUsedIds(kbRoot, file.fileNum, result.usedNonH0Ids).catch(err => {
 			console.error('[DRIP] sync heading allocator failed', err);
 		});
-		return result;
+		return { ...result, lockedFile: file };
 	}
 
 	const cacheKey = headingAllocCacheKey(kbRoot, file.fileNum);
@@ -1029,7 +1036,7 @@ async function reconcileHeadingIdentitiesForKbNote(kbRoot, text, options = {}) {
 	void syncFileHeadingAllocatorFromUsedIds(kbRoot, file.fileNum, result.usedNonH0Ids).catch(err => {
 		console.error('[DRIP] sync heading allocator failed', err);
 	});
-	return result;
+	return { ...result, lockedFile: file };
 }
 
 /**

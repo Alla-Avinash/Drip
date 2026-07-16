@@ -110,7 +110,8 @@ why not have the task as the only one single metadata type, and we have a field 
      _ t2
 t1--|
   
-
+errors that you should fix......
+    when you have debounce to do the reconcile immediately when we type a heading after sometime we have a update of the hash and the cursor moves to the top i don't want the cursor to move at all but it should be an automatic paste of the hash after it is computed.. 
 
 
 

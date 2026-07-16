@@ -26,7 +26,6 @@ const {
 	parseFileEntityFromLines,
 	isHeadingIdentityLine,
 	isHeadingIdentitySlotLine,
-	headingHasIdentitySlot,
 	needsHeadingIdentityReconcile,
 	hasDuplicateHeadingIdsInFile
 } = require('./dripnoteHeadingIdentity');
@@ -65,6 +64,8 @@ function registerDripnoteIndexSync(context, state) {
 	const headingReconcileInFlight = new Map();
 	/** @type {Set<string>} */
 	const headingReconcilePending = new Set();
+	/** @type {Map<string, { refreshHashes?: boolean }>} */
+	const pendingReconcileOptionsByUri = new Map();
 	/** @type {Map<string, { fileNum: number, fileEntityId: string }>} */
 	const fileEntityByUri = new Map();
 	/** @type {Map<string, import('./dripnoteHeadingIdPool').HeadingIdPool>} */
@@ -74,9 +75,12 @@ function registerDripnoteIndexSync(context, state) {
 	/** Debounce before auto-inserting heading ids while typing. */
 	const HEADING_ID_ALLOCATION_DEBOUNCE_MS = 500;
 
+	/**
+	 * Defer only while the caret is on an `@fN:hM` identity slot line (user editing the id).
+	 * Titled headings that still need an id must allocate on debounce — do not wait for leave.
+	 */
 	function shouldDeferHeadingIdAllocation(document) {
-		const text = document.getText().replace(/\r\n/g, '\n');
-		if (hasDuplicateHeadingIdsInFile(text)) {
+		if (hasDuplicateHeadingIdsInFile(document.getText().replace(/\r\n/g, '\n'))) {
 			return false;
 		}
 		const editor = vscode.window.activeTextEditor;
@@ -89,20 +93,7 @@ function registerDripnoteIndexSync(context, state) {
 		if (isHeadingIdentitySlotLine(line)) {
 			return true;
 		}
-		const ph = parseHeadingForValidation(line);
-		if (!ph || !/\S/.test(String(ph.title || '').trim())) {
-			return false;
-		}
-		// Bare `.t ` is ready for an immediate task-id concat — do not wait for cursor leave.
-		try {
-			const { titleNeedsImmediateTaskId } = require('../document/workflow/dripnoteWorkflowTaskIdentity');
-			if (titleNeedsImmediateTaskId(ph.title)) {
-				return false;
-			}
-		} catch {
-			/* ignore */
-		}
-		return !headingHasIdentitySlot(lines, { lineIndex: lineIdx });
+		return false;
 	}
 
 	function noteNeedsImmediateIdWork(text) {
@@ -208,10 +199,16 @@ function registerDripnoteIndexSync(context, state) {
 		);
 	}
 
+	function isDripnoteFileDocument(document) {
+		if (!document || document.uri.scheme !== 'file') return false;
+		if (document.languageId === 'dripnote') return true;
+		return String(document.uri.fsPath || '')
+			.toLowerCase()
+			.endsWith('.d.txt');
+	}
+
 	function isKbNoteDocument(document) {
-		if (!document || document.languageId !== 'dripnote' || document.uri.scheme !== 'file') {
-			return false;
-		}
+		if (!isDripnoteFileDocument(document)) return false;
 		const kbRoot = state.getKnowledgeBaseRoot();
 		if (!kbRoot) return false;
 		const relToKb = path.relative(kbRoot.fsPath, document.uri.fsPath);
@@ -745,17 +742,28 @@ function registerDripnoteIndexSync(context, state) {
 		const key = doc.uri.toString();
 		let text = doc.getText().replace(/\r\n/g, '\n');
 
-		await ensureFileEntityCached(kbRoot, doc, text);
+		const lockedFile = await ensureFileEntityCached(kbRoot, doc, text);
+		if (!lockedFile) {
+			console.warn(
+				'[DRIP] heading identity reconcile skipped — could not resolve fileid for',
+				doc.uri.fsPath
+			);
+			return;
+		}
 		const headingIdPool = getOrCreateHeadingIdPool(doc, text);
 
 		for (let attempt = 0; attempt < 4; attempt += 1) {
 			const result = await reconcileKbNoteText(kbRoot, text, doc.uri, {
 				...options,
-				headingIdPool
+				headingIdPool,
+				lockedFile
 			});
 			const reconciled = result.text;
 			const changed = result.changed;
 			rememberFileEntityFromText(key, reconciled);
+			if (!parseFileEntityFromLines(reconciled.split('\n'))) {
+				fileEntityByUri.set(key, lockedFile);
+			}
 			refreshHeadingIdPool(doc, reconciled, result.usedNonH0Ids || []);
 			lastMetadataSigByDoc.set(key, computeMetadataEditSignature(reconciled));
 			if (!changed && reconciled === text) {
@@ -779,19 +787,34 @@ function registerDripnoteIndexSync(context, state) {
 		}
 	}
 
-	function startHeadingReconcile(document) {
+	function startHeadingReconcile(document, options = {}) {
 		const key = document.uri.toString();
 		if (headingReconcileInFlight.has(key)) {
 			headingReconcilePending.add(key);
+			pendingReconcileOptionsByUri.set(key, {
+				...(pendingReconcileOptionsByUri.get(key) || {}),
+				...options,
+				refreshHashes:
+					Boolean((pendingReconcileOptionsByUri.get(key) || {}).refreshHashes) ||
+					Boolean(options.refreshHashes)
+			});
 			return;
 		}
 
 		const doc = getOpenDocument(document.uri);
 		if (!doc || doc.isClosed) return;
 
+		const pendingOpts = pendingReconcileOptionsByUri.get(key) || {};
+		pendingReconcileOptionsByUri.delete(key);
+		const runOpts = {
+			...pendingOpts,
+			...options,
+			refreshHashes: Boolean(options.refreshHashes) || Boolean(pendingOpts.refreshHashes)
+		};
+
 		const run = new Promise(resolve => {
 			queueMicrotask(() => {
-				resolve(reconcileAndApplyHeadingIdentities(doc, { refreshHashes: false }));
+				resolve(reconcileAndApplyHeadingIdentities(doc, runOpts));
 			});
 		}).catch(err => {
 			console.error('[DRIP] immediate heading identity reconcile failed', err);
@@ -803,14 +826,16 @@ function registerDripnoteIndexSync(context, state) {
 			}
 			if (headingReconcilePending.delete(key)) {
 				const latest = getOpenDocument(document.uri);
+				const nextOpts = pendingReconcileOptionsByUri.get(key) || { refreshHashes: false };
+				pendingReconcileOptionsByUri.delete(key);
 				if (latest && !latest.isClosed) {
-					startHeadingReconcile(latest);
+					startHeadingReconcile(latest, nextOpts);
 				}
 			}
 		});
 	}
 
-	function requestImmediateIdAllocation(document) {
+	function requestImmediateIdAllocation(document, options = {}) {
 		const key = document.uri.toString();
 		const prev = pendingIdAllocateTimers.get(key);
 		if (prev) clearTimeout(prev);
@@ -824,12 +849,15 @@ function registerDripnoteIndexSync(context, state) {
 		} catch {
 			/* ignore */
 		}
+		if (options.refreshHashes) delay = Math.min(delay, 350);
 		const timer = setTimeout(() => {
 			pendingIdAllocateTimers.delete(key);
 			const doc = getOpenDocument(document.uri);
 			if (!doc || doc.isClosed) return;
 			if (shouldDeferHeadingIdAllocation(doc)) return;
-			startHeadingReconcile(doc);
+			startHeadingReconcile(doc, {
+				refreshHashes: Boolean(options.refreshHashes)
+			});
 		}, delay);
 		pendingIdAllocateTimers.set(key, timer);
 	}
@@ -844,7 +872,7 @@ function registerDripnoteIndexSync(context, state) {
 				hashRefreshTimers.delete(key);
 				const doc = getOpenDocument(document.uri);
 				if (!doc || doc.isClosed) return;
-				void reconcileAndApplyHeadingIdentities(doc, { refreshHashes: true });
+				startHeadingReconcile(doc, { refreshHashes: true });
 			}, HEADING_HASH_REFRESH_MS)
 		);
 	}
@@ -868,17 +896,27 @@ function registerDripnoteIndexSync(context, state) {
 	}
 
 	async function maybeReconcileHeadingIdentitiesOnOpen(document) {
-		if (!isKbNoteDocument(document)) return;
+		if (!isDripnoteFileDocument(document)) return;
 
+		/* Startup must finish first so KB root / index.drip exist before isKbNoteDocument. */
 		await ensureStartupIndexReconcile();
+		if (!isKbNoteDocument(document)) return;
 
 		const kbRoot = state.getKnowledgeBaseRoot();
 		const text = document.getText().replace(/\r\n/g, '\n');
+		const lockedFile = await ensureFileEntityCached(kbRoot, document, text);
+		const headingIdPool = getOrCreateHeadingIdPool(document, text);
 		const { text: reconciled, changed } = await reconcileKbNoteText(kbRoot, text, document.uri, {
-			refreshHashes: false
+			refreshHashes: true,
+			lockedFile,
+			headingIdPool
 		});
 		const key = document.uri.toString();
 		rememberFileEntityFromText(key, reconciled);
+		if (lockedFile && !parseFileEntityFromLines(reconciled.split('\n'))) {
+			fileEntityByUri.set(key, lockedFile);
+		}
+		refreshHeadingIdPool(document, reconciled, []);
 		lastMetadataSigByDoc.set(key, computeMetadataEditSignature(reconciled));
 
 		if (!changed && reconciled === text) {
@@ -894,6 +932,21 @@ function registerDripnoteIndexSync(context, state) {
 				}
 			} catch (err) {
 				console.error('[DRIP] writeTextFile after heading identity reconcile', err);
+			}
+		}
+	}
+
+	/**
+	 * After KB startup: scan every open .d.txt tab and reconcile missing ids + hashes.
+	 */
+	async function reconcileAllOpenKbNotes() {
+		await ensureStartupIndexReconcile();
+		const docs = vscode.workspace.textDocuments.filter(d => isKbNoteDocument(d));
+		for (const doc of docs) {
+			try {
+				await maybeReconcileHeadingIdentitiesOnOpen(doc);
+			} catch (err) {
+				console.error('[DRIP] open-tab heading reconcile failed', doc.uri.fsPath, err);
 			}
 		}
 	}
@@ -923,9 +976,18 @@ function registerDripnoteIndexSync(context, state) {
 				(async () => {
 					try {
 						const text = e.document.getText().replace(/\r\n/g, '\n');
-						const { text: reconciled } = await reconcileKbNoteText(kbRoot, text, e.document.uri, {
-							refreshHashes: true
-						});
+						const lockedFile = await ensureFileEntityCached(kbRoot, e.document, text);
+						const headingIdPool = getOrCreateHeadingIdPool(e.document, text);
+						const { text: reconciled } = await reconcileKbNoteText(
+							kbRoot,
+							text,
+							e.document.uri,
+							{
+								refreshHashes: true,
+								lockedFile,
+								headingIdPool
+							}
+						);
 						lastMetadataSigByDoc.set(
 							e.document.uri.toString(),
 							computeMetadataEditSignature(reconciled)
@@ -957,23 +1019,24 @@ function registerDripnoteIndexSync(context, state) {
 			const key = doc.uri.toString();
 
 			const metaSig = computeMetadataEditSignature(text);
+			const prevSig = lastMetadataSigByDoc.get(key);
+			const metaChanged = metaSig !== prevSig;
+			const needsIds = needsImmediateHeadingIdAllocation(text);
 
-			if (needsImmediateHeadingIdAllocation(text)) {
-				requestImmediateIdAllocation(doc);
-			} else {
-				const prevSig = lastMetadataSigByDoc.get(key);
-				if (metaSig !== prevSig) {
-					const prevCount = headingCountFromMetadataSignature(prevSig);
-					const nextCount = headingCountFromMetadataSignature(metaSig);
-					if (prevCount !== nextCount) {
-						requestImmediateIdAllocation(doc);
-					}
+			if (needsIds) {
+				requestImmediateIdAllocation(doc, { refreshHashes: metaChanged });
+			} else if (metaChanged) {
+				const prevCount = headingCountFromMetadataSignature(prevSig);
+				const nextCount = headingCountFromMetadataSignature(metaSig);
+				if (prevCount !== nextCount) {
+					requestImmediateIdAllocation(doc, { refreshHashes: true });
+				} else {
+					scheduleHashRefresh(doc);
 				}
 			}
 
-			if (metaSig !== lastMetadataSigByDoc.get(key)) {
+			if (metaChanged) {
 				lastMetadataSigByDoc.set(key, metaSig);
-				scheduleHashRefresh(doc);
 			}
 
 			scheduleBufferedIndexUpdate(doc, ev.contentChanges);
@@ -992,11 +1055,14 @@ function registerDripnoteIndexSync(context, state) {
 		vscode.workspace.onDidOpenTextDocument(doc => {
 			void (async () => {
 				await maybeRealignFileIdOnOpen(doc);
-				if (isKbNoteDocument(doc)) {
-					const kbRoot = state.getKnowledgeBaseRoot();
-					const text = doc.getText().replace(/\r\n/g, '\n');
-					headingIdPoolByUri.set(doc.uri.toString(), buildHeadingIdPoolFromText(text));
-					await ensureFileEntityCached(kbRoot, doc, text);
+				if (isDripnoteFileDocument(doc)) {
+					await ensureStartupIndexReconcile();
+					if (isKbNoteDocument(doc)) {
+						const kbRoot = state.getKnowledgeBaseRoot();
+						const text = doc.getText().replace(/\r\n/g, '\n');
+						headingIdPoolByUri.set(doc.uri.toString(), buildHeadingIdPoolFromText(text));
+						await ensureFileEntityCached(kbRoot, doc, text);
+					}
 				}
 				await maybeReconcileHeadingIdentitiesOnOpen(doc);
 			})().catch(err => {
@@ -1197,18 +1263,12 @@ function registerDripnoteIndexSync(context, state) {
 		})
 	);
 
-	void ensureStartupIndexReconcile();
-
-	for (const doc of vscode.workspace.textDocuments) {
-		if (doc.languageId !== 'dripnote' || doc.uri.scheme !== 'file') continue;
-		if (isKbNoteDocument(doc)) {
-			const text = doc.getText().replace(/\r\n/g, '\n');
-			headingIdPoolByUri.set(doc.uri.toString(), buildHeadingIdPoolFromText(text));
-		}
-		void maybeReconcileHeadingIdentitiesOnOpen(doc).catch(err => {
-			console.error('[DRIP] dripnote startup reconcile', err);
-		});
-	}
+	void (async () => {
+		await ensureStartupIndexReconcile();
+		await reconcileAllOpenKbNotes();
+	})().catch(err => {
+		console.error('[DRIP] startup open-tab heading reconcile', err);
+	});
 }
 
 module.exports = {

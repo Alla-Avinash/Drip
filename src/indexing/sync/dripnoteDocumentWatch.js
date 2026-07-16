@@ -25,7 +25,7 @@ const DOCUMENT_WATCH_MANIFEST = Object.freeze([
 		trigger: 'Heading title or metadata block changed (`.type`, key-values, tags, relations, ref)',
 		check: 'headingMetadataSignature(text) changed vs last seen',
 		action: 'reconcile heading identities + recompute `#hash` suffix on identity lines',
-		debounceMs: 1000
+		debounceMs: 400
 	},
 	{
 		id: 'heading-hash-flush-save',
@@ -110,7 +110,7 @@ const DOCUMENT_WATCH_MANIFEST = Object.freeze([
 ]);
 
 /** Debounce for heading hash refresh while typing (see manifest `heading-hash-refresh`). */
-const HEADING_HASH_REFRESH_MS = 1_000;
+const HEADING_HASH_REFRESH_MS = 400;
 
 /** Trailing debounce before buffered `index.drip` writes (see `dripnoteIndexUpdateQueue.js`). */
 const INDEX_UPDATE_BUFFER_MS = 6_000;
