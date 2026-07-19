@@ -39,14 +39,42 @@ heading id modifications
 
 
 
-file level graph and giving the concept metadata type numbering 
-- numbering of the headings to have a file only numering for the metadata type.. helpful for making a file only tags like node graph 
-    - # .c# ==> the second hash represents the numbering, it converts into a numbered id same as the task id in the workflow which changes when changes are made like adding a new numbered metadata above or below and changes to the parent: []
-    - # c#  ==> the second hash represents the numbering, it converts into a numbered id same as the task id in the workflow which changes when changes are made
+giving the concept metadata type numbering 
+numbering of the concept headings to have a file only numering for the metadata type..
+    - "# .c#" ==> "# .c23" the second hash represents the numbering, it converts into a numbered id same as the task id in the workflow which changes when changes are made like adding a new numbered metadata above or below and changes to the parent: []
+    - "# c#"  ==> "# c24"  the second hash represents the numbering, it converts into a numbered id same as the task id in the workflow which changes when changes are made
+now these concept heading numbers are only placed for the headings when you type a # after a concept shortcut for the heading.. it should not assign the headings to every concept shortcut in the file but only assign them to those which are marked by the #
+now for a previous # marked heading it might have "# c24" now if you try to change this number it has to go back to the number of the file order  
+this number gets updated as the same logic as the tasks in a worflow gets the updated number.. so if there is any concept metadata shortcut with a number on the side it gets updated to the correct number in the file order .. 
+here not all the concept metadata shortcuts get the numbering.. only those which get marked or those who has a number beside it gets the updated numbering 
+    so instead of having c# you can also do this c980 some number after c and it gets converted to the updated number according to the file... 
 
-
-
-
+file level graph 
+    the main reason why we had this concept metadata numering only for the selected concepts is because of the file graph..
+    here how we have tags graph as a concept to connect differnt concepts in the knowledge base 
+    we also have a file graph to connect the different headings concepts inside the file.. 
+    here we can define the relation edges defined.. these are not stored anywhere in the persistant storage and are not required to be hashed.. 
+    they are just stored in the file and we can have a special view created in canvas just for this.. we can name this view as "node graph".. 
+    this node graph has to be similar to the tags graph.. but this should have the nodes linked according to the hierarchy..
+    but as with this hierarchy which defines the main connections i also want some external connections like relations to be defined 
+    here in the below format we will define the relation edges with a "-" symbol and there should be no spaces between the works in the relation edge name.. you can use "-" instead of spaces.. 
+    and we will specify the concept numbers in this [] that connect with this node 
+    here we will have the edge relations below the metadata and they should not be involved in the hash creation logic as it is specific to this file
+    this is only useful if you want to make a file level view of the current file.. especially helpful when you have components talking with each other.. 
+    here the edges "-" will only be one indent space from the heading line indent 
+    and you can also have parents.. if there are multiple parents for the current heading.. 
+    you can refer to the rules of the task workflow for any further questions regarding the parent implementation and how it is implemented to not spoil the hierarchy in the file.. and what parents are allowed 
+        # .c react-hooks
+            .concept
+            parent: [c8, c9]
+            -depends-on: [c3, c2]
+            -examples: [c5, c10]
+    I want the node graph view in canvas to be able to be just like nodes in the tag graph view.. if you have a particular hierarchy of the sub headings  that you should follow, then keep the first connected node with a bright color and then have a clockwise or anticlock wise direction arrow around the current node, signifying which want to look for the next child node 
+    i want the node graph to be good and free from strict structural constrains and be movable just like the tags graph.. 
+    have the node with the .metadata type or metadata type or with # if no metadata shortcut present.. and have the heading written under these nodes 
+    i want the relation edges to be in dotted lines and have the edge names on the dotten lines which are written along the line direction.. and these lines always have an arrow mark signifying how it is related 
+    i need to just have one filter to the right of the graph which will float in the same position we can minimise it or expand it, which will help me when i only want to see a particular or a selected set of relations instead of seeing all the relations
+    here the main hierarchy / parents will always be shown as a solid line but the other realtions will be shown as a dotted line
 
 
 

@@ -138,7 +138,15 @@ function needsImmediateHeadingIdAllocation(text) {
 		const {
 			needsImmediateWorkflowTaskIdAllocation
 		} = require('../../document/workflow/dripnoteWorkflowTaskIdentity');
-		return needsImmediateWorkflowTaskIdAllocation(text);
+		if (needsImmediateWorkflowTaskIdAllocation(text)) return true;
+	} catch {
+		/* ignore */
+	}
+	try {
+		const {
+			needsImmediateConceptNumbering
+		} = require('../../document/concept/dripnoteConceptNumbering');
+		return needsImmediateConceptNumbering(text);
 	} catch {
 		return false;
 	}

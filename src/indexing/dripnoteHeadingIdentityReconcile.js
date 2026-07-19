@@ -7,6 +7,9 @@ const { fileNameMatchesKbNote } = require('../document/model/noteFileTypes');
 const { readTextFile, writeTextFile } = require('./kbFilesystem');
 const { buildHeadingIdPoolFromText } = require('./dripnoteHeadingIdPool');
 const {
+	reconcileConceptNumbersInText
+} = require('../document/concept/dripnoteConceptNumbering');
+const {
 	reconcileHeadingIdentitiesForKbNote,
 	needsHeadingIdentityReconcile,
 	collectHeadingIdentityDiagnostics,
@@ -68,13 +71,14 @@ async function reconcileNoteHeadingIdentitiesOnDisk(kbRootUri, noteUri, _context
 		text = await readTextFile(noteUri);
 	}
 	const normalized = String(text).replace(/\r\n/g, '\n');
-	const pool = buildHeadingIdPoolFromText(normalized);
-	const result = await reconcileHeadingIdentitiesForKbNote(kbRootUri, normalized, {
+	const conceptResult = reconcileConceptNumbersInText(normalized);
+	const pool = buildHeadingIdPoolFromText(conceptResult.text);
+	const result = await reconcileHeadingIdentitiesForKbNote(kbRootUri, conceptResult.text, {
 		noteUri,
 		headingIdPool: pool,
 		refreshHashes: options.refreshHashes === true
 	});
-	const changed = result.changed || result.text !== normalized;
+	const changed = conceptResult.changed || result.changed || result.text !== normalized;
 	if (changed) {
 		await writeTextFile(noteUri, result.text);
 	}

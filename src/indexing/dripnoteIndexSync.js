@@ -716,7 +716,11 @@ function registerDripnoteIndexSync(context, state) {
 
 	async function reconcileKbNoteText(kbRoot, text, noteUri, options = {}) {
 		const normalized = String(text || '').replace(/\r\n/g, '\n');
-		const headingResult = await reconcileHeadingIdentitiesForKbNote(kbRoot, normalized, {
+		const {
+			reconcileConceptNumbersInText
+		} = require('../document/concept/dripnoteConceptNumbering');
+		const conceptResult = reconcileConceptNumbersInText(normalized);
+		const headingResult = await reconcileHeadingIdentitiesForKbNote(kbRoot, conceptResult.text, {
 			previousFullText: normalized,
 			noteUri,
 			...options
@@ -729,7 +733,7 @@ function registerDripnoteIndexSync(context, state) {
 		return {
 			...headingResult,
 			text: wfResult.text,
-			changed: Boolean(headingResult.changed || wfResult.changed)
+			changed: Boolean(conceptResult.changed || headingResult.changed || wfResult.changed)
 		};
 	}
 
@@ -846,6 +850,14 @@ function registerDripnoteIndexSync(context, state) {
 				needsImmediateWorkflowTaskIdAllocation
 			} = require('../document/workflow/dripnoteWorkflowTaskIdentity');
 			if (needsImmediateWorkflowTaskIdAllocation(text)) delay = 120;
+		} catch {
+			/* ignore */
+		}
+		try {
+			const {
+				needsImmediateConceptNumbering
+			} = require('../document/concept/dripnoteConceptNumbering');
+			if (needsImmediateConceptNumbering(text)) delay = 120;
 		} catch {
 			/* ignore */
 		}

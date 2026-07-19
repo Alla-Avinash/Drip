@@ -44,7 +44,7 @@ Grep/read only files relevant to your task.
 | Settings HTML | `src/views/settingsWebview.js` |
 | Tags UI | `src/graph/tagsWebview.js` |
 | Retriever | `src/views/lhs/retriever/panel.js`, `webview/retrieverPanel.js` |
-| Canvas | `src/views/lhs/canvas/panel.js`, `webview/canvas.js`, `src/document/parse/dripnoteCanvasParse.js`, `src/document/workflow/dripnoteWorkflowParse.js` |
+| Canvas | `src/views/lhs/canvas/panel.js`, `webview/canvas.js`, `src/document/parse/dripnoteCanvasParse.js`, `src/document/workflow/dripnoteWorkflowParse.js`, `src/document/graph/dripnoteNodeGraphParse.js` (file-local node graph) |
 | Capture | `src/views/capturePreprocess.js` |
 
 ## File identity (→ spec: `@f`, heading `@h`)
@@ -102,6 +102,7 @@ Grep/read only files relevant to your task.
 | Grammar / editor language config | `src/document/syntaxes/dripnote.tmLanguage.json`, `language-configuration.json` |
 | Model / templates | `src/document/model/dripnoteMetadataTemplates.js`, `noteFileTypes.js` |
 | Persistent heading rule (`# .` / configured type) | `src/document/model/dripnotePersistentHeading.js` |
+| File-wide marked concept numbering (`c#` / `.c#`) | `src/document/concept/dripnoteConceptNumbering.js` |
 | **Workflow DAG** (task `workflow: true` next-line, contiguous `.t1…tN`, `parent:`) | `src/document/workflow/dripnoteWorkflowParse.js`, `dripnoteWorkflowTaskIdentity.js` (renumber + parent remap/scrub), `dripnoteWorkflowDiagnostics.js`; title shortcut → `dripnoteMetadataTemplates.matchHeadingTitleTypePrefix` |
 | Validate / diagnostics | `src/document/validate/dripnoteMetadataDiagnosticsTemplates.js` |
 

@@ -399,6 +399,33 @@ function hasHeadingNeedingIdAllocation(text) {
 }
 
 /**
+ * True when a heading that is no longer persistent (dot removed) still carries
+ * an `@fN:hM` identity line — reconcile must delete it.
+ * @param {string} text
+ * @returns {boolean}
+ */
+function hasIdentityOnNonPersistentHeading(text) {
+	const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+	const sepIdx = findSeparatorLineIndex(lines);
+	const { nodes } = collectHeadingSequenceValidated(lines, 0);
+	const settings = getMetadataSettings();
+	let firstRootBeforeSep = -1;
+	for (const node of nodes) {
+		if (node.tabDepth !== 0) continue;
+		if (sepIdx >= 0 && node.lineIndex >= sepIdx) continue;
+		firstRootBeforeSep = node.lineIndex;
+		break;
+	}
+	for (const node of nodes) {
+		if (!/\S/.test(String(node.title || '').trim())) continue;
+		if (isH0HeadingNode(node, sepIdx, firstRootBeforeSep)) continue;
+		if (classifyPersistentHeadingTitle(node.title, settings).persistent) continue;
+		if (findHeadingIdentityForNode(lines, node)) return true;
+	}
+	return false;
+}
+
+/**
  * Empty `#` / `# ` heading still has a managed identity line nearby.
  * @param {string} text
  * @returns {boolean}
@@ -568,6 +595,7 @@ function collectUsedNonH0IdsFromNodes(lines, nodes, sepIdx, firstRootBeforeSep) 
 function needsHeadingIdentityReconcile(text) {
 	return (
 		hasHeadingNeedingIdAllocation(text) ||
+		hasIdentityOnNonPersistentHeading(text) ||
 		hasEmptyHeadingWithIdentity(text) ||
 		hasDuplicateHeadingIdsInFile(text) ||
 		hasHeadingsCountMismatch(text)
@@ -817,11 +845,14 @@ function reconcileHeadingIdentitiesInText(text, options = {}) {
 	const duplicateHeadingLines = new Set();
 
 	// First titled heading in file order keeps each id; later duplicates are renumbered.
+	// Non-persistent headings never claim an id — their identity line is removed below
+	// and the number returns to the free pool.
 	for (const node of nodes) {
 		if (isH0HeadingNode(node, sepIdx, firstRootBeforeSep)) {
 			wantNumByLine.set(node.lineIndex, 0);
 			continue;
 		}
+		if (!classifyPersistentHeadingTitle(node.title, settings).persistent) continue;
 		const attached = findHeadingIdentityForNode(lines, node);
 		if (!attached) {
 			continue;
@@ -903,15 +934,15 @@ function reconcileHeadingIdentitiesInText(text, options = {}) {
 
 	/** @type {Map<number, string>} */
 	const wantLineByIndex = new Map();
+	/** @type {Set<number>} heading lines whose identity must be deleted (dot removed) */
+	const removeIdentityForHeadingLines = new Set();
 
 	for (const node of nodes) {
 		const attachedBefore = findHeadingIdentityForNode(lines, node);
 		const isH0 = isH0HeadingNode(node, sepIdx, firstRootBeforeSep);
 		const classification = classifyPersistentHeadingTitle(node.title, settings);
 		if (!isH0 && !classification.persistent) {
-			if (attachedBefore) {
-				wantLineByIndex.set(node.lineIndex, String(lines[attachedBefore.lineIndex] || ''));
-			}
+			if (attachedBefore) removeIdentityForHeadingLines.add(node.lineIndex);
 			continue;
 		}
 		const wantNum = wantNumByLine.get(node.lineIndex) ?? 0;
@@ -939,6 +970,14 @@ function reconcileHeadingIdentitiesInText(text, options = {}) {
 		const wantLine = wantLineByIndex.get(node.lineIndex) || '';
 		const headingLine = node.lineIndex;
 		const idLine = findOwnedIdentityLineIndex(lines, headingLine);
+
+		if (removeIdentityForHeadingLines.has(headingLine)) {
+			if (idLine >= 0 && parseHeadingIdentityLine(lines[idLine])) {
+				lines.splice(idLine, 1);
+				changed = true;
+			}
+			continue;
+		}
 
 		if (idLine >= 0) {
 			const existing = String(lines[idLine] || '');
@@ -1119,6 +1158,7 @@ module.exports = {
 	findHeadingLineAboveIndex,
 	headingLineIndent,
 	hasHeadingNeedingIdAllocation,
+	hasIdentityOnNonPersistentHeading,
 	hasEmptyHeadingWithIdentity,
 	hasDuplicateHeadingIdsInFile,
 	needsHeadingIdentityReconcile,

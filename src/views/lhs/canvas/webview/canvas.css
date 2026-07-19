@@ -189,6 +189,143 @@
 	opacity: 0.55;
 }
 
+/* —— File-local node graph —— */
+.view-nodegraph .canvas-viewport {
+	background-size: 24px 24px;
+}
+
+.node-graph-filter {
+	position: absolute;
+	top: 14px;
+	right: 14px;
+	z-index: 50;
+	width: 190px;
+	border: 1px solid var(--canvas-border);
+	border-radius: 10px;
+	background: color-mix(in srgb, var(--canvas-elevated) 96%, transparent);
+	box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+	overflow: hidden;
+}
+
+.node-graph-filter.hidden {
+	display: none;
+}
+
+.node-graph-filter-toggle {
+	width: 100%;
+	padding: 8px 10px;
+	border: 0;
+	background: var(--vscode-button-secondaryBackground);
+	color: var(--vscode-button-secondaryForeground);
+	text-align: left;
+	font: 600 11px var(--vscode-font-family);
+	cursor: pointer;
+}
+
+.node-graph-filter-body {
+	padding: 8px 10px 10px;
+}
+
+.node-graph-filter.is-collapsed .node-graph-filter-body {
+	display: none;
+}
+
+.node-graph-filter-body p {
+	margin: 0 0 7px;
+	font-size: 10px;
+	color: var(--canvas-muted);
+}
+
+.node-graph-filter-body label {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	margin: 5px 0;
+	font-size: 11px;
+	cursor: pointer;
+}
+
+.node-graph-filter-empty {
+	font-size: 10px;
+	color: var(--canvas-muted);
+}
+
+.node-graph-node {
+	position: absolute;
+	z-index: 2;
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 140px;
+	min-height: 64px;
+	padding: 9px 11px;
+	border: 1px solid var(--canvas-border);
+	border-radius: 50%;
+	background: var(--canvas-elevated);
+	box-shadow: 0 5px 18px rgba(0, 0, 0, 0.13);
+	cursor: move;
+	pointer-events: auto;
+	user-select: none;
+}
+
+.node-graph-node:hover {
+	border-color: var(--vscode-focusBorder);
+}
+
+.node-graph-node--root {
+	border: 2px solid var(--vscode-focusBorder);
+	background: color-mix(in srgb, var(--vscode-textLink-foreground) 15%, var(--canvas-elevated));
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--vscode-focusBorder) 20%, transparent);
+}
+
+.node-graph-node-badge {
+	flex: 0 0 auto;
+	min-width: 27px;
+	padding: 4px 5px;
+	border-radius: 9px;
+	background: var(--vscode-input-background);
+	color: var(--vscode-textLink-foreground);
+	font: 700 10px var(--vscode-editor-font-family, Consolas, monospace);
+	text-align: center;
+}
+
+.node-graph-node-title {
+	min-width: 0;
+	font-size: 11px;
+	font-weight: 550;
+	line-height: 1.25;
+	overflow: hidden;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+}
+
+.canvas-edges .node-graph-edge {
+	fill: none;
+	stroke: color-mix(in srgb, var(--vscode-textLink-foreground) 60%, var(--vscode-foreground));
+	stroke-width: 1.6;
+	vector-effect: non-scaling-stroke;
+}
+
+.canvas-edges .node-graph-edge--relation {
+	stroke: color-mix(in srgb, var(--vscode-descriptionForeground) 80%, var(--vscode-foreground));
+	stroke-dasharray: 5 5;
+}
+
+.canvas-edges .node-graph-arrow-head {
+	fill: color-mix(in srgb, var(--vscode-textLink-foreground) 65%, var(--vscode-foreground));
+}
+
+.canvas-edges .node-graph-edge-label {
+	fill: var(--vscode-descriptionForeground);
+	font: 10px var(--vscode-font-family);
+	paint-order: stroke;
+	stroke: var(--vscode-editor-background);
+	stroke-width: 4px;
+	stroke-linejoin: round;
+}
+
 /* —— Tear drop view: classic tear shape, horizontal (tip ← left, round → right) —— */
 .view-teardrop .heading-box--teardrop {
 	display: flex;

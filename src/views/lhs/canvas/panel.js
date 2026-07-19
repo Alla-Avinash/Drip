@@ -11,6 +11,7 @@ const {
 	findFlatIndexByLine,
 	parseHeadingLine
 } = require('../../../document/parse/dripnoteCanvasParse');
+const { buildNodeGraphForCanvas } = require('../../../document/graph/dripnoteNodeGraphParse');
 const { buildWorkflowGraphForCanvas } = require('../../../document/workflow/dripnoteWorkflowParse');
 
 const DRIP_CANVAS_PANEL_ID = 'drip.canvas';
@@ -202,12 +203,20 @@ function getCanvasHtml(webview, extensionUri) {
 				<option value="classic">Classic</option>
 				<option value="graph">Graph view</option>
 				<option value="teardrop">Tear drop</option>
+				<option value="nodegraph">Node graph</option>
 			</select>
 		</label>
 		<span class="canvas-hint-keys">From Explorer: hold <strong>Shift</strong> while dragging · OS files: drop anywhere · Pan / wheel on the map</span>
 		<button type="button" class="btn-toolbar secondary" id="btn-zoom-reset" title="Reset zoom and pan">Reset view</button>
 	</div>
 	<div id="canvas-viewport" class="canvas-viewport">
+		<aside id="node-graph-filter" class="node-graph-filter hidden">
+			<button type="button" id="btn-node-filter-toggle" class="node-graph-filter-toggle" aria-expanded="true">Relations ▾</button>
+			<div id="node-graph-filter-body" class="node-graph-filter-body">
+				<p>Show relation edges</p>
+				<div id="node-graph-relation-types"></div>
+			</div>
+		</aside>
 		<div id="canvas-empty" class="canvas-empty-overlay">
 			<p class="canvas-empty-title">Heading map</p>
 			<p class="canvas-empty-text">From the <strong>Explorer</strong>, hold <strong>Shift</strong> and drop <code>.d.txt</code> (otherwise VS Code opens the file). Or use <strong>Add files…</strong> / <code>Open heading in Canvas</code>.</p>
@@ -401,6 +410,7 @@ class DripCanvasPanel {
 						fileLabel: heading.uri.fsPath + ' (from heading)',
 						headingRoots: slimHeadingRootsForWebview(filtered),
 						workflowGraph,
+						nodeGraph: buildNodeGraphForCanvas(subtree || [], 0),
 						focusLine: heading.line
 					});
 				}
@@ -431,7 +441,8 @@ class DripCanvasPanel {
 					id: path.basename(clean),
 					fileLabel: clean,
 					headingRoots: slimHeadingRootsForWebview(filtered),
-					workflowGraph: buildWorkflowGraphForCanvas(filtered, docs.length)
+					workflowGraph: buildWorkflowGraphForCanvas(filtered, docs.length),
+					nodeGraph: buildNodeGraphForCanvas(parsed.headingRoots, docs.length)
 				});
 			} catch (e) {
 				docs.push({

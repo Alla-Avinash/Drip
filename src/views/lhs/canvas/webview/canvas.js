@@ -5,6 +5,7 @@
 	const CANVAS_VIEW_CLASSIC = 'classic';
 	const CANVAS_VIEW_GRAPH = 'graph';
 	const CANVAS_VIEW_TEARDROP = 'teardrop';
+	const CANVAS_VIEW_NODE_GRAPH = 'nodegraph';
 
 	const state = {
 		types: [],
@@ -13,8 +14,29 @@
 		docs: [],
 		highlightPath: '',
 		mode: 'empty',
-		canvasView: normalizeCanvasView(_persisted.canvasView)
+		canvasView: normalizeCanvasView(_persisted.canvasView),
+		nodeGraphVisibleRelations: new Set(),
+		nodeGraphKnownRelations: new Set()
 	};
+
+	/** File-local node graph — same force defaults as tags graph. */
+	const NG = {
+		NODE_W: 140,
+		NODE_H: 64,
+		ORIGIN: 450,
+		forceCenter: 0.03,
+		forceRepel: 10,
+		forceLink: 0.75,
+		linkDistance: 80,
+		minSep: 78
+	};
+	/** @type {Map<string, { id: string, x: number, y: number, vx: number, vy: number, title: string, badge: string, root: boolean }>} */
+	const nodeGraphSim = new Map();
+	/** @type {any[]} */
+	let nodeGraphEdges = [];
+	let nodeGraphRaf = 0;
+	let nodeGraphLastKick = 0;
+	let nodeGraphDrag = null;
 
 	/** @type {Set<string>} */
 	const collapsedHeadingGids = new Set();
@@ -66,7 +88,12 @@
 	 * @returns {string}
 	 */
 	function normalizeCanvasView(v) {
-		if (v === CANVAS_VIEW_GRAPH || v === CANVAS_VIEW_TEARDROP || v === CANVAS_VIEW_CLASSIC) return v;
+		if (
+			v === CANVAS_VIEW_GRAPH ||
+			v === CANVAS_VIEW_TEARDROP ||
+			v === CANVAS_VIEW_NODE_GRAPH ||
+			v === CANVAS_VIEW_CLASSIC
+		) return v;
 		return CANVAS_VIEW_CLASSIC;
 	}
 
@@ -96,7 +123,11 @@
 	function applyCanvasViewBodyClass() {
 		document.body.classList.toggle('view-graph', state.canvasView === CANVAS_VIEW_GRAPH);
 		document.body.classList.toggle('view-teardrop', state.canvasView === CANVAS_VIEW_TEARDROP);
+		document.body.classList.toggle('view-nodegraph', state.canvasView === CANVAS_VIEW_NODE_GRAPH);
 		document.body.classList.toggle('view-classic', state.canvasView === CANVAS_VIEW_CLASSIC);
+		const filter = $('node-graph-filter');
+		if (filter) filter.classList.toggle('hidden', state.canvasView !== CANVAS_VIEW_NODE_GRAPH);
+		if (state.canvasView !== CANVAS_VIEW_NODE_GRAPH) stopNodeGraphSim();
 	}
 
 	function persistCanvasView() {
@@ -2679,8 +2710,340 @@
 			'translate(' + view.tx + 'px,' + view.ty + 'px) scale(' + view.scale + ')';
 	}
 
+	function collectNodeGraphRelationTypes() {
+		const types = new Set();
+		for (const doc of state.docs || []) {
+			for (const type of doc.nodeGraph?.relationTypes || []) types.add(type);
+		}
+		return [...types].sort();
+	}
+
+	function populateNodeGraphFilter() {
+		const host = $('node-graph-relation-types');
+		if (!host) return;
+		const types = collectNodeGraphRelationTypes();
+		for (const type of types) {
+			if (!state.nodeGraphKnownRelations.has(type)) {
+				state.nodeGraphKnownRelations.add(type);
+				state.nodeGraphVisibleRelations.add(type);
+			}
+		}
+		host.innerHTML = types.length
+			? types
+					.map(
+						type =>
+							'<label><input type="checkbox" data-relation-type="' +
+							escapeHtml(type) +
+							'"' +
+							(state.nodeGraphVisibleRelations.has(type) ? ' checked' : '') +
+							'><span>' +
+							escapeHtml(type) +
+							'</span></label>'
+					)
+					.join('')
+			: '<span class="node-graph-filter-empty">No relation edges</span>';
+	}
+
+	function kickNodeGraphSim() {
+		nodeGraphLastKick = Date.now();
+	}
+
+	function stopNodeGraphSim() {
+		if (nodeGraphRaf) {
+			cancelAnimationFrame(nodeGraphRaf);
+			nodeGraphRaf = 0;
+		}
+	}
+
+	function syncNodeGraphSimFromDocs() {
+		const live = new Set();
+		const edges = [];
+		for (const doc of state.docs || []) {
+			const graph = doc.nodeGraph;
+			if (!graph) continue;
+			for (const node of graph.nodes || []) {
+				live.add(node.id);
+				const prev = nodeGraphSim.get(node.id);
+				if (prev) {
+					prev.title = node.title;
+					prev.badge = node.badge || '#';
+					prev.root = !!node.root;
+					continue;
+				}
+				nodeGraphSim.set(node.id, {
+					id: node.id,
+					x: (Math.random() - 0.5) * 220,
+					y: (Math.random() - 0.5) * 220,
+					vx: 0,
+					vy: 0,
+					title: node.title,
+					badge: node.badge || '#',
+					root: !!node.root
+				});
+			}
+			for (const edge of graph.edges || []) edges.push(edge);
+		}
+		for (const id of [...nodeGraphSim.keys()]) {
+			if (!live.has(id)) nodeGraphSim.delete(id);
+		}
+		nodeGraphEdges = edges;
+		kickNodeGraphSim();
+	}
+
+	function nodeGraphActiveLinks() {
+		return nodeGraphEdges.filter(edge => {
+			if (edge.kind === 'relation' && !state.nodeGraphVisibleRelations.has(edge.label)) {
+				return false;
+			}
+			return nodeGraphSim.has(edge.source) && nodeGraphSim.has(edge.target);
+		});
+	}
+
+	function simulateNodeGraphForces() {
+		const nodes = [...nodeGraphSim.values()];
+		if (!nodes.length) return;
+		if (Date.now() - nodeGraphLastKick > 5000) {
+			for (const n of nodes) {
+				n.vx = 0;
+				n.vy = 0;
+			}
+			return;
+		}
+		const dragId = nodeGraphDrag && nodeGraphDrag.id;
+		const centerK = NG.forceCenter;
+		const repelK = NG.forceRepel;
+		const linkK = NG.forceLink;
+		const linkDist = NG.linkDistance;
+
+		for (const n of nodes) {
+			if (dragId && dragId === n.id) continue;
+			n.vx += -n.x * centerK * 0.01;
+			n.vy += -n.y * centerK * 0.01;
+		}
+		for (let i = 0; i < nodes.length; i++) {
+			for (let j = i + 1; j < nodes.length; j++) {
+				const a = nodes[i];
+				const b = nodes[j];
+				const dx = b.x - a.x;
+				const dy = b.y - a.y;
+				const d2 = dx * dx + dy * dy + 0.01;
+				const d = Math.sqrt(d2);
+				const f = (repelK * 1200) / d2;
+				const ux = dx / d;
+				const uy = dy / d;
+				if (!(dragId && dragId === a.id)) {
+					a.vx -= ux * f * 0.02;
+					a.vy -= uy * f * 0.02;
+				}
+				if (!(dragId && dragId === b.id)) {
+					b.vx += ux * f * 0.02;
+					b.vy += uy * f * 0.02;
+				}
+			}
+		}
+		for (const edge of nodeGraphActiveLinks()) {
+			const na = nodeGraphSim.get(edge.source);
+			const nb = nodeGraphSim.get(edge.target);
+			if (!na || !nb || na === nb) continue;
+			const lx = nb.x - na.x;
+			const ly = nb.y - na.y;
+			const ld = Math.sqrt(lx * lx + ly * ly) || 0.001;
+			const sf = (ld - linkDist) * linkK * 0.0025;
+			const ux = lx / ld;
+			const uy = ly / ld;
+			if (!(dragId && dragId === na.id)) {
+				na.vx += ux * sf;
+				na.vy += uy * sf;
+			}
+			if (!(dragId && dragId === nb.id)) {
+				nb.vx -= ux * sf;
+				nb.vy -= uy * sf;
+			}
+		}
+		for (const n of nodes) {
+			if (dragId && dragId === n.id) continue;
+			n.vx *= 0.92;
+			n.vy *= 0.92;
+			n.x += n.vx;
+			n.y += n.vy;
+		}
+		for (let i = 0; i < nodes.length; i++) {
+			for (let j = i + 1; j < nodes.length; j++) {
+				const c1 = nodes[i];
+				const c2 = nodes[j];
+				const cdx = c2.x - c1.x;
+				const cdy = c2.y - c1.y;
+				const cd = Math.sqrt(cdx * cdx + cdy * cdy) || 0.001;
+				if (cd >= NG.minSep) continue;
+				const push = (NG.minSep - cd) * 0.5;
+				const pux = cdx / cd;
+				const puy = cdy / cd;
+				if (!(dragId && dragId === c1.id)) {
+					c1.x -= pux * push;
+					c1.y -= puy * push;
+				}
+				if (!(dragId && dragId === c2.id)) {
+					c2.x += pux * push;
+					c2.y += puy * push;
+				}
+			}
+		}
+	}
+
+	function nodeGraphWorldPos(n) {
+		return {
+			left: NG.ORIGIN + n.x - NG.NODE_W / 2,
+			top: NG.ORIGIN + n.y - NG.NODE_H / 2,
+			cx: NG.ORIGIN + n.x,
+			cy: NG.ORIGIN + n.y
+		};
+	}
+
+	function nodeGraphLine(edge) {
+		const source = nodeGraphSim.get(edge.source);
+		const target = nodeGraphSim.get(edge.target);
+		if (!source || !target) return '';
+		const a = nodeGraphWorldPos(source);
+		const b = nodeGraphWorldPos(target);
+		const mx = (a.cx + b.cx) / 2;
+		const my = (a.cy + b.cy) / 2;
+		const relation = edge.kind === 'relation';
+		const cls = relation
+			? 'node-graph-edge node-graph-edge--relation'
+			: 'node-graph-edge node-graph-edge--solid';
+		return (
+			'<line class="' +
+			cls +
+			'" x1="' +
+			a.cx +
+			'" y1="' +
+			a.cy +
+			'" x2="' +
+			b.cx +
+			'" y2="' +
+			b.cy +
+			'" marker-end="url(#node-graph-arrow)" />' +
+			(edge.label
+				? '<text class="node-graph-edge-label" x="' +
+				  mx +
+				  '" y="' +
+				  (my - 5) +
+				  '" text-anchor="middle">' +
+				  escapeHtml(edge.label) +
+				  '</text>'
+				: '')
+		);
+	}
+
+	function paintNodeGraphFrame() {
+		const empty = $('canvas-empty');
+		const nodesEl = $('canvas-nodes');
+		const svg = $('canvas-edges');
+		const treeSvg = $('canvas-tree-edges');
+		const nodes = [...nodeGraphSim.values()];
+		if (!nodes.length) {
+			if (empty) empty.classList.remove('hidden');
+			if (nodesEl) nodesEl.innerHTML = '';
+			if (svg) svg.innerHTML = '';
+			if (treeSvg) treeSvg.innerHTML = '';
+			return;
+		}
+		if (empty) empty.classList.add('hidden');
+
+		let minX = Infinity;
+		let minY = Infinity;
+		let maxX = -Infinity;
+		let maxY = -Infinity;
+		for (const n of nodes) {
+			const p = nodeGraphWorldPos(n);
+			minX = Math.min(minX, p.left);
+			minY = Math.min(minY, p.top);
+			maxX = Math.max(maxX, p.left + NG.NODE_W);
+			maxY = Math.max(maxY, p.top + NG.NODE_H);
+		}
+		const worldW = Math.max(900, maxX + 120);
+		const worldH = Math.max(700, maxY + 120);
+
+		let edgeHtml =
+			'<defs><marker id="node-graph-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L8,4 L0,8 z" class="node-graph-arrow-head" /></marker></defs>';
+		for (const edge of nodeGraphActiveLinks()) edgeHtml += nodeGraphLine(edge);
+		if (svg) {
+			svg.setAttribute('width', String(worldW));
+			svg.setAttribute('height', String(worldH));
+			svg.setAttribute('viewBox', '0 0 ' + worldW + ' ' + worldH);
+			svg.innerHTML = edgeHtml;
+		}
+		if (treeSvg) treeSvg.innerHTML = '';
+
+		if (nodesEl) {
+			const existing = new Map();
+			for (const el of nodesEl.querySelectorAll('.node-graph-node')) {
+				existing.set(el.getAttribute('data-node-graph-id'), el);
+			}
+			const live = new Set();
+			for (const n of nodes) {
+				live.add(n.id);
+				const p = nodeGraphWorldPos(n);
+				let el = existing.get(n.id);
+				if (!el) {
+					el = document.createElement('div');
+					el.className = 'node-graph-node' + (n.root ? ' node-graph-node--root' : '');
+					el.setAttribute('data-node-graph-id', n.id);
+					el.innerHTML =
+						'<span class="node-graph-node-badge"></span><span class="node-graph-node-title"></span>';
+					nodesEl.appendChild(el);
+				} else {
+					el.classList.toggle('node-graph-node--root', !!n.root);
+				}
+				el.style.left = p.left + 'px';
+				el.style.top = p.top + 'px';
+				const badge = el.querySelector('.node-graph-node-badge');
+				const title = el.querySelector('.node-graph-node-title');
+				if (badge) badge.textContent = n.badge || '#';
+				if (title) title.textContent = n.title || '';
+			}
+			for (const [id, el] of existing) {
+				if (!live.has(id)) el.remove();
+			}
+		}
+		const world = $('canvas-world');
+		if (world) {
+			world.style.width = worldW + 'px';
+			world.style.height = worldH + 'px';
+			world.style.minWidth = worldW + 'px';
+			world.style.minHeight = worldH + 'px';
+		}
+		applyWorldTransform();
+	}
+
+	function nodeGraphLoop() {
+		if (state.canvasView !== CANVAS_VIEW_NODE_GRAPH) {
+			nodeGraphRaf = 0;
+			return;
+		}
+		simulateNodeGraphForces();
+		paintNodeGraphFrame();
+		nodeGraphRaf = requestAnimationFrame(nodeGraphLoop);
+	}
+
+	function startNodeGraphSim() {
+		syncNodeGraphSimFromDocs();
+		if (!nodeGraphRaf && state.canvasView === CANVAS_VIEW_NODE_GRAPH) {
+			nodeGraphRaf = requestAnimationFrame(nodeGraphLoop);
+		}
+	}
+
+	function renderNodeGraph() {
+		startNodeGraphSim();
+		if (!nodeGraphRaf) paintNodeGraphFrame();
+	}
+
 	function renderGraph() {
 		applyCanvasViewBodyClass();
+		if (state.canvasView === CANVAS_VIEW_NODE_GRAPH) {
+			renderNodeGraph();
+			return;
+		}
 		syncLayoutMetrics();
 		const boxW = activeBoxW();
 		const boxH = activeBoxH();
@@ -2943,11 +3306,15 @@
 		state.mode = msg.mode || 'empty';
 		navParentActive.clear();
 		navChildActive.clear();
+		nodeGraphSim.clear();
+		nodeGraphEdges = [];
+		stopNodeGraphSim();
 		view.tx = 40;
 		view.ty = 40;
 		view.scale = 1;
 		render();
 		openSettingsPopulate();
+		populateNodeGraphFilter();
 	}
 
 	function openSettingsPopulate() {
@@ -3002,6 +3369,7 @@
 			if (/** @type {HTMLElement} */ (e.target).closest('.heading-toggle')) return;
 			if (/** @type {HTMLElement} */ (e.target).closest('.heading-nav')) return;
 			if (/** @type {HTMLElement} */ (e.target).closest('.heading-box')) return;
+			if (/** @type {HTMLElement} */ (e.target).closest('.node-graph-node')) return;
 			view.panning = true;
 			view.lastX = e.clientX;
 			view.lastY = e.clientY;
@@ -3009,6 +3377,20 @@
 		});
 
 		window.addEventListener('mousemove', e => {
+			if (nodeGraphDrag) {
+				const n = nodeGraphSim.get(nodeGraphDrag.id);
+				const vp = $('canvas-viewport');
+				if (!n || !vp) return;
+				const rect = vp.getBoundingClientRect();
+				const worldX = (e.clientX - rect.left - view.tx) / view.scale;
+				const worldY = (e.clientY - rect.top - view.ty) / view.scale;
+				n.x = worldX - NG.ORIGIN;
+				n.y = worldY - NG.ORIGIN;
+				n.vx = 0;
+				n.vy = 0;
+				kickNodeGraphSim();
+				return;
+			}
 			if (!view.panning) return;
 			view.tx += e.clientX - view.lastX;
 			view.ty += e.clientY - view.lastY;
@@ -3018,6 +3400,8 @@
 		});
 
 		window.addEventListener('mouseup', () => {
+			if (nodeGraphDrag) kickNodeGraphSim();
+			nodeGraphDrag = null;
 			view.panning = false;
 			vp.classList.remove('is-panning');
 		});
@@ -3058,6 +3442,20 @@
 
 		const nodesHost = $('canvas-nodes');
 		if (nodesHost) {
+			nodesHost.addEventListener('mousedown', e => {
+				if (state.canvasView !== CANVAS_VIEW_NODE_GRAPH || e.button !== 0) return;
+				const node = /** @type {HTMLElement} */ (e.target).closest('.node-graph-node');
+				if (!node) return;
+				const id = node.getAttribute('data-node-graph-id');
+				const n = id ? nodeGraphSim.get(id) : null;
+				if (!id || !n) return;
+				e.preventDefault();
+				e.stopPropagation();
+				nodeGraphDrag = { id };
+				n.vx = 0;
+				n.vy = 0;
+				kickNodeGraphSim();
+			});
 			nodesHost.addEventListener('click', e => {
 				const tearNode = /** @type {HTMLElement} */ (e.target).closest(
 					'.heading-box--teardrop[data-tear-toggle="1"]'
@@ -3165,6 +3563,28 @@
 			if (ev.target && /** @type {HTMLElement} */ (ev.target).id === 'settings-panel') {
 				settingsPanel.classList.add('hidden');
 			}
+		});
+
+	const relationTypesHost = $('node-graph-relation-types');
+	if (relationTypesHost)
+		relationTypesHost.addEventListener('change', event => {
+			const input = /** @type {HTMLInputElement} */ (event.target);
+			const type = input?.getAttribute?.('data-relation-type');
+			if (!type) return;
+			if (input.checked) state.nodeGraphVisibleRelations.add(type);
+			else state.nodeGraphVisibleRelations.delete(type);
+			kickNodeGraphSim();
+			if (state.canvasView === CANVAS_VIEW_NODE_GRAPH) renderNodeGraph();
+		});
+
+	const nodeFilterToggle = $('btn-node-filter-toggle');
+	if (nodeFilterToggle)
+		nodeFilterToggle.addEventListener('click', () => {
+			const filter = $('node-graph-filter');
+			if (!filter) return;
+			const collapsed = filter.classList.toggle('is-collapsed');
+			nodeFilterToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+			nodeFilterToggle.textContent = collapsed ? 'Relations ▸' : 'Relations ▾';
 		});
 
 	setupPanZoom();
