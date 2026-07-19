@@ -921,7 +921,7 @@ function buildNewNoteFile(draft, options = {}) {
 		`headings: 0\n` +
 		`\n` +
 		`${rootHeadingId}\n` +
-		`# ${metaLabel}\n` +
+		`# . ${metaLabel}\n` +
 		`${body}` +
 		(body.trim() ? '' : '\n') +
 		`---\n`

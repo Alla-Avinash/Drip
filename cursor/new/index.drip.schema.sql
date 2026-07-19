@@ -1,4 +1,4 @@
--- DRIP index.drip — SQLite schema v6
+-- DRIP index.drip — SQLite schema v7
 -- Canonical runtime: cursor/new/dripIndexSchema.js (used by src/indexing/dripIndexDb.js)
 -- Spec: cursor/new/features.txt (DB schema §4–7)
 --
@@ -7,7 +7,7 @@
 --   # Section title
 --
 -- index_meta defaults (seeded on init):
---   schema_version → "6"
+--   schema_version → "7"
 --   next_file_id   → "0"
 --   heading_alloc_<file_id> → per-file non-h0 id pool JSON, e.g. '{"next":4,"free":[2,3]}'
 --   workflow_alloc_<file_id>_<workflow_heading_id> → dense per-workflow task id pool (contiguous .t1…tN)
@@ -30,9 +30,7 @@ CREATE TABLE IF NOT EXISTS files (
 CREATE TABLE IF NOT EXISTS headings (
 	file_id INTEGER NOT NULL,
 	heading_id INTEGER NOT NULL,
-	parent_id INTEGER,
 	title TEXT NOT NULL,
-	tab_depth INTEGER NOT NULL DEFAULT 0,
 	-- NULL = no .type marker, or marker not in drip.metadataTypes (known ids only are stored)
 	metadata_type TEXT,
 	hash TEXT,
@@ -51,7 +49,6 @@ CREATE TABLE IF NOT EXISTS heading_references (
 CREATE INDEX IF NOT EXISTS idx_ref_source ON heading_references(source_file_id, source_heading_id);
 CREATE INDEX IF NOT EXISTS idx_ref_target ON heading_references(target_file_id, target_heading_id);
 CREATE INDEX IF NOT EXISTS idx_heading_type ON headings(metadata_type);
-CREATE INDEX IF NOT EXISTS idx_parent ON headings(file_id, parent_id);
 CREATE INDEX IF NOT EXISTS idx_headings_title ON headings(title);
 
 CREATE TABLE IF NOT EXISTS tags (

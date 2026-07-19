@@ -8,12 +8,11 @@
  *
  * Defaults (application-enforced; see `headings.metadata_type`):
  * - `headings.metadata_type` → SQL NULL when the note has no `.type` marker or an unknown type
- * - `headings.tab_depth` → `0`
- * - `index_meta.schema_version` → `6`
+ * - `index_meta.schema_version` → `7`
  * - `index_meta.next_file_id` → `0`
  */
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 /** @type {string} */
 const SCHEMA_SQL = `
@@ -35,9 +34,7 @@ CREATE TABLE IF NOT EXISTS files (
 CREATE TABLE IF NOT EXISTS headings (
 	file_id INTEGER NOT NULL,
 	heading_id INTEGER NOT NULL,
-	parent_id INTEGER,
 	title TEXT NOT NULL,
-	tab_depth INTEGER NOT NULL DEFAULT 0,
 	metadata_type TEXT,
 	hash TEXT,
 	PRIMARY KEY (file_id, heading_id),
@@ -55,7 +52,6 @@ CREATE TABLE IF NOT EXISTS heading_references (
 CREATE INDEX IF NOT EXISTS idx_ref_source ON heading_references(source_file_id, source_heading_id);
 CREATE INDEX IF NOT EXISTS idx_ref_target ON heading_references(target_file_id, target_heading_id);
 CREATE INDEX IF NOT EXISTS idx_heading_type ON headings(metadata_type);
-CREATE INDEX IF NOT EXISTS idx_parent ON headings(file_id, parent_id);
 CREATE INDEX IF NOT EXISTS idx_headings_title ON headings(title);
 
 CREATE TABLE IF NOT EXISTS tags (
@@ -214,6 +210,37 @@ function migrateMetadataTypeNullable(db) {
 }
 
 /**
+ * Persistent headings no longer store document hierarchy in index.drip.
+ * @param {import('sql.js').Database} db
+ */
+function migrateHeadingsWithoutHierarchy(db) {
+	if (!tableExists(db, 'headings') || !columnExists(db, 'headings', 'parent_id')) {
+		return;
+	}
+	db.exec(`
+		PRAGMA foreign_keys = OFF;
+		DROP INDEX IF EXISTS idx_parent;
+		DROP TABLE IF EXISTS headings_v7;
+		CREATE TABLE headings_v7 (
+			file_id INTEGER NOT NULL,
+			heading_id INTEGER NOT NULL,
+			title TEXT NOT NULL,
+			metadata_type TEXT,
+			hash TEXT,
+			PRIMARY KEY (file_id, heading_id),
+			FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
+		);
+		INSERT INTO headings_v7 (file_id, heading_id, title, metadata_type, hash)
+			SELECT file_id, heading_id, title, metadata_type, hash FROM headings;
+		DROP TABLE headings;
+		ALTER TABLE headings_v7 RENAME TO headings;
+		CREATE INDEX IF NOT EXISTS idx_heading_type ON headings(metadata_type);
+		CREATE INDEX IF NOT EXISTS idx_headings_title ON headings(title);
+		PRAGMA foreign_keys = ON;
+	`);
+}
+
+/**
  * @param {import('sql.js').Database} db
  */
 function migrateSchemaIfNeeded(db) {
@@ -228,8 +255,8 @@ function migrateSchemaIfNeeded(db) {
 		migrateMetadataTypeNullable(db);
 	}
 
-	if (tableExists(db, 'headings') && !columnExists(db, 'headings', 'tab_depth')) {
-		db.run('ALTER TABLE headings ADD COLUMN tab_depth INTEGER NOT NULL DEFAULT 0');
+	if (version < 7) {
+		migrateHeadingsWithoutHierarchy(db);
 	}
 
 	db.exec(SCHEMA_SQL);

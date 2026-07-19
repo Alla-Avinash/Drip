@@ -37,7 +37,7 @@ function readHeadingNumAbove(lines, headingLineIndex) {
  * Collect tasks belonging to one workflow root (document order).
  * Only contiguous task chains from the workflow: a non-task heading (`.c`, `.f`, …)
  * breaks the chain — descendant tasks under that break are not numbered.
- * Nested `workflow: true` nodes count as one outer task; their children belong to the nested wf.
+ * Workflow roots are never numbered. Nested workflow roots and their children belong to the nested workflow.
  * @param {any} root
  * @param {string} taskMarker
  * @param {string[]} lines
@@ -58,8 +58,6 @@ function collectWorkflowTaskSlots(root, taskMarker, lines) {
 		});
 	}
 
-	if (headingIsWorkflowTask(root, taskMarker)) pushSlot(root);
-
 	/**
 	 * @param {any} node
 	 */
@@ -69,8 +67,8 @@ function collectWorkflowTaskSlots(root, taskMarker, lines) {
 				// Chain broken by non-task — do not number descendants under this branch.
 				continue;
 			}
-			pushSlot(child);
 			if (headingIsWorkflow(child, taskMarker)) continue;
+			pushSlot(child);
 			walk(child);
 		}
 	}
@@ -168,21 +166,19 @@ function stripOffChainTaskIds(lines, root, taskMarker, numberedLineSet) {
 }
 
 /**
- * True when a title is ready for an immediate `.tN` assignment.
- * Only after `.t` + space + at least one more character (e.g. `# .t g…`).
- * Does not fire on bare `.t` / `.t…` without a space, so other shortcuts
- * that start with `t` (e.g. `.tg`, `.task`) remain possible while typing.
+ * True when a title is ready for immediate dotted or undotted task assignment.
+ * Only after `.t` / `t` + space + at least one title character.
  * @param {string} title
  * @returns {boolean}
  */
 function titleNeedsImmediateTaskId(title) {
 	const trimmed = String(title || '').trimStart();
-	// `.t` then whitespace then a title character — not `.t3…` and not `.task…`
-	return /^\.t\s+\S/i.test(trimmed);
+	// Optional dot + `t`, then whitespace — not `.t3…`, `.task…`, or `task…`.
+	return /^\.?t\s+\S/i.test(trimmed);
 }
 
 /**
- * Scan note text for `.t ` + title under a `workflow: true` root (immediate allocate trigger).
+ * Scan note text for `.t ` / `t ` under a workflow root (immediate allocate trigger).
  * @param {string} text
  * @param {string} [taskMarker]
  * @returns {boolean}
@@ -236,6 +232,13 @@ async function reconcileWorkflowTaskIdsForKbNote(kbRoot, text, options = {}) {
 				? await readWorkflowTaskAllocator(kbRoot, file.fileNum, wfHeadingNum)
 				: { next: 1, free: [], byHeading: {} };
 		const prevByHeading = previous.byHeading || {};
+
+		const rootBefore = lines[root.lineIndex];
+		const unnumberedRootLine = stripTaskIdFromHeadingLine(rootBefore);
+		if (unnumberedRootLine !== rootBefore) {
+			lines[root.lineIndex] = unnumberedRootLine;
+			changed = true;
+		}
 
 		const slots = collectWorkflowTaskSlots(root, taskMarker, lines);
 		const numberedLineSet = new Set(slots.map(s => s.lineIndex));

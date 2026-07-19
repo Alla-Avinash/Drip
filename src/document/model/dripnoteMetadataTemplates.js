@@ -79,7 +79,7 @@ function asStringArray(v) {
 function normalizeMetadataShortcut(raw) {
 	const s = String(raw || '').trim();
 	if (!s) return '';
-	return s.startsWith('.') ? s.slice(1) : s;
+	return s.replace(/\./g, '');
 }
 
 /**

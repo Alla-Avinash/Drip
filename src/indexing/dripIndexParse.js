@@ -2,6 +2,10 @@
 
 const crypto = require('crypto');
 const { collectHeadingSequenceValidated } = require('../document/parse/dripnoteCanvasParse');
+const { getMetadataSettings } = require('../document/model/dripnoteMetadataTemplates');
+const {
+	classifyPersistentHeadingTitle
+} = require('../document/model/dripnotePersistentHeading');
 const { parseFileEntityIdNumber, parseHeadingEntityIdNumber } = require('./dripnoteEntityIds');
 const { parseTypedMetadataForHeading } = require('./parse/dripIndexTypedMetadata');
 const {
@@ -329,12 +333,11 @@ function collectReferencesFromLines(lines, sourceHeadingId) {
 
 /**
  * @param {string} title
- * @param {number | null} parentId
  * @param {string} metadataType
  * @param {string[]} metaLines
  */
-function computeHeadingHash(title, parentId, metadataType, metaLines) {
-	const seed = [title, parentId ?? '', metadataType, ...(metaLines || [])].join('|');
+function computeHeadingHash(title, metadataType, metaLines) {
+	const seed = [title, metadataType, ...(metaLines || [])].join('|');
 	return crypto
 		.createHash('sha1')
 		.update(seed)
@@ -343,34 +346,21 @@ function computeHeadingHash(title, parentId, metadataType, metaLines) {
 		.slice(0, 8);
 }
 
-function inferMetadataTypeFromMetaLines(metaLines) {
-	for (const line of metaLines || []) {
-		const m = String(line || '').match(/^\s*\.(\w[\w-]*)/);
-		if (m) return String(m[1] || '').toLowerCase();
-	}
-	return '';
-}
-
 /**
  * Parse one heading node into index rows (heading + scoped edges).
  *
  * @param {string[]} lines
  * @param {import('../document/parse/dripnoteCanvasParse').HeadingNodeFlat} node
- * @param {{ tabDepth: number, headingId: number }[]} stack
  * @param {Set<string> | undefined} knownTagsLower
  * @param {number} nextAutoHeadingId
- * @param {{ includeDetails?: boolean }} [options]
+ * @param {{ includeDetails?: boolean, metadataType?: string | null, headingIdOverride?: number | null }} [options]
  */
-function parseHeadingNodeForIndex(lines, node, stack, knownTagsLower, nextAutoHeadingId, options) {
+function parseHeadingNodeForIndex(lines, node, knownTagsLower, nextAutoHeadingId, options) {
 	const includeDetails = !options || options.includeDetails !== false;
-
-	while (stack.length && stack[stack.length - 1].tabDepth >= node.tabDepth) {
-		stack.pop();
-	}
 
 	const above = parseHeadingIdentityAbove(lines, node.lineIndex);
 	const meta = parseHeadingMetaBlock(node.metaLines || []);
-	let headingId = above?.headingIdNum ?? meta.headingIdNum;
+	let headingId = options?.headingIdOverride ?? above?.headingIdNum ?? meta.headingIdNum;
 	if (headingId == null || !Number.isFinite(headingId)) {
 		headingId = nextAutoHeadingId;
 		nextAutoHeadingId += 1;
@@ -378,21 +368,18 @@ function parseHeadingNodeForIndex(lines, node, stack, knownTagsLower, nextAutoHe
 		nextAutoHeadingId = Math.max(nextAutoHeadingId, headingId + 1);
 	}
 
-	const parentId = stack.length ? stack[stack.length - 1].headingId : null;
-	const rawMetadataType =
-		meta.metadataType || inferMetadataTypeFromMetaLines(node.metaLines || []) || '';
-	const knownMetadataTypeIds =
-		options && options.knownMetadataTypeIds ? options.knownMetadataTypeIds : getKnownMetadataTypeIds();
-	const metadataType = normalizeMetadataTypeForIndex(rawMetadataType, knownMetadataTypeIds);
+	const metadataType = normalizeMetadataTypeForIndex(
+		options?.metadataType,
+		options?.knownMetadataTypeIds || getKnownMetadataTypeIds()
+	);
 	const hashMetaLines = structuredMetaLinesForHash(node.metaLines || []);
 	const hash =
 		above?.hash ||
 		meta.hash ||
-		computeHeadingHash(node.title, parentId, metadataType, hashMetaLines);
+		computeHeadingHash(node.title, metadataType, hashMetaLines);
 
 	const heading = {
 		heading_id: headingId,
-		parent_id: parentId,
 		title: node.title,
 		tab_depth: node.tabDepth,
 		metadata_type: metadataType,
@@ -418,8 +405,6 @@ function parseHeadingNodeForIndex(lines, node, stack, knownTagsLower, nextAutoHe
 		}
 	}
 
-	stack.push({ tabDepth: node.tabDepth, headingId });
-
 	return {
 		heading,
 		references,
@@ -439,6 +424,14 @@ function parseHeadingNodeForIndex(lines, node, stack, knownTagsLower, nextAutoHe
 function parseAllHeadingNodesForIndex(lines, nodes, knownTagsLower, options) {
 	const onlyDetail = options && options.onlyDetailForNodeIndices;
 	const knownMetadataTypeIds = options?.knownMetadataTypeIds || getKnownMetadataTypeIds();
+	const metadataSettings = getMetadataSettings();
+	const separatorIndex = lines.findIndex(line => String(line || '').trim() === '---');
+	const h0NodeIndex = nodes.findIndex(
+		node =>
+			node.valid !== false &&
+			node.tabDepth === 0 &&
+			(separatorIndex < 0 || node.lineIndex < separatorIndex)
+	);
 
 	/** @type {object[]} */
 	const headings = [];
@@ -452,13 +445,22 @@ function parseAllHeadingNodesForIndex(lines, nodes, knownTagsLower, options) {
 	const typedMetadata = [];
 	/** @type {Map<number, number>} */
 	const headingIdByNodeIndex = new Map();
-	/** @type {{ tabDepth: number, headingId: number }[]} */
-	const stack = [];
 	let nextAutoHeadingId = 1;
+	for (const node of nodes) {
+		const existingIdentity = parseHeadingIdentityAbove(lines, node.lineIndex);
+		if (existingIdentity?.headingIdNum > 0) {
+			nextAutoHeadingId = Math.max(nextAutoHeadingId, existingIdentity.headingIdNum + 1);
+		}
+	}
 
 	for (let nodeIndex = 0; nodeIndex < nodes.length; nodeIndex++) {
 		const node = nodes[nodeIndex];
 		if (node.valid === false) {
+			continue;
+		}
+		const isH0 = nodeIndex === h0NodeIndex;
+		const classification = classifyPersistentHeadingTitle(node.title, metadataSettings);
+		if (!isH0 && !classification.persistent) {
 			continue;
 		}
 
@@ -466,10 +468,14 @@ function parseAllHeadingNodesForIndex(lines, nodes, knownTagsLower, options) {
 		const parsed = parseHeadingNodeForIndex(
 			lines,
 			node,
-			stack,
 			knownTagsLower,
 			nextAutoHeadingId,
-			{ includeDetails, knownMetadataTypeIds }
+			{
+				includeDetails,
+				knownMetadataTypeIds,
+				metadataType: classification.metadataType,
+				headingIdOverride: isH0 ? 0 : null
+			}
 		);
 		nextAutoHeadingId = parsed.nextAutoHeadingId;
 		headingIdByNodeIndex.set(nodeIndex, parsed.heading.heading_id);

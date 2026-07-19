@@ -1,6 +1,10 @@
 'use strict';
 
 const { collectHeadingSequenceValidated, parseHeadingForValidation } = require('../document/parse/dripnoteCanvasParse');
+const { getMetadataSettings } = require('../document/model/dripnoteMetadataTemplates');
+const {
+	classifyPersistentHeadingTitle
+} = require('../document/model/dripnotePersistentHeading');
 const { computeHeadingHash } = require('./dripIndexParse');
 const { parseFileEntityIdNumber, formatFileEntityId } = require('./dripnoteEntityIds');
 const {
@@ -59,18 +63,6 @@ function formatHeadingIdentityLine(fileEntityId, headingNum, hash) {
 	const base = `${fid}:h${n}`;
 	const h = String(hash || '').trim();
 	return h ? `${base} #${h}` : base;
-}
-
-/**
- * @param {string[]} metaLines
- * @returns {string}
- */
-function inferMetadataTypeFromMetaLines(metaLines) {
-	for (const line of metaLines || []) {
-		const m = String(line || '').match(/^\s*\.(\w[\w-]*)/);
-		if (m) return String(m[1] || '').toLowerCase();
-	}
-	return '';
 }
 
 /**
@@ -386,9 +378,20 @@ function isHeadingStubLine(line) {
  */
 function hasHeadingNeedingIdAllocation(text) {
 	const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+	const sepIdx = findSeparatorLineIndex(lines);
 	const { nodes } = collectHeadingSequenceValidated(lines, 0);
+	const settings = getMetadataSettings();
+	let firstRootBeforeSep = -1;
+	for (const node of nodes) {
+		if (node.tabDepth !== 0) continue;
+		if (sepIdx >= 0 && node.lineIndex >= sepIdx) continue;
+		firstRootBeforeSep = node.lineIndex;
+		break;
+	}
 	for (const node of nodes) {
 		if (!/\S/.test(String(node.title || '').trim())) continue;
+		const isH0 = isH0HeadingNode(node, sepIdx, firstRootBeforeSep);
+		if (!isH0 && !classifyPersistentHeadingTitle(node.title, settings).persistent) continue;
 		if (headingHasIdentitySlot(lines, node)) continue;
 		return true;
 	}
@@ -413,6 +416,7 @@ function countNonH0HeadingsInText(text) {
 	const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
 	const sepIdx = findSeparatorLineIndex(lines);
 	const { nodes } = collectHeadingSequenceValidated(lines, 0);
+	const settings = getMetadataSettings();
 	const titled = nodes.filter(node => /\S/.test(String(node.title || '').trim()));
 	let firstRootBeforeSep = -1;
 	for (const node of titled) {
@@ -424,6 +428,7 @@ function countNonH0HeadingsInText(text) {
 	let nonH0Count = 0;
 	for (const node of titled) {
 		if (isH0HeadingNode(node, sepIdx, firstRootBeforeSep)) continue;
+		if (!classifyPersistentHeadingTitle(node.title, settings).persistent) continue;
 		nonH0Count += 1;
 	}
 	return nonH0Count;
@@ -607,9 +612,11 @@ function finalizeReconciledText(lines, sepIdx, firstRootBeforeSep, nodes, file) 
 	const topEndFinal = sepIdxFinal >= 0 ? sepIdxFinal : lines.length;
 	const topLines = lines.slice(0, topEndFinal);
 	const bodyLines = sepIdxFinal >= 0 ? lines.slice(sepIdxFinal) : [];
+	const settings = getMetadataSettings();
 	let nonH0Count = 0;
 	for (const node of nodes) {
 		if (isH0HeadingNode(node, sepIdx, firstRootBeforeSep)) continue;
+		if (!classifyPersistentHeadingTitle(node.title, settings).persistent) continue;
 		nonH0Count += 1;
 	}
 	let nextTop = writeHeadingsCountIntoTopLines(topLines, nonH0Count);
@@ -624,8 +631,22 @@ function finalizeReconciledText(lines, sepIdx, firstRootBeforeSep, nodes, file) 
  */
 function headingMetadataSignature(text) {
 	const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+	const sepIdx = findSeparatorLineIndex(lines);
 	const { nodes } = collectHeadingSequenceValidated(lines, 0);
+	const settings = getMetadataSettings();
+	let firstRootBeforeSep = -1;
+	for (const node of nodes) {
+		if (node.tabDepth !== 0) continue;
+		if (sepIdx >= 0 && node.lineIndex >= sepIdx) continue;
+		firstRootBeforeSep = node.lineIndex;
+		break;
+	}
 	return nodes
+		.filter(
+			node =>
+				isH0HeadingNode(node, sepIdx, firstRootBeforeSep) ||
+				classifyPersistentHeadingTitle(node.title, settings).persistent
+		)
 		.map(
 			node =>
 				`${node.lineIndex}:${node.tabDepth}:${node.title}:${metaLinesForHash(node.metaLines || []).join('\n')}`
@@ -762,6 +783,7 @@ function reconcileHeadingIdentitiesInText(text, options = {}) {
 	const sepIdx = findSeparatorLineIndex(lines);
 	const { nodes: allNodes } = collectHeadingSequenceValidated(lines, 0);
 	const nodes = allNodes.filter(node => /\S/.test(String(node.title || '').trim()));
+	const settings = getMetadataSettings();
 
 	let firstRootBeforeSep = -1;
 	for (const node of nodes) {
@@ -874,23 +896,26 @@ function reconcileHeadingIdentitiesInText(text, options = {}) {
 			wantNumByLine.set(node.lineIndex, 0);
 			continue;
 		}
+		if (!classifyPersistentHeadingTitle(node.title, settings).persistent) continue;
 		const id = allocateNonH0Id();
 		wantNumByLine.set(node.lineIndex, id);
 	}
 
-	/** @type {{ tabDepth: number, headingId: number }[]} */
-	const hashStack = [];
 	/** @type {Map<number, string>} */
 	const wantLineByIndex = new Map();
 
 	for (const node of nodes) {
-		while (hashStack.length && hashStack[hashStack.length - 1].tabDepth >= node.tabDepth) {
-			hashStack.pop();
-		}
-		const parentId = hashStack.length ? hashStack[hashStack.length - 1].headingId : null;
-		const wantNum = wantNumByLine.get(node.lineIndex) ?? 0;
-		const metadataType = inferMetadataTypeFromMetaLines(node.metaLines || []);
 		const attachedBefore = findHeadingIdentityForNode(lines, node);
+		const isH0 = isH0HeadingNode(node, sepIdx, firstRootBeforeSep);
+		const classification = classifyPersistentHeadingTitle(node.title, settings);
+		if (!isH0 && !classification.persistent) {
+			if (attachedBefore) {
+				wantLineByIndex.set(node.lineIndex, String(lines[attachedBefore.lineIndex] || ''));
+			}
+			continue;
+		}
+		const wantNum = wantNumByLine.get(node.lineIndex) ?? 0;
+		const metadataType = classification.metadataType || '';
 		const prevNum = attachedBefore ? attachedBefore.parsed.headingNum : null;
 		const prevHash = attachedBefore ? attachedBefore.parsed.hash : '';
 		const sameNum = prevNum != null && prevNum === wantNum;
@@ -900,14 +925,12 @@ function reconcileHeadingIdentitiesInText(text, options = {}) {
 		} else {
 			hash = computeHeadingHash(
 				node.title,
-				parentId,
 				metadataType,
 				metaLinesForHash(node.metaLines || [])
 			);
 		}
 		const indent = headingLineIndent(lines, node.lineIndex);
 		wantLineByIndex.set(node.lineIndex, `${indent}${formatHeadingIdentityLine(file.fileEntityId, wantNum, hash)}`);
-		hashStack.push({ tabDepth: node.tabDepth, headingId: wantNum });
 	}
 
 	const sorted = [...nodes].sort((a, b) => b.lineIndex - a.lineIndex);

@@ -3,7 +3,7 @@
 const { inferMarkerFromMeta } = require('../parse/dripnoteCanvasParse');
 const { getMetadataSettings, matchHeadingTitleTypePrefix } = require('../model/dripnoteMetadataTemplates');
 
-const TASK_ID_IN_TITLE_RE = /^\.t(\d+)(?=\s|$)/i;
+const TASK_ID_IN_TITLE_RE = /^(\.?t)(\d+)(?=\s|$)/i;
 const PARENT_LINE_RE = /^\s*parent\s*:\s*\[([^\]]*)\]/i;
 const PARENT_TOKEN_RE = /\bt(\d+)\b/gi;
 const WORKFLOW_FLAG_RE = /^\s*workflow\s*:\s*(true|false)\s*$/i;
@@ -43,11 +43,27 @@ function parseWorkflowFlag(metaLines) {
  */
 function matchTaskTitleShortcut(title, taskShortcut = 't') {
 	const settings = taskAwareSettings(taskShortcut);
-	return matchHeadingTitleTypePrefix(title, settings);
+	const dotted = matchHeadingTitleTypePrefix(title, settings);
+	if (dotted.matchedPrefix || dotted.typeId || dotted.invalid) return dotted;
+
+	const shortcut = String(taskShortcut || 't').replace(/^\./, '') || 't';
+	const escaped = shortcut.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	const undotted = String(title || '').trim().match(
+		new RegExp(`^(${escaped})(\\d*)(?=\\s|$)`, 'i')
+	);
+	if (!undotted) return dotted;
+	const taskId = undotted[2] ? parseInt(undotted[2], 10) : null;
+	return {
+		typeId: 'task',
+		matchedPrefix: undotted[0],
+		form: undotted[2] ? 'numeric' : 'exact',
+		taskId: Number.isFinite(taskId) && taskId > 0 ? taskId : null,
+		invalid: false
+	};
 }
 
 /**
- * Workflow root = a task (`.task` / `.t` / `.tN`) with `workflow: true` as a heading-special key.
+ * Workflow root = a task (`.task` / `.tN` / `tN`) with `workflow: true`.
  * @param {{ title?: string, metaLines?: string[] }} node
  * @param {string} [taskMarker]
  * @returns {boolean}
@@ -66,7 +82,7 @@ function parseTaskIdFromTitle(title) {
 	if (matched.form === 'numeric' && matched.taskId) return matched.taskId;
 	const m = String(title || '').trim().match(TASK_ID_IN_TITLE_RE);
 	if (!m) return null;
-	const n = parseInt(m[1], 10);
+	const n = parseInt(m[2], 10);
 	return Number.isFinite(n) && n > 0 ? n : null;
 }
 
@@ -389,7 +405,7 @@ function buildWorkflowGraphForCanvas(roots, docIdx, taskMarker = '.task') {
 }
 
 /**
- * Insert or replace `.t` / `.tN` / invalid `.t…` prefix with `.t{taskId}`.
+ * Insert or replace dotted or undotted task prefix with its dense task id.
  * @param {string} line
  * @param {number} taskId
  * @returns {string}
@@ -405,17 +421,18 @@ function ensureTaskIdInHeadingLine(line, taskId) {
 	const matched = matchTaskTitleShortcut(trimmed);
 	if (matched.matchedPrefix) {
 		const after = trimmed.slice(matched.matchedPrefix.length).replace(/^\s*/, ' ');
-		return tabs + hashes + lead + `.t${taskId}` + (after.trim() ? after : '');
+		const prefix = matched.matchedPrefix.startsWith('.') ? '.t' : 't';
+		return tabs + hashes + lead + `${prefix}${taskId}` + (after.trim() ? after : '');
 	}
 	if (TASK_ID_IN_TITLE_RE.test(trimmed)) {
-		const replaced = trimmed.replace(TASK_ID_IN_TITLE_RE, `.t${taskId}`);
+		const replaced = trimmed.replace(TASK_ID_IN_TITLE_RE, (_all, prefix) => `${prefix}${taskId}`);
 		return tabs + hashes + lead + replaced;
 	}
 	return tabs + hashes + lead + `.t${taskId} ` + trimmed;
 }
 
 /**
- * Strip `.tN` to unnumbered `.t` (task off contiguous workflow chain).
+ * Strip a numbered task to unnumbered `t` / `.t`, preserving its style.
  * @param {string} line
  * @returns {string}
  */
@@ -428,7 +445,9 @@ function stripTaskIdFromHeadingLine(line) {
 	const trimmed = rest.trimStart();
 	const lead = rest.slice(0, rest.length - trimmed.length);
 	if (!TASK_ID_IN_TITLE_RE.test(trimmed)) return line;
-	const after = trimmed.replace(TASK_ID_IN_TITLE_RE, '.t').replace(/^\.t(?=\S)/, '.t ');
+	const after = trimmed
+		.replace(TASK_ID_IN_TITLE_RE, (_all, prefix) => prefix)
+		.replace(/^(\.?t)(?=\S)/i, '$1 ');
 	return tabs + hashes + lead + after;
 }
 

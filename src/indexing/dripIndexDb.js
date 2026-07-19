@@ -323,14 +323,12 @@ function insertParsedHeadingsAndReferences(db, fileId, parsed, tagIdByLower) {
 		}
 		seenHeadingIds.add(headingId);
 		db.run(
-			`INSERT INTO headings (file_id, heading_id, parent_id, title, tab_depth, metadata_type, hash)
-			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO headings (file_id, heading_id, title, metadata_type, hash)
+			 VALUES (?, ?, ?, ?, ?)`,
 			[
 				fileId,
 				headingId,
-				heading.parent_id,
 				heading.title,
-				Number.isFinite(heading.tab_depth) ? heading.tab_depth : 0,
 				normalizeMetadataTypeForIndex(heading.metadata_type),
 				heading.hash
 			]

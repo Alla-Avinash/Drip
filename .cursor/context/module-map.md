@@ -101,6 +101,7 @@ Grep/read only files relevant to your task.
 | KB note ops (header/body, ingest) | `src/document/kbNoteOps.js` |
 | Grammar / editor language config | `src/document/syntaxes/dripnote.tmLanguage.json`, `language-configuration.json` |
 | Model / templates | `src/document/model/dripnoteMetadataTemplates.js`, `noteFileTypes.js` |
+| Persistent heading rule (`# .` / configured type) | `src/document/model/dripnotePersistentHeading.js` |
 | **Workflow DAG** (task `workflow: true` next-line, contiguous `.t1…tN`, `parent:`) | `src/document/workflow/dripnoteWorkflowParse.js`, `dripnoteWorkflowTaskIdentity.js` (renumber + parent remap/scrub), `dripnoteWorkflowDiagnostics.js`; title shortcut → `dripnoteMetadataTemplates.matchHeadingTitleTypePrefix` |
 | Validate / diagnostics | `src/document/validate/dripnoteMetadataDiagnosticsTemplates.js` |
 

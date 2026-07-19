@@ -1219,20 +1219,17 @@
 			if (!tasks.length) return;
 
 			/*
-			 * Workflow `.tN` root is not in wg.tasks — inject it for layout so
-			 * growth is S₀={t1} → directs {t2,t5} → {t3} → multi {t9} …
+			 * Workflow root (unnumbered `.t`) is not in wg.tasks — inject it for layout
+			 * so growth is S₀={root} → directs {t1,t2} → … Root uses synthetic id 0
+			 * (real tasks are always ≥ 1).
 			 */
-			const rootTaskId = wg.rootTaskId;
-			if (
-				rootTaskId &&
-				!tasks.some(t => t.taskId === rootTaskId) &&
-				wg.wfGid
-			) {
+			const rootTaskId = wg.rootTaskId || 0;
+			if (!tasks.some(t => t.taskId === rootTaskId) && wg.wfGid) {
 				tasks.unshift({
 					gid: wg.wfGid,
 					lineIndex: -1,
 					tabDepth: 0,
-					title: wg.wfTitle || `.t${rootTaskId}`,
+					title: wg.wfTitle || '.t',
 					taskId: rootTaskId,
 					parentTaskIds: [],
 					isTask: true

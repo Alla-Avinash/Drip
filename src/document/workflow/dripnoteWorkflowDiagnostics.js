@@ -11,8 +11,7 @@ const {
 	headingIsWorkflowTask,
 	collectWorkflowTasks,
 	findWorkflowRoots,
-	findWorkflowCycleTaskId,
-	parseTaskIdFromTitle
+	findWorkflowCycleTaskId
 } = require('./dripnoteWorkflowParse');
 
 const WORKFLOW_PARENT_CODE = 'drip.workflowParent';
@@ -38,18 +37,12 @@ function collectWorkflowDiagnostics(lines, settings, diagnostics) {
 		/** @type {Map<number, number>} taskId -> lineIndex */
 		const idToLine = new Map();
 
-		const rootTaskId = parseTaskIdFromTitle(root.title);
-		if (rootTaskId) {
-			knownIds.add(rootTaskId);
-			idToLine.set(rootTaskId, root.lineIndex);
-		}
-
 		for (const t of tasks) {
 			if (t.taskId) {
 				if (knownIds.has(t.taskId)) {
 					const d = new vscode.Diagnostic(
 						new vscode.Range(t.lineIndex, 0, t.lineIndex, String(lines[t.lineIndex] || '').length),
-						`Duplicate workflow task id ".t${t.taskId}" in this workflow.`,
+						`Duplicate workflow task id "t${t.taskId}" in this workflow.`,
 						vscode.DiagnosticSeverity.Error
 					);
 					d.code = WORKFLOW_DUPLICATE_TASK_CODE;
@@ -132,7 +125,7 @@ function collectWorkflowDiagnostics(lines, settings, diagnostics) {
 		if (!inWorkflowTask) {
 			const d = new vscode.Diagnostic(
 				new vscode.Range(i, 0, i, String(lines[i] || '').length),
-				'parent: is only valid on task headings (.task / .t / .tN) under a task with workflow: true.',
+				'parent: is only valid on task headings (.task / .tN / tN) under a task with workflow: true.',
 				vscode.DiagnosticSeverity.Error
 			);
 			d.code = WORKFLOW_PARENT_CODE;

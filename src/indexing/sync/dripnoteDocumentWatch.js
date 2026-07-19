@@ -157,8 +157,6 @@ function computeIndexPersistenceSignature(parsed) {
 			h.heading_id,
 			h.hash,
 			h.title,
-			h.parent_id,
-			h.tab_depth,
 			h.metadata_type
 		])
 		.sort((a, b) => a[0] - b[0]);

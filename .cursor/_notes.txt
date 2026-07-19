@@ -14,6 +14,47 @@ to run
     .\scripts\code.bat
 
 
+
+currently newly implemented
+
+heading id modifications 	
+    - one problem observed in the drip application .d.txt files is that there are a lot of headings for each file and storing all these headings is just a waste of space.. you don't need to store the structural hierarchy in the database DB
+    - only store the headings which are meaningful and which are rich in metadata in the database DB and don't store all the headings meaninglessly it will be useless to search all these headings later on.. 
+        - we can implement this by having to only store the headings with "# ." here they can have special metadata or they can be just plain headings like "# .c this is a concept heading" and  "# . this is a normal heading" 
+        - in the schema of the DB we will have the metadata type of these headings with that "metadata" or with NULL. where null is the default for normal headings if it doesn't have any metadatatype 
+        - here if any normal headings don't have a . at the start then it will not store the heading in the db but will just have it colored up as the same as the other headings..
+        - you can also not have any heading id provided to these headings with no "# ." present, as it would seem a waste to have every heading with heading id's and those which are not used at all.. 
+            - the canvas view will render as usual with or without any heading id's; It will just see the headings and make the canvas views same as before.. 
+            - it also won't effect the other components.. and they function as is without much change
+            - only change is there are limited headings managed in the DB 
+            - the default template we get when we have a new .d.txt file created will be the same with the persitant heading id  of h0 
+            - here the heading count will entirely depend on the persistant headings in the file rather than all the headings kept
+        - some of the examples on why we would need these normal headings would be like to have some headings to templates, rather than meaningful headings with proper information.. it can be simply "examples", "explanation", "topic", "Why is this important?" etc
+    - final schema for the heading id's 
+        - # .   ==> saves to the headings db where it can be used in searching up and retrieving; these can have tags, relations under it.. 
+        - # .c  ==> saves to the headings table as well as the metadata type table, and stores the metadata provided, can also have tags,relations etc 
+        - # c   ==> don't save it anywhere, it just represents that this heading is important and it specifies like it has some metadata like a concept or it is related to an issue or related to a feature 
+        - #     ==> don't save anything, don't have any special meaning to categorize into a metadata ; these are almost like template headings but they are not quite standard so they can be stand alone.. 
+
+
+
+
+file level graph and giving the concept metadata type numbering 
+- numbering of the headings to have a file only numering for the metadata type.. helpful for making a file only tags like node graph 
+    - # .c# ==> the second hash represents the numbering, it converts into a numbered id same as the task id in the workflow which changes when changes are made like adding a new numbered metadata above or below and changes to the parent: []
+    - # c#  ==> the second hash represents the numbering, it converts into a numbered id same as the task id in the workflow which changes when changes are made
+
+
+
+
+
+
+
+
+
+
+
+
 currenlty working on
 startup flow of the user..   
 finalizing the data types of the drip settings 
@@ -112,6 +153,7 @@ t1--|
   
 errors that you should fix......
     when you have debounce to do the reconcile immediately when we type a heading after sometime we have a update of the hash and the cursor moves to the top i don't want the cursor to move at all but it should be an automatic paste of the hash after it is computed.. 
+    need to make the architecture into easy components for code parts 
 
 
 

@@ -79,7 +79,7 @@ The main trigger is called an activation event.
                 "command": "myext.sayHello",
                 "title": "Say Hello"
             }
-        ]
+        ] 
         Here, "myext.sayHello" is the command ID.
         and When you type in "Say Hello" in the command pallete then it will run this command
     

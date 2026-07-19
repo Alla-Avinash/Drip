@@ -358,7 +358,7 @@
 						{
 							"id": "concept",
 							"marker": ".concept",
-							"shortcut": ".c",
+							"shortcut": "c",
 							"color": "",
 							"displayTemplate": true,
 							"attributes": {
@@ -397,7 +397,7 @@
 						{
 							"id": "task",
 							"marker": ".task",
-							"shortcut": ".t",
+							"shortcut": "t",
 							"color": "",
 							"displayTemplate": true,
 							"attributes": {
@@ -445,7 +445,7 @@
 						{
 							"id": "project",
 							"marker": ".project",
-							"shortcut": ".p",
+							"shortcut": "p",
 							"color": "",
 							"displayTemplate": true,
 							"attributes": {
@@ -479,7 +479,7 @@
 						{
 							"id": "implementation",
 							"marker": ".implementation",
-							"shortcut": ".impl",
+							"shortcut": "impl",
 							"color": "",
 							"displayTemplate": true,
 							"attributes": {
@@ -497,7 +497,7 @@
 						{
 							"id": "issue",
 							"marker": ".issue",
-							"shortcut": ".i",
+							"shortcut": "i",
 							"color": "",
 							"displayTemplate": true,
 							"attributes": {

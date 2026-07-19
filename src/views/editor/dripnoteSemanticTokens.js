@@ -75,6 +75,29 @@ function isHeadingTypeLine(line, typeSet) {
 	return false;
 }
 
+/**
+ * Plain heading shortcuts are display-only type hints (`# c Title`).
+ * They do not create a typed metadata context or make the heading persistent.
+ * @param {string} line
+ * @param {{ typeByShortcut?: Map<string, any> }} settings
+ * @returns {string}
+ */
+function matchPlainHeadingShortcut(line, settings) {
+	const heading = String(line || '').match(/^\s*#{1,6}\s+([A-Za-z][A-Za-z0-9_-]*)(?=\s|$)/);
+	if (!heading) return '';
+	const token = String(heading[1] || '');
+	const shortcuts = [...(settings.typeByShortcut?.keys() || [])]
+		.map(value => String(value || ''))
+		.filter(value => value && !value.includes('.'))
+		.sort((a, b) => b.length - a.length);
+	for (const shortcut of shortcuts) {
+		if (token === shortcut) return token;
+		const suffix = token.slice(shortcut.length);
+		if (token.startsWith(shortcut) && /^\d+$/.test(suffix)) return token;
+	}
+	return '';
+}
+
 function addKeyValueTokens(builder, lineNo, line, key, tokenType) {
 	const idx = line.toLowerCase().indexOf(String(key || '').toLowerCase());
 	if (idx >= 0) {
@@ -252,11 +275,19 @@ function registerDripnoteSemanticTokens(context) {
 						builder.push(i, markerStart, matched.matchedPrefix.length, typeIndex('type'), 0);
 					}
 				} else {
-					const headingMarker = line.match(/^\s*#{1,6}\s+(\.[a-zA-Z][a-zA-Z0-9_-]*)\b/);
-					if (headingMarker) {
-						const marker = String(headingMarker[1] || '');
-						const markerStart = line.indexOf(marker);
-						if (markerStart >= 0) builder.push(i, markerStart, marker.length, typeIndex('type'), 0);
+					const plainShortcut = matchPlainHeadingShortcut(line, settings);
+					if (plainShortcut) {
+						const shortcutStart = line.indexOf(plainShortcut);
+						if (shortcutStart >= 0) {
+							builder.push(i, shortcutStart, plainShortcut.length, typeIndex('type'), 0);
+						}
+					} else {
+						const headingMarker = line.match(/^\s*#{1,6}\s+(\.[a-zA-Z][a-zA-Z0-9_-]*)\b/);
+						if (headingMarker) {
+							const marker = String(headingMarker[1] || '');
+							const markerStart = line.indexOf(marker);
+							if (markerStart >= 0) builder.push(i, markerStart, marker.length, typeIndex('type'), 0);
+						}
 					}
 				}
 				tokenizeMetadataBlockFromIndex(
