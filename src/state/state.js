@@ -2,7 +2,7 @@
 
 const vscode = require('vscode');
 const path = require('path');
-const { DRAFTS_KEY, KB_ROOT_KEY, RETRIEVER_UI_STATE_KEY } = require('../shared/constants');
+const { DRAFTS_KEY, KB_ROOT_KEY, RETRIEVER_UI_STATE_KEY, RECENTS_KEY, RECENTS_MAX } = require('../shared/constants');
 const {
 	buildNoteFileName,
 	fileNameMatchesKbNote,
@@ -81,16 +81,66 @@ class DripState {
 		this._draftsCache = null;
 		/** @type {(() => void) | null} */
 		this._draftsRefreshListener = null;
+		/** @type {(() => void) | null} */
+		this._recentsRefreshListener = null;
 	}
 
 	setDraftsRefreshListener(listener) {
 		this._draftsRefreshListener = typeof listener === 'function' ? listener : null;
 	}
 
+	setRecentsRefreshListener(listener) {
+		this._recentsRefreshListener = typeof listener === 'function' ? listener : null;
+	}
+
 	_notifyDraftsRefresh() {
 		if (this._draftsRefreshListener) {
 			this._draftsRefreshListener();
 		}
+	}
+
+	_notifyRecentsRefresh() {
+		if (this._recentsRefreshListener) {
+			this._recentsRefreshListener();
+		}
+	}
+
+	/**
+	 * @returns {{ uri: string, label: string }[]}
+	 */
+	getRecentFiles() {
+		const raw = this.context.workspaceState.get(RECENTS_KEY, []);
+		if (!Array.isArray(raw)) return [];
+		return raw
+			.map(entry => {
+				const uri = String((entry && entry.uri) || '').trim();
+				if (!uri) return null;
+				const label =
+					String((entry && entry.label) || '').trim() ||
+					path.basename(uri.replace(/\\/g, '/')) ||
+					uri;
+				return { uri, label };
+			})
+			.filter(Boolean)
+			.slice(0, RECENTS_MAX);
+	}
+
+	/**
+	 * Record a dripnote file as opened or modified. Keeps at most {@link RECENTS_MAX} entries.
+	 * @param {import('vscode').Uri} uri
+	 */
+	async touchRecentFile(uri) {
+		if (!uri || uri.scheme === 'untitled') return;
+		const fsPath = String(uri.fsPath || '').toLowerCase();
+		if (!fsPath.endsWith('.d.txt') && uri.path && !String(uri.path).toLowerCase().endsWith('.d.txt')) {
+			return;
+		}
+		const key = uri.toString();
+		const label = path.basename(uri.fsPath || uri.path || key) || key;
+		const prev = this.getRecentFiles().filter(entry => entry.uri !== key);
+		const next = [{ uri: key, label }, ...prev].slice(0, RECENTS_MAX);
+		await this.context.workspaceState.update(RECENTS_KEY, next);
+		this._notifyRecentsRefresh();
 	}
 
 	async refreshDraftsFromStorage() {

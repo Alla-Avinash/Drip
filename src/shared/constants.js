@@ -10,6 +10,7 @@ const DRIP_SUBGRAPH_PANEL_ID = 'drip.subGraphEditor';
 const DRIP_COMPONENTS_VIEW_ID = 'drip.components';
 const DRIP_KB_VIEW_ID = 'drip.knowledgeBase';
 const DRIP_DRAFTS_VIEW_ID = 'drip.drafts';
+const DRIP_RECENTS_VIEW_ID = 'drip.recents';
 /** @deprecated alias for DRIP_KB_VIEW_ID */
 const DRIP_VIEW_ID = DRIP_KB_VIEW_ID;
 /** @deprecated merged into separate section views */
@@ -20,8 +21,12 @@ const DRIP_COMMAND_ID = 'drip.openComposer';
 const DRIP_OPEN_KB_EDITOR_COMMAND_ID = 'drip.openKbEditor';
 const DRIP_CAPTURE_SELECTION_COMMAND_ID = 'drip.captureSelectionToComposer';
 const DRIP_SELECT_KB_COMMAND_ID = 'drip.selectKnowledgeBase';
+const DRIP_OPEN_RECENT_FILE_COMMAND_ID = 'drip.openRecentFile';
 const DRAFTS_KEY = 'drip.drafts';
 const KB_ROOT_KEY = 'drip.kbRoot';
+/** Workspace-scoped list of recently opened/modified dripnote files (max 10). */
+const RECENTS_KEY = 'drip.recentFiles';
+const RECENTS_MAX = 10;
 /** Workspace-scoped persisted Retriever filter/display UI (excluding row pagination). */
 const RETRIEVER_UI_STATE_KEY = 'drip.retrieverUiPersist_v1';
 const NOTE_EXTENSION = '.d.txt';
@@ -35,6 +40,7 @@ module.exports = {
 	DRIP_COMPONENTS_VIEW_ID,
 	DRIP_KB_VIEW_ID,
 	DRIP_DRAFTS_VIEW_ID,
+	DRIP_RECENTS_VIEW_ID,
 	DRIP_SIDEBAR_VIEW_ID,
 	DRIP_VIEW_ID,
 	DRIP_SETTINGS_VIEW_ID,
@@ -43,8 +49,11 @@ module.exports = {
 	DRIP_OPEN_KB_EDITOR_COMMAND_ID,
 	DRIP_CAPTURE_SELECTION_COMMAND_ID,
 	DRIP_SELECT_KB_COMMAND_ID,
+	DRIP_OPEN_RECENT_FILE_COMMAND_ID,
 	DRAFTS_KEY,
 	KB_ROOT_KEY,
+	RECENTS_KEY,
+	RECENTS_MAX,
 	RETRIEVER_UI_STATE_KEY,
 	NOTE_EXTENSION,
 	KB_EDITOR_NOTE_FILENAME

@@ -20,7 +20,7 @@ const COMPONENT_ENTRIES = [
 class DripTreeDataProvider {
 	/**
 	 * @param {*} state
-	 * @param {'components' | 'knowledge' | 'drafts'} mode
+	 * @param {'components' | 'knowledge' | 'drafts' | 'recents'} mode
 	 */
 	constructor(state, mode) {
 		this.state = state;
@@ -45,6 +45,13 @@ class DripTreeDataProvider {
 			if (this.mode === 'drafts') {
 				if (!element) {
 					return this.getDraftItems();
+				}
+				return [];
+			}
+
+			if (this.mode === 'recents') {
+				if (!element) {
+					return this.getRecentItems();
 				}
 				return [];
 			}
@@ -133,6 +140,34 @@ class DripTreeDataProvider {
 				arguments: [draft.id]
 			};
 			item.contextValue = 'dripDraft';
+			return item;
+		});
+	}
+
+	getRecentItems() {
+		const recents =
+			typeof this.state.getRecentFiles === 'function' ? this.state.getRecentFiles() : [];
+		if (!recents.length) {
+			const emptyItem = new vscode.TreeItem(
+				'No recent files yet',
+				vscode.TreeItemCollapsibleState.None
+			);
+			emptyItem.description = 'Open or save a .d.txt note';
+			emptyItem.contextValue = 'dripRecentEmpty';
+			return [emptyItem];
+		}
+
+		return recents.map(entry => {
+			const item = new vscode.TreeItem(entry.label, vscode.TreeItemCollapsibleState.None);
+			item.kind = 'recent';
+			item.tooltip = entry.uri;
+			item.iconPath = new vscode.ThemeIcon('file');
+			item.command = {
+				command: 'drip.openRecentFile',
+				title: 'Open Recent File',
+				arguments: [entry.uri]
+			};
+			item.contextValue = 'dripRecent';
 			return item;
 		});
 	}

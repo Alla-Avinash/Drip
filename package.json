@@ -28,6 +28,7 @@
 		"onView:drip.components",
 		"onView:drip.knowledgeBase",
 		"onView:drip.drafts",
+		"onView:drip.recents",
 		"onView:drip.storage",
 		"onCommand:drip.copyPath",
 		"onCommand:drip.renameItem",
@@ -79,6 +80,13 @@
 					"icon": "$(note)",
 					"visibility": "visible",
 					"initialSize": 4
+				},
+				{
+					"id": "drip.recents",
+					"name": "Recents",
+					"icon": "$(history)",
+					"visibility": "visible",
+					"initialSize": 4
 				}
 			],
 			"drip-storage-panel": [
@@ -94,6 +102,11 @@
 			{
 				"command": "drip.openComposer",
 				"title": "Open Composer"
+			},
+			{
+				"command": "drip.openRecentFile",
+				"title": "Open Recent File",
+				"category": "DRIP"
 			},
 			{
 				"command": "drip.openKbEditor",

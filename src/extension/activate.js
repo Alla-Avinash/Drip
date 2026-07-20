@@ -8,7 +8,9 @@ const {
 	DRIP_OPEN_KB_EDITOR_COMMAND_ID,
 	DRIP_COMPONENTS_VIEW_ID,
 	DRIP_KB_VIEW_ID,
-	DRIP_DRAFTS_VIEW_ID
+	DRIP_DRAFTS_VIEW_ID,
+	DRIP_RECENTS_VIEW_ID,
+	DRIP_OPEN_RECENT_FILE_COMMAND_ID
 } = require('../shared/constants');
 const { DripState } = require('../state/state');
 const { DripTreeDataProvider } = require('../views/lhs/knowledgebase/tree');
@@ -114,14 +116,17 @@ async function activate(context) {
 	const componentsTreeProvider = new DripTreeDataProvider(state, 'components');
 	const kbTreeProvider = new DripTreeDataProvider(state, 'knowledge');
 	const draftsTreeProvider = new DripTreeDataProvider(state, 'drafts');
+	const recentsTreeProvider = new DripTreeDataProvider(state, 'recents');
 	const sidebarRefreshHub = {
 		refresh() {
 			componentsTreeProvider.refresh();
 			kbTreeProvider.refresh();
 			draftsTreeProvider.refresh();
+			recentsTreeProvider.refresh();
 		}
 	};
 	state.setDraftsRefreshListener(() => sidebarRefreshHub.refresh());
+	state.setRecentsRefreshListener(() => recentsTreeProvider.refresh());
 	let hasAutoOpenedComposer = false;
 	let kbWatcher;
 	/** @type {import('vscode').WebviewPanel | null} */
@@ -145,9 +150,42 @@ async function activate(context) {
 	const draftsTreeView = vscode.window.createTreeView(DRIP_DRAFTS_VIEW_ID, {
 		treeDataProvider: draftsTreeProvider
 	});
+	const recentsTreeView = vscode.window.createTreeView(DRIP_RECENTS_VIEW_ID, {
+		treeDataProvider: recentsTreeProvider
+	});
 
-	context.subscriptions.push(componentsTreeView, kbTreeView, draftsTreeView);
+	context.subscriptions.push(componentsTreeView, kbTreeView, draftsTreeView, recentsTreeView);
 	registerDripSidebarViewBehavior(kbTreeView, componentsTreeView, context);
+
+	function isDripnoteDocument(doc) {
+		if (!doc || doc.uri.scheme === 'untitled') return false;
+		if (doc.languageId === 'dripnote') return true;
+		const p = String(doc.uri.fsPath || doc.uri.path || '').toLowerCase();
+		return p.endsWith('.d.txt');
+	}
+
+	async function trackRecentFromDocument(doc) {
+		if (!isDripnoteDocument(doc)) return;
+		try {
+			await state.touchRecentFile(doc.uri);
+		} catch {
+			/* ignore */
+		}
+	}
+
+	context.subscriptions.push(
+		vscode.window.onDidChangeActiveTextEditor(editor => {
+			if (editor && editor.document) {
+				void trackRecentFromDocument(editor.document);
+			}
+		}),
+		vscode.workspace.onDidSaveTextDocument(doc => {
+			void trackRecentFromDocument(doc);
+		})
+	);
+	if (vscode.window.activeTextEditor) {
+		void trackRecentFromDocument(vscode.window.activeTextEditor.document);
+	}
 
 	function ensureKnowledgeBaseWatcher() {
 		kbWatcher?.dispose();
@@ -289,6 +327,21 @@ async function activate(context) {
 		}),
 		vscode.commands.registerCommand(DRIP_COMMAND_ID, async draftId => {
 			await DripComposerPanel.createOrShow(context.extensionUri, state, sidebarRefreshHub, draftId);
+		}),
+		vscode.commands.registerCommand(DRIP_OPEN_RECENT_FILE_COMMAND_ID, async uriOrString => {
+			try {
+				const uri =
+					uriOrString instanceof vscode.Uri
+						? uriOrString
+						: vscode.Uri.parse(String(uriOrString || '').trim());
+				if (!uri || !String(uri.toString() || '').trim()) return;
+				const doc = await vscode.workspace.openTextDocument(uri);
+				await vscode.window.showTextDocument(doc, { preview: false });
+				await state.touchRecentFile(uri);
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				void vscode.window.showErrorMessage(`DRIP could not open recent file: ${msg}`);
+			}
 		}),
 		vscode.commands.registerCommand(DRIP_OPEN_KB_EDITOR_COMMAND_ID, async () => {
 			try {

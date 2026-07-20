@@ -31,6 +31,7 @@ Grep/read only files relevant to your task.
 | Note parse / ingest / ranking | `src/document/kbNoteOps.js` |
 | Note extensions | `src/document/model/noteFileTypes.js` |
 | Tree providers | `src/views/lhs/knowledgebase/tree.js` |
+| Recents (last 10 `.d.txt` opened/saved) | `src/state/state.js` (`getRecentFiles` / `touchRecentFile`), view `drip.recents` in `package.json` + `activate.js` |
 | Create menu, icons, drag-drop | `src/views/lhs/knowledgebase/kbCreateMenu.js`, `kbTreeIcon.js`, `kbTreeDragDrop.js`, `icons/*.svg` |
 | Sidebar behavior | `src/views/lhs/knowledgebase/dripSidebarViews.js` |
 
