@@ -210,13 +210,39 @@ function getCanvasHtml(webview, extensionUri) {
 		<button type="button" class="btn-toolbar secondary" id="btn-zoom-reset" title="Reset zoom and pan">Reset view</button>
 	</div>
 	<div id="canvas-viewport" class="canvas-viewport">
-		<aside id="node-graph-filter" class="node-graph-filter hidden">
-			<button type="button" id="btn-node-filter-toggle" class="node-graph-filter-toggle" aria-expanded="true">Relations ▾</button>
-			<div id="node-graph-filter-body" class="node-graph-filter-body">
-				<p>Show relation edges</p>
-				<div id="node-graph-relation-types"></div>
-			</div>
-		</aside>
+		<div id="node-graph-floats" class="node-graph-floats hidden">
+			<aside id="node-graph-heading-filter" class="node-graph-float">
+				<button type="button" id="btn-node-heading-filter-toggle" class="node-graph-float-toggle" aria-expanded="true">Headings ▾</button>
+				<div id="node-graph-heading-filter-body" class="node-graph-float-body">
+					<p class="node-graph-settings-title">Persistence</p>
+					<div id="node-graph-heading-persistence"></div>
+					<p class="node-graph-settings-title" style="margin-top:10px !important">Types</p>
+					<div id="node-graph-heading-types"></div>
+				</div>
+			</aside>
+			<aside id="node-graph-filter" class="node-graph-float">
+				<button type="button" id="btn-node-filter-toggle" class="node-graph-float-toggle" aria-expanded="true">Relations ▾</button>
+				<div id="node-graph-filter-body" class="node-graph-float-body">
+					<p>Show relation edges</p>
+					<div id="node-graph-relation-types"></div>
+				</div>
+			</aside>
+			<aside id="node-graph-settings" class="node-graph-float">
+				<button type="button" id="btn-node-settings-toggle" class="node-graph-float-toggle" aria-expanded="true">Graph settings ▾</button>
+				<div id="node-graph-settings-body" class="node-graph-float-body">
+					<p class="node-graph-settings-title">Forces</p>
+					<label class="node-graph-chk"><input type="checkbox" id="ng-opt-rigid" /> Rigid mode (freeze nodes)</label>
+					<label class="node-graph-range-label" for="ng-opt-force-center">Center force <span id="ng-opt-force-center-val"></span></label>
+					<input id="ng-opt-force-center" type="range" min="0" max="0.015" step="0.001" value="0.008" />
+					<label class="node-graph-range-label" for="ng-opt-force-repel">Repel force <span id="ng-opt-force-repel-val"></span></label>
+					<input id="ng-opt-force-repel" type="range" min="10" max="30" step="0.05" value="20" />
+					<label class="node-graph-range-label" for="ng-opt-force-link">Link force <span id="ng-opt-force-link-val"></span></label>
+					<input id="ng-opt-force-link" type="range" min="0" max="1" step="0.01" value="0.75" />
+					<label class="node-graph-range-label" for="ng-opt-link-distance">Link distance <span id="ng-opt-link-distance-val"></span></label>
+					<input id="ng-opt-link-distance" type="range" min="15" max="200" step="5" value="80" />
+				</div>
+			</aside>
+		</div>
 		<div id="canvas-empty" class="canvas-empty-overlay">
 			<p class="canvas-empty-title">Heading map</p>
 			<p class="canvas-empty-text">From the <strong>Explorer</strong>, hold <strong>Shift</strong> and drop <code>.d.txt</code> (otherwise VS Code opens the file). Or use <strong>Add files…</strong> / <code>Open heading in Canvas</code>.</p>
@@ -377,6 +403,7 @@ class DripCanvasPanel {
 		const types = (getMetadataSettings().types || []).map(t => ({
 			id: String(t.id || '').trim().toLowerCase(),
 			marker: String(t.marker || '').trim(),
+			shortcut: String(t.shortcut || '').replace(/\./g, '').trim(),
 			label: String(t.id || '')
 		}));
 		const markerMap = markerToTypeIdMap();

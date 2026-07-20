@@ -189,17 +189,29 @@
 	opacity: 0.55;
 }
 
-/* —— File-local node graph —— */
+/* —— File-local node graph floats —— */
 .view-nodegraph .canvas-viewport {
 	background-size: 24px 24px;
 }
 
-.node-graph-filter {
+.node-graph-floats {
 	position: absolute;
 	top: 14px;
 	right: 14px;
 	z-index: 50;
-	width: 190px;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	width: 210px;
+	pointer-events: none;
+}
+
+.node-graph-floats.hidden {
+	display: none;
+}
+
+.node-graph-float {
+	pointer-events: auto;
 	border: 1px solid var(--canvas-border);
 	border-radius: 10px;
 	background: color-mix(in srgb, var(--canvas-elevated) 96%, transparent);
@@ -207,11 +219,7 @@
 	overflow: hidden;
 }
 
-.node-graph-filter.hidden {
-	display: none;
-}
-
-.node-graph-filter-toggle {
+.node-graph-float-toggle {
 	width: 100%;
 	padding: 8px 10px;
 	border: 0;
@@ -222,27 +230,61 @@
 	cursor: pointer;
 }
 
-.node-graph-filter-body {
+.node-graph-float-body {
 	padding: 8px 10px 10px;
 }
 
-.node-graph-filter.is-collapsed .node-graph-filter-body {
+.node-graph-float.is-collapsed .node-graph-float-body {
 	display: none;
 }
 
-.node-graph-filter-body p {
+.node-graph-float-body > p {
 	margin: 0 0 7px;
 	font-size: 10px;
 	color: var(--canvas-muted);
 }
 
-.node-graph-filter-body label {
+.node-graph-settings-title {
+	margin: 0 0 8px !important;
+	font-size: 10px !important;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--canvas-muted);
+}
+
+.node-graph-float-body label {
 	display: flex;
 	align-items: center;
 	gap: 7px;
 	margin: 5px 0;
 	font-size: 11px;
 	cursor: pointer;
+}
+
+.node-graph-chk {
+	margin-bottom: 8px !important;
+}
+
+.node-graph-range-label {
+	display: flex !important;
+	justify-content: space-between;
+	align-items: baseline;
+	margin: 8px 0 2px !important;
+	font-size: 10px !important;
+	color: var(--canvas-muted);
+	cursor: default;
+}
+
+.node-graph-range-label span {
+	font-variant-numeric: tabular-nums;
+	color: var(--vscode-foreground);
+}
+
+.node-graph-float-body input[type='range'] {
+	width: 100%;
+	margin: 0 0 4px;
+	accent-color: var(--vscode-textLink-foreground);
 }
 
 .node-graph-filter-empty {
@@ -315,6 +357,21 @@
 
 .canvas-edges .node-graph-arrow-head {
 	fill: color-mix(in srgb, var(--vscode-textLink-foreground) 65%, var(--vscode-foreground));
+}
+
+.canvas-edges .node-graph-arrow-head--relation {
+	fill: color-mix(in srgb, var(--vscode-descriptionForeground) 85%, var(--vscode-foreground));
+}
+
+.node-graph-node--collapsed {
+	opacity: 0.78;
+	border-style: dashed;
+}
+
+.view-nodegraph .canvas-edges,
+.view-nodegraph .canvas-world,
+.view-nodegraph .canvas-nodes {
+	overflow: visible;
 }
 
 .canvas-edges .node-graph-edge-label {

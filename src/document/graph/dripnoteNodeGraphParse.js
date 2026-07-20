@@ -34,12 +34,17 @@ function parseConceptRefs(value, conceptShortcut) {
 /**
  * @param {string} title
  * @param {any} settings
- * @returns {{ badge: string, ref: string }}
+ * @returns {{ badge: string, ref: string, filterKey: string, shortcut: string, persistent: boolean }}
  */
 function classifyNodeTitle(title, settings) {
 	const normalized = String(title || '').trim();
+	if (/^\.(?:\s|$)/.test(normalized)) {
+		return { badge: '.', ref: '', filterKey: 'hash', shortcut: '', persistent: true };
+	}
+
 	const types = (settings.types || [])
 		.map(type => ({
+			id: String(type.id || '').trim().toLowerCase(),
 			marker: String(type.marker || '').replace(/^\./, ''),
 			shortcut: String(type.shortcut || '').replace(/\./g, '')
 		}))
@@ -50,16 +55,21 @@ function classifyNodeTitle(title, settings) {
 		for (const prefix of [type.shortcut, type.marker].filter(Boolean)) {
 			const match = normalized.match(new RegExp(`^(\\.?${escapeRegex(prefix)})(\\d*)(?=\\s|$)`, 'i'));
 			if (!match) continue;
+			const dotted = match[1].startsWith('.');
+			const shortcut = type.shortcut || type.marker || type.id;
 			const badge = match[1] + (match[2] || '');
 			return {
 				badge,
 				ref: match[2] && type.shortcut
 					? `${type.shortcut.toLowerCase()}${parseInt(match[2], 10)}`
-					: ''
+					: '',
+				filterKey: String(shortcut).toLowerCase(),
+				shortcut: String(shortcut).toLowerCase(),
+				persistent: dotted
 			};
 		}
 	}
-	return { badge: '#', ref: '' };
+	return { badge: '#', ref: '', filterKey: 'hash', shortcut: '', persistent: false };
 }
 
 /**
@@ -91,6 +101,9 @@ function buildNodeGraphForCanvas(headingRoots, docIdx) {
 				title: String(node.title || ''),
 				badge: titleInfo.badge,
 				ref: titleInfo.ref,
+				filterKey: titleInfo.filterKey,
+				shortcut: titleInfo.shortcut,
+				persistent: !!titleInfo.persistent,
 				depth,
 				root: !structuralParentId
 			};

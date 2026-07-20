@@ -16,27 +16,57 @@
 		mode: 'empty',
 		canvasView: normalizeCanvasView(_persisted.canvasView),
 		nodeGraphVisibleRelations: new Set(),
-		nodeGraphKnownRelations: new Set()
+		nodeGraphKnownRelations: new Set(),
+		nodeGraphVisiblePersistence: new Set(
+			Array.isArray(_persisted.nodeGraphVisiblePersistence) &&
+				_persisted.nodeGraphVisiblePersistence.length
+				? _persisted.nodeGraphVisiblePersistence.map(String)
+				: ['persistent', 'nonpersistent']
+		),
+		nodeGraphVisibleTypes: new Set(
+			Array.isArray(_persisted.nodeGraphVisibleTypes) && _persisted.nodeGraphVisibleTypes.length
+				? _persisted.nodeGraphVisibleTypes.map(String).filter(k => k !== 'dot')
+				: ['hash']
+		),
+		nodeGraphKnownTypes: new Set()
 	};
 
 	/** File-local node graph — same force defaults as tags graph. */
+	const persistedNg = (_persisted.nodeGraphForces && typeof _persisted.nodeGraphForces === 'object')
+		? _persisted.nodeGraphForces
+		: {};
+	function clampNg(value, min, max, fallback) {
+		const n = Number(value);
+		if (!Number.isFinite(n)) return fallback;
+		return Math.min(max, Math.max(min, n));
+	}
 	const NG = {
 		NODE_W: 140,
 		NODE_H: 64,
-		ORIGIN: 450,
-		forceCenter: 0.03,
-		forceRepel: 10,
-		forceLink: 0.75,
-		linkDistance: 80,
+		NODE_R: 42,
+		/** Fixed world origin — never recenters (avoids left/up drag feedback). */
+		ORIGIN: 2000,
+		pad: 120,
+		rigid: !!persistedNg.rigid,
+		forceCenter: clampNg(persistedNg.forceCenter, 0, 0.015, 0.008),
+		forceRepel: clampNg(persistedNg.forceRepel, 10, 30, 20),
+		forceLink: clampNg(persistedNg.forceLink, 0, 1, 0.75),
+		linkDistance: clampNg(persistedNg.linkDistance, 15, 200, 80),
 		minSep: 78
 	};
-	/** @type {Map<string, { id: string, x: number, y: number, vx: number, vy: number, title: string, badge: string, root: boolean }>} */
+	/** @type {Map<string, { id: string, x: number, y: number, vx: number, vy: number, title: string, badge: string, root: boolean, filterKey: string, persistent: boolean }>} */
 	const nodeGraphSim = new Map();
 	/** @type {any[]} */
 	let nodeGraphEdges = [];
+	/** Collapsed parents hide their hierarchy descendants. */
+	const nodeGraphCollapsed = new Set();
 	let nodeGraphRaf = 0;
 	let nodeGraphLastKick = 0;
 	let nodeGraphDrag = null;
+	/** Camera snapshot from first node-graph open / parse — used by Reset view. */
+	let nodeGraphHomeView = null;
+	/** Previous canvas view — used to clear DOM cleanly on mode switch. */
+	let lastCanvasView = state.canvasView;
 
 	/** @type {Set<string>} */
 	const collapsedHeadingGids = new Set();
@@ -125,13 +155,62 @@
 		document.body.classList.toggle('view-teardrop', state.canvasView === CANVAS_VIEW_TEARDROP);
 		document.body.classList.toggle('view-nodegraph', state.canvasView === CANVAS_VIEW_NODE_GRAPH);
 		document.body.classList.toggle('view-classic', state.canvasView === CANVAS_VIEW_CLASSIC);
-		const filter = $('node-graph-filter');
-		if (filter) filter.classList.toggle('hidden', state.canvasView !== CANVAS_VIEW_NODE_GRAPH);
+		const floats = $('node-graph-floats');
+		if (floats) floats.classList.toggle('hidden', state.canvasView !== CANVAS_VIEW_NODE_GRAPH);
 		if (state.canvasView !== CANVAS_VIEW_NODE_GRAPH) stopNodeGraphSim();
 	}
 
 	function persistCanvasView() {
-		vscode.setState({ ...(vscode.getState() || {}), canvasView: state.canvasView });
+		vscode.setState({
+			...(vscode.getState() || {}),
+			canvasView: state.canvasView,
+			nodeGraphForces: {
+				rigid: !!NG.rigid,
+				forceCenter: NG.forceCenter,
+				forceRepel: NG.forceRepel,
+				forceLink: NG.forceLink,
+				linkDistance: NG.linkDistance
+			},
+			nodeGraphVisiblePersistence: [...state.nodeGraphVisiblePersistence],
+			nodeGraphVisibleTypes: [...state.nodeGraphVisibleTypes]
+		});
+	}
+
+	function syncNodeGraphForceUi() {
+		const rigid = /** @type {HTMLInputElement | null} */ ($('ng-opt-rigid'));
+		const center = /** @type {HTMLInputElement | null} */ ($('ng-opt-force-center'));
+		const repel = /** @type {HTMLInputElement | null} */ ($('ng-opt-force-repel'));
+		const link = /** @type {HTMLInputElement | null} */ ($('ng-opt-force-link'));
+		const dist = /** @type {HTMLInputElement | null} */ ($('ng-opt-link-distance'));
+		if (rigid) rigid.checked = !!NG.rigid;
+		if (center) center.value = String(NG.forceCenter);
+		if (repel) repel.value = String(NG.forceRepel);
+		if (link) link.value = String(NG.forceLink);
+		if (dist) dist.value = String(NG.linkDistance);
+		const centerVal = $('ng-opt-force-center-val');
+		const repelVal = $('ng-opt-force-repel-val');
+		const linkVal = $('ng-opt-force-link-val');
+		const distVal = $('ng-opt-link-distance-val');
+		if (centerVal) centerVal.textContent = NG.forceCenter.toFixed(3);
+		if (repelVal) repelVal.textContent = NG.forceRepel.toFixed(2);
+		if (linkVal) linkVal.textContent = NG.forceLink.toFixed(2);
+		if (distVal) distVal.textContent = String(Math.round(NG.linkDistance));
+	}
+
+	function readNodeGraphForcesFromUi() {
+		const rigid = /** @type {HTMLInputElement | null} */ ($('ng-opt-rigid'));
+		const center = /** @type {HTMLInputElement | null} */ ($('ng-opt-force-center'));
+		const repel = /** @type {HTMLInputElement | null} */ ($('ng-opt-force-repel'));
+		const link = /** @type {HTMLInputElement | null} */ ($('ng-opt-force-link'));
+		const dist = /** @type {HTMLInputElement | null} */ ($('ng-opt-link-distance'));
+		NG.rigid = !!(rigid && rigid.checked);
+		NG.forceCenter = center ? clampNg(center.value, 0, 0.015, 0.008) : 0.008;
+		NG.forceRepel = repel ? clampNg(repel.value, 10, 30, 20) : 20;
+		NG.forceLink = link ? clampNg(link.value, 0, 1, 0.75) : 0.75;
+		NG.linkDistance = dist ? clampNg(dist.value, 15, 200, 80) : 80;
+		syncNodeGraphForceUi();
+		persistCanvasView();
+		kickNodeGraphSim();
 	}
 
 	/**
@@ -2718,6 +2797,19 @@
 		return [...types].sort();
 	}
 
+	function collectNodeGraphHeadingTypeOptions() {
+		/** @type {{ key: string, label: string }[]} */
+		const options = [{ key: 'hash', label: '#  headings' }];
+		const seen = new Set(['hash']);
+		for (const t of state.types || []) {
+			const shortcut = String(t.shortcut || '').replace(/\./g, '').trim().toLowerCase();
+			if (!shortcut || seen.has(shortcut)) continue;
+			seen.add(shortcut);
+			options.push({ key: shortcut, label: shortcut });
+		}
+		return options;
+	}
+
 	function populateNodeGraphFilter() {
 		const host = $('node-graph-relation-types');
 		if (!host) return;
@@ -2744,8 +2836,155 @@
 			: '<span class="node-graph-filter-empty">No relation edges</span>';
 	}
 
+	function populateNodeGraphHeadingFilter() {
+		const persistHost = $('node-graph-heading-persistence');
+		if (persistHost) {
+			persistHost.innerHTML = [
+				{ key: 'persistent', label: 'Persistent' },
+				{ key: 'nonpersistent', label: 'Non-persistent' }
+			]
+				.map(
+					opt =>
+						'<label><input type="checkbox" data-heading-persistence="' +
+						escapeHtml(opt.key) +
+						'"' +
+						(state.nodeGraphVisiblePersistence.has(opt.key) ? ' checked' : '') +
+						'><span>' +
+						escapeHtml(opt.label) +
+						'</span></label>'
+				)
+				.join('');
+		}
+
+		const host = $('node-graph-heading-types');
+		if (!host) return;
+		const options = collectNodeGraphHeadingTypeOptions();
+		for (const opt of options) {
+			if (!state.nodeGraphKnownTypes.has(opt.key)) {
+				state.nodeGraphKnownTypes.add(opt.key);
+				state.nodeGraphVisibleTypes.add(opt.key);
+			}
+		}
+		host.innerHTML = options
+			.map(
+				opt =>
+					'<label><input type="checkbox" data-heading-type="' +
+					escapeHtml(opt.key) +
+					'"' +
+					(state.nodeGraphVisibleTypes.has(opt.key) ? ' checked' : '') +
+					'><span>' +
+					escapeHtml(opt.label) +
+					'</span></label>'
+			)
+			.join('');
+	}
+
 	function kickNodeGraphSim() {
 		nodeGraphLastKick = Date.now();
+	}
+
+	function pinNodeGraphDrag() {
+		if (!nodeGraphDrag) return;
+		const n = nodeGraphSim.get(nodeGraphDrag.id);
+		if (!n) return;
+		n.x =
+			nodeGraphDrag.startX +
+			(nodeGraphDrag.lastClientX - nodeGraphDrag.startClientX) / view.scale;
+		n.y =
+			nodeGraphDrag.startY +
+			(nodeGraphDrag.lastClientY - nodeGraphDrag.startClientY) / view.scale;
+		n.vx = 0;
+		n.vy = 0;
+	}
+
+	function clearCanvasDrawingDom() {
+		const nodesEl = $('canvas-nodes');
+		const svg = $('canvas-edges');
+		const treeSvg = $('canvas-tree-edges');
+		const world = $('canvas-world');
+		if (nodesEl) nodesEl.innerHTML = '';
+		if (svg) {
+			svg.innerHTML = '';
+			svg.removeAttribute('width');
+			svg.removeAttribute('height');
+			svg.removeAttribute('viewBox');
+			svg.style.width = '';
+			svg.style.height = '';
+			svg.style.overflow = '';
+		}
+		if (treeSvg) {
+			treeSvg.innerHTML = '';
+			treeSvg.removeAttribute('width');
+			treeSvg.removeAttribute('height');
+			treeSvg.removeAttribute('viewBox');
+			treeSvg.style.width = '';
+			treeSvg.style.height = '';
+			treeSvg.style.overflow = '';
+		}
+		if (world) {
+			world.style.width = '';
+			world.style.height = '';
+			world.style.minWidth = '';
+			world.style.minHeight = '';
+			world.style.overflow = '';
+		}
+	}
+
+	function applyCanvasSvgSize(svg, worldW, worldH) {
+		if (!svg) return;
+		svg.setAttribute('width', String(worldW));
+		svg.setAttribute('height', String(worldH));
+		svg.setAttribute('viewBox', '0 0 ' + worldW + ' ' + worldH);
+		svg.style.width = worldW + 'px';
+		svg.style.height = worldH + 'px';
+		svg.style.overflow = 'visible';
+	}
+
+	function applyCanvasWorldSize(worldW, worldH) {
+		const world = $('canvas-world');
+		if (!world) return;
+		world.style.width = worldW + 'px';
+		world.style.height = worldH + 'px';
+		world.style.minWidth = worldW + 'px';
+		world.style.minHeight = worldH + 'px';
+		world.style.overflow = 'visible';
+	}
+
+	function centerCameraOnNodeGraph() {
+		const vp = $('canvas-viewport');
+		const rect = vp ? vp.getBoundingClientRect() : null;
+		const vw = rect && rect.width > 0 ? rect.width : vp?.clientWidth || 800;
+		const vh = rect && rect.height > 0 ? rect.height : vp?.clientHeight || 600;
+		view.scale = 1;
+		// Initial parse places the force cluster around sim (0,0) → world ORIGIN.
+		view.tx = vw / 2 - NG.ORIGIN;
+		view.ty = vh / 2 - NG.ORIGIN;
+		applyWorldTransform();
+	}
+
+	function captureNodeGraphHomeView() {
+		nodeGraphHomeView = {
+			tx: view.tx,
+			ty: view.ty,
+			scale: view.scale
+		};
+	}
+
+	function restoreNodeGraphHomeView() {
+		if (!nodeGraphHomeView) {
+			centerCameraOnNodeGraph();
+			captureNodeGraphHomeView();
+			return;
+		}
+		view.tx = nodeGraphHomeView.tx;
+		view.ty = nodeGraphHomeView.ty;
+		view.scale = nodeGraphHomeView.scale;
+		applyWorldTransform();
+	}
+
+	function enterNodeGraphCameraHome() {
+		centerCameraOnNodeGraph();
+		captureNodeGraphHomeView();
 	}
 
 	function stopNodeGraphSim() {
@@ -2768,6 +3007,8 @@
 					prev.title = node.title;
 					prev.badge = node.badge || '#';
 					prev.root = !!node.root;
+					prev.filterKey = node.filterKey || 'hash';
+					prev.persistent = !!node.persistent;
 					continue;
 				}
 				nodeGraphSim.set(node.id, {
@@ -2778,7 +3019,9 @@
 					vy: 0,
 					title: node.title,
 					badge: node.badge || '#',
-					root: !!node.root
+					root: !!node.root,
+					filterKey: node.filterKey || 'hash',
+					persistent: !!node.persistent
 				});
 			}
 			for (const edge of graph.edges || []) edges.push(edge);
@@ -2790,18 +3033,116 @@
 		kickNodeGraphSim();
 	}
 
-	function nodeGraphActiveLinks() {
-		return nodeGraphEdges.filter(edge => {
-			if (edge.kind === 'relation' && !state.nodeGraphVisibleRelations.has(edge.label)) {
-				return false;
+	function nodePassesHeadingFilter(node) {
+		const persistenceOk =
+			(node.persistent && state.nodeGraphVisiblePersistence.has('persistent')) ||
+			(!node.persistent && state.nodeGraphVisiblePersistence.has('nonpersistent'));
+		if (!persistenceOk) return false;
+		const key = String(node.filterKey || 'hash');
+		return state.nodeGraphVisibleTypes.has(key);
+	}
+
+	function nodeGraphHiddenByCollapse() {
+		/** @type {Set<string>} */
+		const hidden = new Set();
+		if (!nodeGraphCollapsed.size) return hidden;
+		/** @type {Map<string, string[]>} */
+		const children = new Map();
+		for (const edge of nodeGraphEdges) {
+			if (edge.kind !== 'hierarchy' && edge.kind !== 'parent') continue;
+			if (!children.has(edge.source)) children.set(edge.source, []);
+			children.get(edge.source).push(edge.target);
+		}
+		function walk(id) {
+			for (const child of children.get(id) || []) {
+				if (hidden.has(child)) continue;
+				hidden.add(child);
+				walk(child);
 			}
-			return nodeGraphSim.has(edge.source) && nodeGraphSim.has(edge.target);
-		});
+		}
+		for (const id of nodeGraphCollapsed) walk(id);
+		return hidden;
+	}
+
+	function nodeGraphVisibleNodes() {
+		const collapsedHidden = nodeGraphHiddenByCollapse();
+		return [...nodeGraphSim.values()].filter(
+			n => nodePassesHeadingFilter(n) && !collapsedHidden.has(n.id)
+		);
+	}
+
+	function nodeGraphStructuralParentMap() {
+		/** @type {Map<string, string>} */
+		const parentOf = new Map();
+		for (const edge of nodeGraphEdges) {
+			if (edge.kind !== 'hierarchy') continue;
+			if (!parentOf.has(edge.target)) parentOf.set(edge.target, edge.source);
+		}
+		return parentOf;
+	}
+
+	/**
+	 * Walk up the file hierarchy past filtered-out nodes until a visible ancestor is found.
+	 * @param {string} nodeId
+	 * @param {Set<string>} visible
+	 * @param {Map<string, string>} parentOf
+	 * @returns {string | null}
+	 */
+	function nearestVisibleHierarchyAncestor(nodeId, visible, parentOf) {
+		let cur = parentOf.get(nodeId);
+		const seen = new Set();
+		while (cur && !seen.has(cur)) {
+			seen.add(cur);
+			if (visible.has(cur)) return cur;
+			cur = parentOf.get(cur);
+		}
+		return null;
+	}
+
+	function nodeGraphActiveLinks() {
+		const visible = new Set(nodeGraphVisibleNodes().map(n => n.id));
+		const parentOf = nodeGraphStructuralParentMap();
+		/** @type {any[]} */
+		const out = [];
+		/** @type {Set<string>} */
+		const seenHierarchy = new Set();
+
+		for (const id of visible) {
+			const ancestor = nearestVisibleHierarchyAncestor(id, visible, parentOf);
+			if (!ancestor) continue;
+			const key = ancestor + '->' + id;
+			if (seenHierarchy.has(key)) continue;
+			seenHierarchy.add(key);
+			out.push({ source: ancestor, target: id, kind: 'hierarchy', label: '' });
+		}
+
+		for (const edge of nodeGraphEdges) {
+			if (edge.kind === 'hierarchy') continue;
+			if (!visible.has(edge.source) || !visible.has(edge.target)) continue;
+			if (edge.kind === 'relation' && !state.nodeGraphVisibleRelations.has(edge.label)) {
+				continue;
+			}
+			out.push(edge);
+		}
+		return out;
+	}
+
+	function nodeGraphEffectiveRootIds() {
+		const links = nodeGraphActiveLinks();
+		const hasParent = new Set(links.filter(e => e.kind === 'hierarchy' || e.kind === 'parent').map(e => e.target));
+		return new Set(nodeGraphVisibleNodes().filter(n => !hasParent.has(n.id)).map(n => n.id));
 	}
 
 	function simulateNodeGraphForces() {
-		const nodes = [...nodeGraphSim.values()];
+		const nodes = nodeGraphVisibleNodes();
 		if (!nodes.length) return;
+		if (NG.rigid) {
+			for (const n of nodes) {
+				n.vx = 0;
+				n.vy = 0;
+			}
+			return;
+		}
 		if (Date.now() - nodeGraphLastKick > 5000) {
 			for (const n of nodes) {
 				n.vx = 0;
@@ -2888,6 +3229,21 @@
 				}
 			}
 		}
+		pinNodeGraphDrag();
+	}
+
+	function updateNodeGraphWorldSize(nodes) {
+		let maxR = 0;
+		let maxB = 0;
+		for (const n of nodes) {
+			const p = nodeGraphWorldPos(n);
+			maxR = Math.max(maxR, p.left + NG.NODE_W);
+			maxB = Math.max(maxB, p.top + NG.NODE_H);
+		}
+		return {
+			worldW: Math.max(900, maxR + NG.pad),
+			worldH: Math.max(700, maxB + NG.pad)
+		};
 	}
 
 	function nodeGraphWorldPos(n) {
@@ -2899,35 +3255,56 @@
 		};
 	}
 
+	function nodeGraphEdgeEndpoints(source, target) {
+		const a = nodeGraphWorldPos(source);
+		const b = nodeGraphWorldPos(target);
+		const dx = b.cx - a.cx;
+		const dy = b.cy - a.cy;
+		const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+		const ux = dx / dist;
+		const uy = dy / dist;
+		const inset = NG.NODE_R;
+		return {
+			x1: a.cx + ux * inset,
+			y1: a.cy + uy * inset,
+			x2: b.cx - ux * inset,
+			y2: b.cy - uy * inset,
+			mx: (a.cx + b.cx) / 2,
+			my: (a.cy + b.cy) / 2
+		};
+	}
+
 	function nodeGraphLine(edge) {
 		const source = nodeGraphSim.get(edge.source);
 		const target = nodeGraphSim.get(edge.target);
 		if (!source || !target) return '';
-		const a = nodeGraphWorldPos(source);
-		const b = nodeGraphWorldPos(target);
-		const mx = (a.cx + b.cx) / 2;
-		const my = (a.cy + b.cy) / 2;
+		const p = nodeGraphEdgeEndpoints(source, target);
 		const relation = edge.kind === 'relation';
 		const cls = relation
 			? 'node-graph-edge node-graph-edge--relation'
 			: 'node-graph-edge node-graph-edge--solid';
+		const marker = relation
+			? ' marker-end="url(#node-graph-arrow-relation)"'
+			: ' marker-end="url(#node-graph-arrow-solid)"';
 		return (
 			'<line class="' +
 			cls +
 			'" x1="' +
-			a.cx +
+			p.x1 +
 			'" y1="' +
-			a.cy +
+			p.y1 +
 			'" x2="' +
-			b.cx +
+			p.x2 +
 			'" y2="' +
-			b.cy +
-			'" marker-end="url(#node-graph-arrow)" />' +
+			p.y2 +
+			'"' +
+			marker +
+			' />' +
 			(edge.label
 				? '<text class="node-graph-edge-label" x="' +
-				  mx +
+				  p.mx +
 				  '" y="' +
-				  (my - 5) +
+				  (p.my - 5) +
 				  '" text-anchor="middle">' +
 				  escapeHtml(edge.label) +
 				  '</text>'
@@ -2940,7 +3317,7 @@
 		const nodesEl = $('canvas-nodes');
 		const svg = $('canvas-edges');
 		const treeSvg = $('canvas-tree-edges');
-		const nodes = [...nodeGraphSim.values()];
+		const nodes = nodeGraphVisibleNodes();
 		if (!nodes.length) {
 			if (empty) empty.classList.remove('hidden');
 			if (nodesEl) nodesEl.innerHTML = '';
@@ -2950,27 +3327,19 @@
 		}
 		if (empty) empty.classList.add('hidden');
 
-		let minX = Infinity;
-		let minY = Infinity;
-		let maxX = -Infinity;
-		let maxY = -Infinity;
-		for (const n of nodes) {
-			const p = nodeGraphWorldPos(n);
-			minX = Math.min(minX, p.left);
-			minY = Math.min(minY, p.top);
-			maxX = Math.max(maxX, p.left + NG.NODE_W);
-			maxY = Math.max(maxY, p.top + NG.NODE_H);
-		}
-		const worldW = Math.max(900, maxX + 120);
-		const worldH = Math.max(700, maxY + 120);
+		const { worldW, worldH } = updateNodeGraphWorldSize(nodes);
+		const effectiveRoots = nodeGraphEffectiveRootIds();
 
 		let edgeHtml =
-			'<defs><marker id="node-graph-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L8,4 L0,8 z" class="node-graph-arrow-head" /></marker></defs>';
+			'<defs>' +
+			'<marker id="node-graph-arrow-solid" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="userSpaceOnUse">' +
+			'<path d="M0,0 L10,5 L0,10 z" class="node-graph-arrow-head" /></marker>' +
+			'<marker id="node-graph-arrow-relation" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="userSpaceOnUse">' +
+			'<path d="M0,0 L10,5 L0,10 z" class="node-graph-arrow-head node-graph-arrow-head--relation" /></marker>' +
+			'</defs>';
 		for (const edge of nodeGraphActiveLinks()) edgeHtml += nodeGraphLine(edge);
 		if (svg) {
-			svg.setAttribute('width', String(worldW));
-			svg.setAttribute('height', String(worldH));
-			svg.setAttribute('viewBox', '0 0 ' + worldW + ' ' + worldH);
+			applyCanvasSvgSize(svg, worldW, worldH);
 			svg.innerHTML = edgeHtml;
 		}
 		if (treeSvg) treeSvg.innerHTML = '';
@@ -2987,14 +3356,14 @@
 				let el = existing.get(n.id);
 				if (!el) {
 					el = document.createElement('div');
-					el.className = 'node-graph-node' + (n.root ? ' node-graph-node--root' : '');
+					el.className = 'node-graph-node';
 					el.setAttribute('data-node-graph-id', n.id);
 					el.innerHTML =
 						'<span class="node-graph-node-badge"></span><span class="node-graph-node-title"></span>';
 					nodesEl.appendChild(el);
-				} else {
-					el.classList.toggle('node-graph-node--root', !!n.root);
 				}
+				el.classList.toggle('node-graph-node--root', effectiveRoots.has(n.id));
+				el.classList.toggle('node-graph-node--collapsed', nodeGraphCollapsed.has(n.id));
 				el.style.left = p.left + 'px';
 				el.style.top = p.top + 'px';
 				const badge = el.querySelector('.node-graph-node-badge');
@@ -3006,13 +3375,7 @@
 				if (!live.has(id)) el.remove();
 			}
 		}
-		const world = $('canvas-world');
-		if (world) {
-			world.style.width = worldW + 'px';
-			world.style.height = worldH + 'px';
-			world.style.minWidth = worldW + 'px';
-			world.style.minHeight = worldH + 'px';
-		}
+		applyCanvasWorldSize(worldW, worldH);
 		applyWorldTransform();
 	}
 
@@ -3022,6 +3385,7 @@
 			return;
 		}
 		simulateNodeGraphForces();
+		pinNodeGraphDrag();
 		paintNodeGraphFrame();
 		nodeGraphRaf = requestAnimationFrame(nodeGraphLoop);
 	}
@@ -3038,7 +3402,27 @@
 		if (!nodeGraphRaf) paintNodeGraphFrame();
 	}
 
+	function toggleNodeGraphCollapse(id) {
+		if (nodeGraphCollapsed.has(id)) nodeGraphCollapsed.delete(id);
+		else nodeGraphCollapsed.add(id);
+		kickNodeGraphSim();
+	}
+
 	function renderGraph() {
+		const viewChanged = lastCanvasView !== state.canvasView;
+		if (viewChanged) {
+			nodeGraphDrag = null;
+			stopNodeGraphSim();
+			clearCanvasDrawingDom();
+			lastCanvasView = state.canvasView;
+			if (state.canvasView === CANVAS_VIEW_NODE_GRAPH) {
+				enterNodeGraphCameraHome();
+			} else {
+				view.tx = 40;
+				view.ty = 40;
+				view.scale = 1;
+			}
+		}
 		applyCanvasViewBodyClass();
 		if (state.canvasView === CANVAS_VIEW_NODE_GRAPH) {
 			renderNodeGraph();
@@ -3051,7 +3435,6 @@
 		const isTear = state.canvasView === CANVAS_VIEW_TEARDROP;
 		const isLtr = isGraph || isTear;
 
-		const vp = $('canvas-viewport');
 		const empty = $('canvas-empty');
 		const nodesEl = $('canvas-nodes');
 		const svg = $('canvas-edges');
@@ -3098,9 +3481,7 @@
 		}
 
 		if (svg) {
-			svg.setAttribute('width', String(worldW));
-			svg.setAttribute('height', String(worldH));
-			svg.setAttribute('viewBox', '0 0 ' + worldW + ' ' + worldH);
+			applyCanvasSvgSize(svg, worldW, worldH);
 			const edgeStroke = isTear ? '1.4' : isLtr ? '1.35' : '2';
 			let inner = '';
 			if (isTear) {
@@ -3156,9 +3537,7 @@
 		}
 
 		if (treeSvg) {
-			treeSvg.setAttribute('width', String(worldW));
-			treeSvg.setAttribute('height', String(worldH));
-			treeSvg.setAttribute('viewBox', '0 0 ' + worldW + ' ' + worldH);
+			applyCanvasSvgSize(treeSvg, worldW, worldH);
 			treeSvg.innerHTML = treePathD.length
 				? '<path class="canvas-edge-path canvas-edge-path--tree" d="' +
 				  treePathD +
@@ -3283,13 +3662,7 @@
 			nodesEl.innerHTML = html;
 		}
 
-		const world = $('canvas-world');
-		if (world) {
-			world.style.width = worldW + 'px';
-			world.style.height = worldH + 'px';
-			world.style.minWidth = worldW + 'px';
-			world.style.minHeight = worldH + 'px';
-		}
+		applyCanvasWorldSize(worldW, worldH);
 		applyWorldTransform();
 	}
 
@@ -3308,12 +3681,18 @@
 		navChildActive.clear();
 		nodeGraphSim.clear();
 		nodeGraphEdges = [];
+		nodeGraphCollapsed.clear();
 		stopNodeGraphSim();
-		view.tx = 40;
-		view.ty = 40;
-		view.scale = 1;
+		if (state.canvasView === CANVAS_VIEW_NODE_GRAPH) {
+			enterNodeGraphCameraHome();
+		} else {
+			view.tx = 40;
+			view.ty = 40;
+			view.scale = 1;
+		}
 		render();
 		openSettingsPopulate();
+		populateNodeGraphHeadingFilter();
 		populateNodeGraphFilter();
 	}
 
@@ -3378,16 +3757,9 @@
 
 		window.addEventListener('mousemove', e => {
 			if (nodeGraphDrag) {
-				const n = nodeGraphSim.get(nodeGraphDrag.id);
-				const vp = $('canvas-viewport');
-				if (!n || !vp) return;
-				const rect = vp.getBoundingClientRect();
-				const worldX = (e.clientX - rect.left - view.tx) / view.scale;
-				const worldY = (e.clientY - rect.top - view.ty) / view.scale;
-				n.x = worldX - NG.ORIGIN;
-				n.y = worldY - NG.ORIGIN;
-				n.vx = 0;
-				n.vy = 0;
+				nodeGraphDrag.lastClientX = e.clientX;
+				nodeGraphDrag.lastClientY = e.clientY;
+				pinNodeGraphDrag();
 				kickNodeGraphSim();
 				return;
 			}
@@ -3400,7 +3772,10 @@
 		});
 
 		window.addEventListener('mouseup', () => {
-			if (nodeGraphDrag) kickNodeGraphSim();
+			if (nodeGraphDrag) {
+				pinNodeGraphDrag();
+				kickNodeGraphSim();
+			}
 			nodeGraphDrag = null;
 			view.panning = false;
 			vp.classList.remove('is-panning');
@@ -3451,10 +3826,28 @@
 				if (!id || !n) return;
 				e.preventDefault();
 				e.stopPropagation();
-				nodeGraphDrag = { id };
+				nodeGraphDrag = {
+					id,
+					startClientX: e.clientX,
+					startClientY: e.clientY,
+					lastClientX: e.clientX,
+					lastClientY: e.clientY,
+					startX: n.x,
+					startY: n.y
+				};
 				n.vx = 0;
 				n.vy = 0;
 				kickNodeGraphSim();
+			});
+			nodesHost.addEventListener('dblclick', e => {
+				if (state.canvasView !== CANVAS_VIEW_NODE_GRAPH) return;
+				const node = /** @type {HTMLElement} */ (e.target).closest('.node-graph-node');
+				if (!node) return;
+				const id = node.getAttribute('data-node-graph-id');
+				if (!id) return;
+				e.preventDefault();
+				e.stopPropagation();
+				toggleNodeGraphCollapse(id);
 			});
 			nodesHost.addEventListener('click', e => {
 				const tearNode = /** @type {HTMLElement} */ (e.target).closest(
@@ -3514,6 +3907,15 @@
 	const btnReset = $('btn-zoom-reset');
 	if (btnReset)
 		btnReset.addEventListener('click', () => {
+			const sel = $('sel-canvas-view');
+			const isNodeGraph =
+				state.canvasView === CANVAS_VIEW_NODE_GRAPH ||
+				(sel && sel.value === CANVAS_VIEW_NODE_GRAPH);
+			if (isNodeGraph) {
+				state.canvasView = CANVAS_VIEW_NODE_GRAPH;
+				restoreNodeGraphHomeView();
+				return;
+			}
 			view.tx = 40;
 			view.ty = 40;
 			view.scale = 1;
@@ -3577,6 +3979,42 @@
 			if (state.canvasView === CANVAS_VIEW_NODE_GRAPH) renderNodeGraph();
 		});
 
+	const headingTypesHost = $('node-graph-heading-types');
+	if (headingTypesHost)
+		headingTypesHost.addEventListener('change', event => {
+			const input = /** @type {HTMLInputElement} */ (event.target);
+			const key = input?.getAttribute?.('data-heading-type');
+			if (!key) return;
+			if (input.checked) state.nodeGraphVisibleTypes.add(key);
+			else state.nodeGraphVisibleTypes.delete(key);
+			persistCanvasView();
+			kickNodeGraphSim();
+			if (state.canvasView === CANVAS_VIEW_NODE_GRAPH) renderNodeGraph();
+		});
+
+	const headingPersistenceHost = $('node-graph-heading-persistence');
+	if (headingPersistenceHost)
+		headingPersistenceHost.addEventListener('change', event => {
+			const input = /** @type {HTMLInputElement} */ (event.target);
+			const key = input?.getAttribute?.('data-heading-persistence');
+			if (!key) return;
+			if (input.checked) state.nodeGraphVisiblePersistence.add(key);
+			else state.nodeGraphVisiblePersistence.delete(key);
+			persistCanvasView();
+			kickNodeGraphSim();
+			if (state.canvasView === CANVAS_VIEW_NODE_GRAPH) renderNodeGraph();
+		});
+
+	const nodeHeadingFilterToggle = $('btn-node-heading-filter-toggle');
+	if (nodeHeadingFilterToggle)
+		nodeHeadingFilterToggle.addEventListener('click', () => {
+			const panel = $('node-graph-heading-filter');
+			if (!panel) return;
+			const collapsed = panel.classList.toggle('is-collapsed');
+			nodeHeadingFilterToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+			nodeHeadingFilterToggle.textContent = collapsed ? 'Headings ▸' : 'Headings ▾';
+		});
+
 	const nodeFilterToggle = $('btn-node-filter-toggle');
 	if (nodeFilterToggle)
 		nodeFilterToggle.addEventListener('click', () => {
@@ -3586,6 +4024,29 @@
 			nodeFilterToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
 			nodeFilterToggle.textContent = collapsed ? 'Relations ▸' : 'Relations ▾';
 		});
+
+	const nodeSettingsToggle = $('btn-node-settings-toggle');
+	if (nodeSettingsToggle)
+		nodeSettingsToggle.addEventListener('click', () => {
+			const panel = $('node-graph-settings');
+			if (!panel) return;
+			const collapsed = panel.classList.toggle('is-collapsed');
+			nodeSettingsToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+			nodeSettingsToggle.textContent = collapsed ? 'Graph settings ▸' : 'Graph settings ▾';
+		});
+
+	[
+		'ng-opt-rigid',
+		'ng-opt-force-center',
+		'ng-opt-force-repel',
+		'ng-opt-force-link',
+		'ng-opt-link-distance'
+	].forEach(id => {
+		const el = $(id);
+		if (!el) return;
+		el.addEventListener(id === 'ng-opt-rigid' ? 'change' : 'input', readNodeGraphForcesFromUi);
+	});
+	syncNodeGraphForceUi();
 
 	setupPanZoom();
 	applyCanvasViewBodyClass();
