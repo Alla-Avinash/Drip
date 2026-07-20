@@ -9,6 +9,7 @@ const INDEX_FILE = 'index.drip';
 const GRAPHS_DIR = 'graphs.drip';
 const SETTINGS_FILE = 'settings.drip.json';
 const DRAFTS_DIR = 'drafts.drip';
+const RECENTS_FILE = 'recents.drip.json';
 const DEFAULT_GRAPH_ID = 'default';
 const DEFAULT_GRAPH_NAME = 'Default';
 
@@ -70,6 +71,14 @@ function getSettingsDripFileUri(kbRootUri) {
  */
 function getDraftsDripDirectoryUri(kbRootUri) {
 	return vscode.Uri.joinPath(getDripIndexRootUri(kbRootUri), DRAFTS_DIR);
+}
+
+/**
+ * @param {import('vscode').Uri} kbRootUri
+ * @returns {import('vscode').Uri}
+ */
+function getRecentsDripFileUri(kbRootUri) {
+	return vscode.Uri.joinPath(getDripIndexRootUri(kbRootUri), RECENTS_FILE);
 }
 
 /**
@@ -197,6 +206,27 @@ async function ensureDripIndexSkeleton(kbRootUri) {
 		createdParts.push(`${DRIPINDEX_DIR}/${DRAFTS_DIR}`);
 	}
 
+	const recentsUri = vscode.Uri.joinPath(dripIndexUri, RECENTS_FILE);
+	if (!(await uriExists(recentsUri))) {
+		await vscode.workspace.fs.writeFile(
+			recentsUri,
+			Buffer.from(
+				JSON.stringify(
+					{
+						format: 'drip-recents',
+						version: 1,
+						updatedAt: new Date().toISOString(),
+						files: []
+					},
+					null,
+					2
+				),
+				'utf8'
+			)
+		);
+		createdParts.push(`${DRIPINDEX_DIR}/${RECENTS_FILE}`);
+	}
+
 	if (indexMissing) {
 		const { initEmptyDripIndexFile } = require('../indexing/dripIndexDb');
 		await initEmptyDripIndexFile(kbRootUri);
@@ -215,6 +245,7 @@ module.exports = {
 	GRAPHS_DIR,
 	SETTINGS_FILE,
 	DRAFTS_DIR,
+	RECENTS_FILE,
 	DRIP_SETTINGS_KEYS,
 	buildDefaultSettingsSnapshot,
 	buildFreshKnowledgeBaseSettingsObject,
@@ -223,5 +254,6 @@ module.exports = {
 	getGraphsDripDirectoryUri,
 	getSettingsDripFileUri,
 	getDraftsDripDirectoryUri,
+	getRecentsDripFileUri,
 	ensureDripIndexSkeleton
 };

@@ -110,6 +110,10 @@ async function runStartupCheckInner(context, state) {
 			refreshDrafts:
 				typeof state.refreshDraftsFromStorage === 'function'
 					? () => state.refreshDraftsFromStorage()
+					: undefined,
+			refreshRecents:
+				typeof state.refreshRecentsFromStorage === 'function'
+					? () => state.refreshRecentsFromStorage()
 					: undefined
 		});
 

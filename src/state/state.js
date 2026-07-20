@@ -2,7 +2,7 @@
 
 const vscode = require('vscode');
 const path = require('path');
-const { DRAFTS_KEY, KB_ROOT_KEY, RETRIEVER_UI_STATE_KEY, RECENTS_KEY, RECENTS_MAX } = require('../shared/constants');
+const { DRAFTS_KEY, KB_ROOT_KEY, RETRIEVER_UI_STATE_KEY } = require('../shared/constants');
 const {
 	buildNoteFileName,
 	fileNameMatchesKbNote,
@@ -46,6 +46,11 @@ const {
 	saveDraftToDripIndex,
 	deleteDraftFromDripIndex
 } = require('../startup/draftsDrip');
+const {
+	loadRecentsFromDripIndex,
+	touchRecentInDripIndex,
+	migrateWorkspaceRecentsToDripIndex
+} = require('../startup/recentsDrip');
 const { getDraftsDripDirectoryUri } = require('../startup/initializeDripIndex');
 
 /**
@@ -81,6 +86,8 @@ class DripState {
 		this._draftsCache = null;
 		/** @type {(() => void) | null} */
 		this._draftsRefreshListener = null;
+		/** @type {{ uri: string, label: string, relPath: string }[] | null} */
+		this._recentsCache = null;
 		/** @type {(() => void) | null} */
 		this._recentsRefreshListener = null;
 	}
@@ -106,27 +113,39 @@ class DripState {
 	}
 
 	/**
-	 * @returns {{ uri: string, label: string }[]}
+	 * @returns {{ uri: string, label: string, relPath?: string }[]}
 	 */
 	getRecentFiles() {
-		const raw = this.context.workspaceState.get(RECENTS_KEY, []);
-		if (!Array.isArray(raw)) return [];
-		return raw
-			.map(entry => {
-				const uri = String((entry && entry.uri) || '').trim();
-				if (!uri) return null;
-				const label =
-					String((entry && entry.label) || '').trim() ||
-					path.basename(uri.replace(/\\/g, '/')) ||
-					uri;
-				return { uri, label };
-			})
-			.filter(Boolean)
-			.slice(0, RECENTS_MAX);
+		if (this._recentsCache != null) {
+			return this._recentsCache;
+		}
+		return [];
 	}
 
 	/**
-	 * Record a dripnote file as opened or modified. Keeps at most {@link RECENTS_MAX} entries.
+	 * Reload recents from `.dripindex/recents.drip.json` for the current KB.
+	 * @returns {Promise<{ uri: string, label: string, relPath: string }[]>}
+	 */
+	async refreshRecentsFromStorage() {
+		const kbRoot = this.getKnowledgeBaseRoot();
+		if (!kbRoot) {
+			this._recentsCache = [];
+			this._notifyRecentsRefresh();
+			return this._recentsCache;
+		}
+		await migrateWorkspaceRecentsToDripIndex(this.context, kbRoot);
+		const rows = await loadRecentsFromDripIndex(kbRoot);
+		this._recentsCache = rows.map(row => ({
+			relPath: row.relPath,
+			label: row.label,
+			uri: vscode.Uri.joinPath(kbRoot, ...row.relPath.split('/')).toString()
+		}));
+		this._notifyRecentsRefresh();
+		return this._recentsCache;
+	}
+
+	/**
+	 * Record a dripnote file as opened or modified. Persists under `.dripindex/recents.drip.json`.
 	 * @param {import('vscode').Uri} uri
 	 */
 	async touchRecentFile(uri) {
@@ -135,11 +154,14 @@ class DripState {
 		if (!fsPath.endsWith('.d.txt') && uri.path && !String(uri.path).toLowerCase().endsWith('.d.txt')) {
 			return;
 		}
-		const key = uri.toString();
-		const label = path.basename(uri.fsPath || uri.path || key) || key;
-		const prev = this.getRecentFiles().filter(entry => entry.uri !== key);
-		const next = [{ uri: key, label }, ...prev].slice(0, RECENTS_MAX);
-		await this.context.workspaceState.update(RECENTS_KEY, next);
+		const kbRoot = this.getKnowledgeBaseRoot();
+		if (!kbRoot) return;
+		const rows = await touchRecentInDripIndex(kbRoot, uri);
+		this._recentsCache = rows.map(row => ({
+			relPath: row.relPath,
+			label: row.label,
+			uri: vscode.Uri.joinPath(kbRoot, ...row.relPath.split('/')).toString()
+		}));
 		this._notifyRecentsRefresh();
 	}
 

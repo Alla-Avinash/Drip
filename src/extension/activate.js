@@ -392,6 +392,7 @@ async function activate(context) {
 				state.syncTagGraphCheckpointFromStorage();
 				await postTagGraphStateToAll(state);
 				await state.refreshDraftsFromStorage();
+				await state.refreshRecentsFromStorage();
 				refreshRetrieverCatalogIfShown();
 				if (settingsPanel) {
 					await postDripSettingsValuesToWebview(settingsPanel.webview, state);

@@ -3,14 +3,15 @@
 const { loadSettingsFromDripIndex } = require('./settingsDrip');
 const { invalidateKbNoteExtensionsCache } = require('../document/model/noteFileTypes');
 const { loadDraftsFromDripIndex, migrateGlobalDraftsToDripIndex } = require('./draftsDrip');
+const { migrateWorkspaceRecentsToDripIndex, loadRecentsFromDripIndex } = require('./recentsDrip');
 const tagGraphStore = require('../graph/tagGraphStore');
 
 /**
- * Load KB-scoped sidecar data from `.dripindex/` (settings, drafts, tag graphs).
+ * Load KB-scoped sidecar data from `.dripindex/` (settings, drafts, recents, tag graphs).
  *
  * @param {import('vscode').ExtensionContext} context
  * @param {import('vscode').Uri} kbRootUri
- * @param {{ refreshDrafts?: () => Promise<void> }} [hooks]
+ * @param {{ refreshDrafts?: () => Promise<void>, refreshRecents?: () => Promise<void> }} [hooks]
  */
 async function loadKbSidecar(context, kbRootUri, hooks) {
 	await loadSettingsFromDripIndex(kbRootUri);
@@ -20,6 +21,12 @@ async function loadKbSidecar(context, kbRootUri, hooks) {
 		await hooks.refreshDrafts();
 	} else {
 		await loadDraftsFromDripIndex(kbRootUri);
+	}
+	await migrateWorkspaceRecentsToDripIndex(context, kbRootUri);
+	if (hooks && typeof hooks.refreshRecents === 'function') {
+		await hooks.refreshRecents();
+	} else {
+		await loadRecentsFromDripIndex(kbRootUri);
 	}
 	await tagGraphStore.reloadTagGraphsForKnowledgeBase(context, kbRootUri);
 }
