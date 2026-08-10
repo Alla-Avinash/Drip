@@ -1887,20 +1887,6 @@ const vscode = acquireVsCodeApi();
 		vscode.postMessage({ type: 'previewTargets', note: notePayload() });
 	});
 
-	const btnOpenTagsGraph = document.getElementById('btn-open-tags-graph');
-	if (btnOpenTagsGraph) {
-		btnOpenTagsGraph.addEventListener('click', () => {
-			vscode.postMessage({ type: 'openTagsEditor' });
-		});
-	}
-
-	const btnOpenRetriever = document.getElementById('btn-open-retriever');
-	if (btnOpenRetriever) {
-		btnOpenRetriever.addEventListener('click', () => {
-			vscode.postMessage({ type: 'openRetriever' });
-		});
-	}
-
 	document.getElementById('ai-paths-btn').addEventListener('click', () => {
 		clearMessages();
 		aiListMode = true;

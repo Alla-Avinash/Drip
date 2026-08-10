@@ -1,10 +1,10 @@
 'use strict';
 
-const {
-	collectHeadingSequenceValidated,
-	splitFileTopRegion
-} = require('../parse/dripnoteCanvasParse');
+const { collectHeadingSequenceValidated } = require('../parse/dripnoteCanvasParse');
 const { getMetadataSettings } = require('../model/dripnoteMetadataTemplates');
+
+/** Product default when concept type has no shortcut configured. */
+const DEFAULT_CONCEPT_SHORTCUT = 'c';
 
 function escapeRegex(value) {
 	return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -17,8 +17,23 @@ function escapeRegex(value) {
  */
 function getConceptShortcut() {
 	const settings = getMetadataSettings();
-	const concept = settings.typeById?.get('concept');
-	return String(concept?.shortcut || '').trim().replace(/\./g, '');
+	const concept = settings.typeById && settings.typeById.get('concept');
+	let shortcut = String((concept && concept.shortcut) || '')
+		.trim()
+		.replace(/\./g, '');
+	if (shortcut) return shortcut;
+
+	const map = settings.typeByShortcut;
+	if (map && typeof map.entries === 'function') {
+		for (const [key, type] of map.entries()) {
+			if (!type || String(type.id || '').toLowerCase() !== 'concept') continue;
+			const fromKey = String(key || '')
+				.trim()
+				.replace(/^\.+/, '');
+			if (fromKey) return fromKey;
+		}
+	}
+	return DEFAULT_CONCEPT_SHORTCUT;
 }
 
 /**
@@ -56,6 +71,26 @@ function writeConceptNumberToHeadingLine(line, shortcut, number) {
 }
 
 /**
+ * File-order marked concept headings (`c#` / `.c#` / `c12`).
+ * Scans the whole note (not only post-`---`) so hierarchy parents above the
+ * separator still count, and numbering does not depend on outline validity.
+ *
+ * @param {string[]} lines
+ * @param {string} shortcut
+ * @returns {{ lineIndex: number, title: string }[]}
+ */
+function collectMarkedConceptNodes(lines, shortcut) {
+	const { nodes } = collectHeadingSequenceValidated(lines, 0);
+	/** @type {{ lineIndex: number, title: string }[]} */
+	const marked = [];
+	for (const node of nodes) {
+		if (!parseMarkedConceptTitle(node.title, shortcut)) continue;
+		marked.push(node);
+	}
+	return marked;
+}
+
+/**
  * Dense, file-order concept numbering shared by dotted and plain marked concepts.
  * Unmarked concept headings are intentionally ignored.
  *
@@ -68,11 +103,7 @@ function reconcileConceptNumbersInText(text) {
 	const shortcut = getConceptShortcut();
 	if (!shortcut) return { text: normalized, changed: false };
 
-	const { topEnd } = splitFileTopRegion(lines);
-	const { nodes } = collectHeadingSequenceValidated(lines, topEnd);
-	const marked = nodes.filter(
-		node => node.valid !== false && parseMarkedConceptTitle(node.title, shortcut)
-	);
+	const marked = collectMarkedConceptNodes(lines, shortcut);
 	let changed = false;
 	for (let index = 0; index < marked.length; index++) {
 		const node = marked[index];
@@ -97,15 +128,10 @@ function needsImmediateConceptNumbering(text) {
 	const shortcut = getConceptShortcut();
 	if (!shortcut) return false;
 
-	const { topEnd } = splitFileTopRegion(lines);
-	const { nodes } = collectHeadingSequenceValidated(lines, topEnd);
-	let expected = 1;
-	for (const node of nodes) {
-		if (node.valid === false) continue;
-		const marked = parseMarkedConceptTitle(node.title, shortcut);
-		if (!marked) continue;
-		if (marked.oldNumber !== expected) return true;
-		expected += 1;
+	const marked = collectMarkedConceptNodes(lines, shortcut);
+	for (let index = 0; index < marked.length; index++) {
+		const parsed = parseMarkedConceptTitle(marked[index].title, shortcut);
+		if (!parsed || parsed.oldNumber !== index + 1) return true;
 	}
 	return false;
 }

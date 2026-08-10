@@ -29,6 +29,7 @@
 		"onView:drip.knowledgeBase",
 		"onView:drip.drafts",
 		"onView:drip.recents",
+		"onView:drip.dailyNotes",
 		"onView:drip.storage",
 		"onCommand:drip.copyPath",
 		"onCommand:drip.renameItem",
@@ -75,6 +76,13 @@
 					"visibility": "visible"
 				},
 				{
+					"id": "drip.dailyNotes",
+					"name": "Daily Notes",
+					"icon": "$(calendar)",
+					"visibility": "visible",
+					"initialSize": 5
+				},
+				{
 					"id": "drip.drafts",
 					"name": "Drafts",
 					"icon": "$(note)",
@@ -102,6 +110,12 @@
 			{
 				"command": "drip.openComposer",
 				"title": "Open Composer"
+			},
+			{
+				"command": "drip.openTodayDailyNote",
+				"title": "New Daily Note",
+				"category": "DRIP",
+				"icon": "$(add)"
 			},
 			{
 				"command": "drip.openRecentFile",
@@ -713,6 +727,11 @@
 					"command": "drip.refreshTree",
 					"when": "view == drip.drafts",
 					"group": "navigation@1"
+				},
+				{
+					"command": "drip.openTodayDailyNote",
+					"when": "view == drip.dailyNotes",
+					"group": "navigation@1"
 				}
 			],
 			"view/title/context": [
@@ -861,6 +880,16 @@
 				{
 					"command": "drip.deleteItem",
 					"when": "view == drip.drafts && viewItem == dripDraft",
+					"group": "dripDelete@1"
+				},
+				{
+					"command": "drip.copyPath",
+					"when": "view == drip.dailyNotes && viewItem == dripDailyNote",
+					"group": "dripPath@1"
+				},
+				{
+					"command": "drip.deleteItem",
+					"when": "view == drip.dailyNotes && (viewItem == dripDailyNote || viewItem == dripDailyMonth || viewItem == dripDailyYear)",
 					"group": "dripDelete@1"
 				}
 			]

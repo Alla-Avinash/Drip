@@ -3,11 +3,12 @@
 const { matchHeadingTitleTypePrefix } = require('./dripnoteMetadataTemplates');
 
 /**
- * Persistent headings are either:
- * - a bare dot marker (`. Title` or `.`), stored with metadata_type NULL; or
- * - a configured metadata shortcut/marker (`.c`, `.task`, `.t1`, ...).
+ * Persistent headings are the `# .…` family (title starts with `.`):
+ * - bare `.` / `. Title` → metadata_type NULL
+ * - known shortcut/marker (`.c`, `.task`, `.t1`, …) → that type id
+ * - unknown `.foo` → still persistent (id allocated), metadata_type NULL
  *
- * Unknown dot-prefixed markers are ordinary document headings.
+ * Plain `# Heading` / undotted `# c Title` are not persistent.
  *
  * @param {string} title heading title without the leading `#`
  * @param {{ types?: any[], typeByMarker?: Map<string, any>, typeByShortcut?: Map<string, any> }} settings
@@ -15,8 +16,8 @@ const { matchHeadingTitleTypePrefix } = require('./dripnoteMetadataTemplates');
  */
 function classifyPersistentHeadingTitle(title, settings) {
 	const normalized = String(title || '').trim();
-	if (/^\.(?:\s|$)/.test(normalized)) {
-		return { persistent: true, metadataType: null };
+	if (!normalized.startsWith('.')) {
+		return { persistent: false, metadataType: null };
 	}
 
 	const matched = matchHeadingTitleTypePrefix(normalized, settings);
@@ -27,7 +28,7 @@ function classifyPersistentHeadingTitle(title, settings) {
 		};
 	}
 
-	return { persistent: false, metadataType: null };
+	return { persistent: true, metadataType: null };
 }
 
 module.exports = {

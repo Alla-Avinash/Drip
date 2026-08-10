@@ -31,7 +31,13 @@
 		nodeGraphKnownTypes: new Set()
 	};
 
-	/** File-local node graph — same force defaults as tags graph. */
+	/** File-local node graph — default forces applied whenever Canvas opens. */
+	const NG_DEFAULTS = {
+		forceCenter: 0.003,
+		forceRepel: 25,
+		forceLink: 0.7,
+		linkDistance: 185
+	};
 	const persistedNg = (_persisted.nodeGraphForces && typeof _persisted.nodeGraphForces === 'object')
 		? _persisted.nodeGraphForces
 		: {};
@@ -48,10 +54,10 @@
 		ORIGIN: 2000,
 		pad: 120,
 		rigid: !!persistedNg.rigid,
-		forceCenter: clampNg(persistedNg.forceCenter, 0, 0.015, 0.008),
-		forceRepel: clampNg(persistedNg.forceRepel, 10, 30, 20),
-		forceLink: clampNg(persistedNg.forceLink, 0, 1, 0.75),
-		linkDistance: clampNg(persistedNg.linkDistance, 15, 200, 80),
+		forceCenter: NG_DEFAULTS.forceCenter,
+		forceRepel: NG_DEFAULTS.forceRepel,
+		forceLink: NG_DEFAULTS.forceLink,
+		linkDistance: NG_DEFAULTS.linkDistance,
 		minSep: 78
 	};
 	/** @type {Map<string, { id: string, x: number, y: number, vx: number, vy: number, title: string, badge: string, root: boolean, filterKey: string, persistent: boolean }>} */
@@ -204,10 +210,18 @@
 		const link = /** @type {HTMLInputElement | null} */ ($('ng-opt-force-link'));
 		const dist = /** @type {HTMLInputElement | null} */ ($('ng-opt-link-distance'));
 		NG.rigid = !!(rigid && rigid.checked);
-		NG.forceCenter = center ? clampNg(center.value, 0, 0.015, 0.008) : 0.008;
-		NG.forceRepel = repel ? clampNg(repel.value, 10, 30, 20) : 20;
-		NG.forceLink = link ? clampNg(link.value, 0, 1, 0.75) : 0.75;
-		NG.linkDistance = dist ? clampNg(dist.value, 15, 200, 80) : 80;
+		NG.forceCenter = center
+			? clampNg(center.value, 0, 0.015, NG_DEFAULTS.forceCenter)
+			: NG_DEFAULTS.forceCenter;
+		NG.forceRepel = repel
+			? clampNg(repel.value, 10, 30, NG_DEFAULTS.forceRepel)
+			: NG_DEFAULTS.forceRepel;
+		NG.forceLink = link
+			? clampNg(link.value, 0, 1, NG_DEFAULTS.forceLink)
+			: NG_DEFAULTS.forceLink;
+		NG.linkDistance = dist
+			? clampNg(dist.value, 15, 200, NG_DEFAULTS.linkDistance)
+			: NG_DEFAULTS.linkDistance;
 		syncNodeGraphForceUi();
 		persistCanvasView();
 		kickNodeGraphSim();

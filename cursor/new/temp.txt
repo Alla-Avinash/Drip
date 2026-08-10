@@ -1,0 +1,58 @@
+	
+    
+    
+	# .t daily notes diary
+		.task
+			priority: high
+			status: to-do
+			category: new-feature
+
+		this component will be located right below the drafts component, in the LHS
+		they will be present as a component with the name as "daily notes"
+		it will have folders in it, present as years like 2026, 2025... etc 
+		it will have the folders and files just as like in the above knowledgebase but it won't have any functionality in the right click..
+		jan 2026; feb 2026; march 2026 -> current month 
+		and for each year it will have secondary folders as jan 2026, feb 2026
+			jan 2026 
+				01-23-2026.d.txt
+				01-27-2026 
+			feb 2026 
+				02-09-2026 
+				02-24-2026
+			mar 2026
+				03-10-2026
+		here when you click on the daily notes component, 
+		it will create a file .d.txt with the current date as its name in the correct respective year/ month folder 
+			if that years/ month folders is not present then it will create those folders..
+		it will then open this file with the current date.. 
+			if you write anything in that file then only that file will be saved or it will be deleted if you don't write anything new in it for the frist time it is created.. 
+			this deletion is only for the first time it is created but for the second time onwards it doesn't get deleted.. 
+
+		have a new sidecar created.. 
+		have a new folder called 'daily notes' created in the .drip index similar to drafts.. as a sidecar 
+		in this folder we store the daily notes stored in seperate folders with the name - 'month, year'(August, 2026) 
+		so each of these notes are written by the user each day, in the last 3 months
+		if the user writes anything then only these will be created or else they won't be created.. 
+		it will store the daily notes for every day.. 
+
+		it will store the temporary tasks/ daily notes for the past 3 months 
+		the folder with the date/month older than the last 3 months will be deleted 
+		when we open the application.. 
+			jan 2026; feb 2026; march 2026 -> current month 
+			jan 2026 
+				01-23-2026 
+				01-27-2026 
+			feb 2026 
+				02-09-2026 
+				02-24-2026
+		these files are also initialized with the same .d.txt files but will just be named differently..
+		these will also have the file id's present and will have a bit different filepaths as they are in a different sidecar instead of the kb 
+		so please take the correct judgement in storing these infromation if you have any persistant metadata and headings in this file.. 
+		you will also use this file mostly to store the temporary tasks for that day.. 
+
+		the tasks or notes present in these files are temporary and not persistant in the DB, they are only stored for a max time of 3 months 
+		you can have these temp. tasks in notes 
+	
+		the default time will be for 3 months you can also have a drip settings in the settings regarding the max time for the storage of the drip daily notes or everyday tasks 
+			you can also have a option of 'forever' if you don't plan on deleting these notes that you have written as dialy notes or these temporary every day to day tasks that you have put. 
+		

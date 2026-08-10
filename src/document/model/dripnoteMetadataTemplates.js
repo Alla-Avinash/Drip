@@ -6,7 +6,7 @@ const DEFAULT_METADATA_TYPES = [
 	{
 		id: 'concept',
 		marker: '.concept',
-		shortcut: '',
+		shortcut: 'c',
 		color: '',
 		attributes: {
 			difficulty: { kind: 'enum', values: ['hard', 'medium', 'easy'], default: '' },
@@ -36,6 +36,25 @@ const DEFAULT_METADATA_TYPES = [
 			status: { kind: 'enum', values: ['in-progress', 'to-do'], default: '' },
 			priority: { kind: 'enum', values: ['high', 'low'], default: '' },
 			deadline: { kind: 'datetime', default: '' }
+		}
+	},
+	{
+		id: 'implementation',
+		marker: '.implementation',
+		shortcut: 'impl',
+		color: '',
+		attributes: {
+			implemented: { kind: 'enum', values: ['true', 'false'], default: '' }
+		}
+	},
+	{
+		id: 'issue',
+		marker: '.issue',
+		shortcut: 'i',
+		color: '',
+		attributes: {
+			priority: { kind: 'enum', values: ['high', 'medium', 'low'], default: '' },
+			status: { kind: 'enum', values: ['in-progress', 'to-do', 'completed'], default: '' }
 		}
 	}
 ];
@@ -143,7 +162,11 @@ function getMetadataSettings() {
 	for (const t of types) {
 		mapById.set(t.id, t);
 		mapByMarker.set(t.marker.toLowerCase(), t);
-		if (t.shortcut) mapByShortcut.set(t.shortcut, t);
+		if (t.shortcut) {
+			mapByShortcut.set(t.shortcut, t);
+			// Accept legacy dotted keys if any caller builds maps without normalizing.
+			mapByShortcut.set(`.${t.shortcut}`, t);
+		}
 	}
 	const relationsCfg = c.get('tagsRelationsConfig', DEFAULT_TAG_RELATIONS);
 	const allowedFromArray = asStringArray(relationsCfg && relationsCfg.allowed ? relationsCfg.allowed : []);
@@ -182,6 +205,20 @@ function getMetadataSettings() {
 const HEADING_SPECIAL_KEYS = new Set(['workflow', 'parent']);
 
 /**
+ * Resolve a type from the shortcut map, accepting dotted or plain keys.
+ * @param {{ typeByShortcut?: Map<string, any> }} settings
+ * @param {string} body shortcut body without a leading dot (e.g. `c`)
+ * @returns {any | undefined}
+ */
+function lookupShortcutType(settings, body) {
+	const map = settings && settings.typeByShortcut;
+	if (!map || typeof map.get !== 'function') return undefined;
+	const key = String(body || '');
+	if (!key) return undefined;
+	return map.get(key) || map.get(`.${key}`) || map.get(normalizeMetadataShortcut(key));
+}
+
+/**
  * Parse `.shortcut`, `.shortcut12`, or invalid `.shortcutX…` at the start of a heading title.
  * @param {string} titleOrHeading title text or full `# …` line
  * @param {{ types?: any[], typeByMarker?: Map<string, any>, typeByShortcut?: Map<string, any> }} settings
@@ -200,13 +237,14 @@ function matchHeadingTitleTypePrefix(titleOrHeading, settings) {
 	if (byMarker) {
 		return { typeId: byMarker.id, matchedPrefix, form: 'marker', taskId: null, invalid: false };
 	}
-	const byExact = settings.typeByShortcut && settings.typeByShortcut.get(body);
+	// Shortcuts may be stored with or without a leading dot; match body as-is (case-sensitive).
+	const byExact = lookupShortcutType(settings, body);
 	if (byExact) {
 		return { typeId: byExact.id, matchedPrefix, form: 'exact', taskId: null, invalid: false };
 	}
 	const num = body.match(/^([A-Za-z]+)(\d+)$/);
 	if (num) {
-		const byNum = settings.typeByShortcut && settings.typeByShortcut.get(num[1]);
+		const byNum = lookupShortcutType(settings, String(num[1] || ''));
 		if (byNum) {
 			const taskId = parseInt(num[2], 10);
 			return {

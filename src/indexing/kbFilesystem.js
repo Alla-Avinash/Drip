@@ -3,9 +3,21 @@
 const path = require('path');
 const vscode = require('vscode');
 const { fileNameMatchesKbNote } = require('../document/model/noteFileTypes');
+const { DAILY_NOTES_DIR } = require('../shared/constants');
 
 function isDotImgRasterImage(name) {
 	return /\.(png|jpg|jpeg)$/i.test(name);
+}
+
+/**
+ * Hide `dailynotes.drip` from the Knowledge Base tree only (still indexed on disk).
+ * @param {import('vscode').Uri} rootUri
+ * @param {import('vscode').Uri} currentUri
+ * @param {string} name
+ */
+function isHiddenDailyNotesFolder(rootUri, currentUri, name) {
+	if (name !== DAILY_NOTES_DIR) return false;
+	return path.resolve(rootUri.fsPath) === path.resolve(currentUri.fsPath);
 }
 
 async function getKnowledgeBaseTreeChildren(rootUri, currentUri) {
@@ -22,6 +34,9 @@ async function getKnowledgeBaseTreeChildren(rootUri, currentUri) {
 		}
 
 		if (type === vscode.FileType.Directory) {
+			if (isHiddenDailyNotesFolder(rootUri, currentUri, name)) {
+				continue;
+			}
 			items.push({
 				label: name,
 				uri: childUri,
@@ -78,6 +93,9 @@ async function listImmediateFolderChildrenOfRoot(rootUri) {
 			continue;
 		}
 		if (name === '.img') {
+			continue;
+		}
+		if (name === DAILY_NOTES_DIR) {
 			continue;
 		}
 

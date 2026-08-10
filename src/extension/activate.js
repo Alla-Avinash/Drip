@@ -10,8 +10,15 @@ const {
 	DRIP_KB_VIEW_ID,
 	DRIP_DRAFTS_VIEW_ID,
 	DRIP_RECENTS_VIEW_ID,
-	DRIP_OPEN_RECENT_FILE_COMMAND_ID
+	DRIP_OPEN_RECENT_FILE_COMMAND_ID,
+	DRIP_DAILY_NOTES_VIEW_ID,
+	DRIP_OPEN_TODAY_DAILY_NOTE_COMMAND_ID
 } = require('../shared/constants');
+const {
+	ensureTodayDailyNote,
+	isDailyNoteUri,
+	isDailyNoteUnchangedFromCreate
+} = require('../startup/dailyNotesDrip');
 const { DripState } = require('../state/state');
 const { DripTreeDataProvider } = require('../views/lhs/knowledgebase/tree');
 const {
@@ -117,16 +124,20 @@ async function activate(context) {
 	const kbTreeProvider = new DripTreeDataProvider(state, 'knowledge');
 	const draftsTreeProvider = new DripTreeDataProvider(state, 'drafts');
 	const recentsTreeProvider = new DripTreeDataProvider(state, 'recents');
+	const dailyNotesTreeProvider = new DripTreeDataProvider(state, 'dailyNotes');
 	const sidebarRefreshHub = {
 		refresh() {
 			componentsTreeProvider.refresh();
 			kbTreeProvider.refresh();
 			draftsTreeProvider.refresh();
 			recentsTreeProvider.refresh();
+			dailyNotesTreeProvider.refresh();
 		}
 	};
 	state.setDraftsRefreshListener(() => sidebarRefreshHub.refresh());
 	state.setRecentsRefreshListener(() => recentsTreeProvider.refresh());
+	/** Newly created daily notes: uri → initial text (discard on close if unchanged). */
+	const newDailyNoteInitialText = new Map();
 	let hasAutoOpenedComposer = false;
 	let kbWatcher;
 	/** @type {import('vscode').WebviewPanel | null} */
@@ -153,8 +164,12 @@ async function activate(context) {
 	const recentsTreeView = vscode.window.createTreeView(DRIP_RECENTS_VIEW_ID, {
 		treeDataProvider: recentsTreeProvider
 	});
+	const dailyNotesTreeView = vscode.window.createTreeView(DRIP_DAILY_NOTES_VIEW_ID, {
+		treeDataProvider: dailyNotesTreeProvider,
+		showCollapseAll: true
+	});
 
-	context.subscriptions.push(componentsTreeView, kbTreeView, draftsTreeView, recentsTreeView);
+	context.subscriptions.push(componentsTreeView, kbTreeView, draftsTreeView, recentsTreeView, dailyNotesTreeView);
 	registerDripSidebarViewBehavior(kbTreeView, componentsTreeView, context);
 
 	function isDripnoteDocument(doc) {
@@ -186,6 +201,38 @@ async function activate(context) {
 	if (vscode.window.activeTextEditor) {
 		void trackRecentFromDocument(vscode.window.activeTextEditor.document);
 	}
+
+	// Discard brand-new daily notes that were never edited before closing
+	context.subscriptions.push(
+		vscode.workspace.onDidCloseTextDocument(async doc => {
+			const key = doc.uri.toString();
+			if (!newDailyNoteInitialText.has(key)) return;
+			const initialText = newDailyNoteInitialText.get(key) || '';
+			newDailyNoteInitialText.delete(key);
+			const kbRoot = state.getKnowledgeBaseRoot();
+			if (!kbRoot) return;
+			if (!isDailyNoteUri(kbRoot, doc.uri)) return;
+			try {
+				const buf = await vscode.workspace.fs.readFile(doc.uri);
+				const text = Buffer.from(buf).toString('utf8');
+				if (isDailyNoteUnchangedFromCreate(text, initialText)) {
+					const { removeFileFromDripIndex } = require('../indexing/dripIndexDb');
+					const rel = require('path')
+						.relative(kbRoot.fsPath, doc.uri.fsPath)
+						.replace(/\\/g, '/');
+					try {
+						await removeFileFromDripIndex(kbRoot, rel);
+					} catch {
+						/* best-effort */
+					}
+					await vscode.workspace.fs.delete(doc.uri, { useTrash: false });
+					dailyNotesTreeProvider.refresh();
+				}
+			} catch {
+				// best-effort
+			}
+		})
+	);
 
 	function ensureKnowledgeBaseWatcher() {
 		kbWatcher?.dispose();
@@ -393,6 +440,7 @@ async function activate(context) {
 				await postTagGraphStateToAll(state);
 				await state.refreshDraftsFromStorage();
 				await state.refreshRecentsFromStorage();
+				dailyNotesTreeProvider.refresh();
 				refreshRetrieverCatalogIfShown();
 				if (settingsPanel) {
 					await postDripSettingsValuesToWebview(settingsPanel.webview, state);
@@ -436,6 +484,26 @@ async function activate(context) {
 		}),
 		vscode.commands.registerCommand('drip.refreshTree', async () => {
 			refreshUi();
+		}),
+		vscode.commands.registerCommand(DRIP_OPEN_TODAY_DAILY_NOTE_COMMAND_ID, async () => {
+			const kbRoot = state.getKnowledgeBaseRoot();
+			if (!kbRoot) {
+				void vscode.window.showWarningMessage('Select a Knowledge Base folder first.');
+				return;
+			}
+			try {
+				const now = new Date();
+				const { uri, isNew, initialText } = await ensureTodayDailyNote(kbRoot, now, {
+					context
+				});
+				await vscode.window.showTextDocument(uri);
+				dailyNotesTreeProvider.refresh();
+				if (isNew) {
+					newDailyNoteInitialText.set(uri.toString(), initialText);
+				}
+			} catch (err) {
+				void vscode.window.showErrorMessage(`Could not open daily note: ${err instanceof Error ? err.message : String(err)}`);
+			}
 		}),
 		vscode.commands.registerCommand('drip.copyPath', async item => {
 			await state.copyPath(item);

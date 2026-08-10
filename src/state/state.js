@@ -1207,7 +1207,11 @@ class DripState {
 		const label = path.basename(item.uri.fsPath);
 		const noteExt = getExtensionFromFileName(label);
 		const isNoteFile =
-			item.contextValue === 'dripNoteFile' && Boolean(noteExt) && label.length > noteExt.length;
+			(item.contextValue === 'dripNoteFile' || item.contextValue === 'dripDailyNote') &&
+			Boolean(noteExt) &&
+			label.length > noteExt.length;
+		const isDailyFolder =
+			item.contextValue === 'dripDailyYear' || item.contextValue === 'dripDailyMonth';
 
 		let deletedFileId = '';
 		if (isNoteFile) {
@@ -1239,8 +1243,53 @@ class DripState {
 			} catch {
 				// proceed with deletion
 			}
+		} else if (isDailyFolder) {
+			try {
+				await this._removeDailyNotesFolderFromIndex(kbRoot, item.uri);
+			} catch {
+				// proceed with deletion
+			}
+		} else if (isNoteFile) {
+			try {
+				const rel = path.relative(kbRoot.fsPath, item.uri.fsPath).replace(/\\/g, '/');
+				await removeFileFromDripIndex(kbRoot, rel);
+			} catch {
+				// proceed
+			}
 		}
 		await vscode.workspace.fs.delete(item.uri, { recursive: true });
+	}
+
+	/**
+	 * Remove index rows for every `.d.txt` under a daily-notes year/month folder.
+	 * @param {import('vscode').Uri} kbRoot
+	 * @param {import('vscode').Uri} folderUri
+	 */
+	async _removeDailyNotesFolderFromIndex(kbRoot, folderUri) {
+		const stack = [folderUri];
+		while (stack.length) {
+			const dir = stack.pop();
+			let entries = [];
+			try {
+				entries = await vscode.workspace.fs.readDirectory(dir);
+			} catch {
+				continue;
+			}
+			for (const [name, kind] of entries) {
+				const child = vscode.Uri.joinPath(dir, name);
+				if (kind === vscode.FileType.Directory) {
+					stack.push(child);
+					continue;
+				}
+				if (kind !== vscode.FileType.File || !name.toLowerCase().endsWith('.d.txt')) continue;
+				const rel = path.relative(kbRoot.fsPath, child.fsPath).replace(/\\/g, '/');
+				try {
+					await removeFileFromDripIndex(kbRoot, rel);
+				} catch {
+					/* best-effort */
+				}
+			}
+		}
 	}
 
 	/** Standalone tag graph (not linked to note files yet). */

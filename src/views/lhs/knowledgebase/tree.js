@@ -1,6 +1,11 @@
 'use strict';
 
 const vscode = require('vscode');
+const {
+	loadDailyNotesTree,
+	loadDailyMonthNodes,
+	loadDailyNoteNodes
+} = require('../../../startup/dailyNotesDrip');
 
 const COMPONENT_ENTRIES = [
 	{
@@ -20,7 +25,7 @@ const COMPONENT_ENTRIES = [
 class DripTreeDataProvider {
 	/**
 	 * @param {*} state
-	 * @param {'components' | 'knowledge' | 'drafts' | 'recents'} mode
+	 * @param {'components' | 'knowledge' | 'drafts' | 'recents' | 'dailyNotes'} mode
 	 */
 	constructor(state, mode) {
 		this.state = state;
@@ -54,6 +59,10 @@ class DripTreeDataProvider {
 					return this.getRecentItems();
 				}
 				return [];
+			}
+
+			if (this.mode === 'dailyNotes') {
+				return this.getDailyNotesChildren(element);
 			}
 
 			if (!element) {
@@ -170,6 +179,66 @@ class DripTreeDataProvider {
 			item.contextValue = 'dripRecent';
 			return item;
 		});
+	}
+
+	async getDailyNotesChildren(element) {
+		const kbRoot = this.state.getKnowledgeBaseRoot();
+		if (!kbRoot) {
+			const item = new vscode.TreeItem('Select a Knowledge Base first', vscode.TreeItemCollapsibleState.None);
+			item.contextValue = 'dripDailyEmpty';
+			return [item];
+		}
+
+		if (!element) {
+			const years = await loadDailyNotesTree(kbRoot);
+			if (!years.length) {
+				const item = new vscode.TreeItem('No daily notes yet', vscode.TreeItemCollapsibleState.None);
+				item.description = 'Use + to create today\'s note';
+				item.iconPath = new vscode.ThemeIcon('calendar');
+				item.contextValue = 'dripDailyEmpty';
+				return [item];
+			}
+			return years.map(node => {
+				const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.Collapsed);
+				item.kind = 'dailyYear';
+				item.uri = node.uri;
+				item.iconPath = new vscode.ThemeIcon('folder');
+				item.contextValue = 'dripDailyYear';
+				return item;
+			});
+		}
+
+		if (element.kind === 'dailyYear') {
+			const months = await loadDailyMonthNodes(element.uri);
+			return months.map(node => {
+				const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.Collapsed);
+				item.kind = 'dailyMonth';
+				item.uri = node.uri;
+				item.iconPath = new vscode.ThemeIcon('folder');
+				item.contextValue = 'dripDailyMonth';
+				return item;
+			});
+		}
+
+		if (element.kind === 'dailyMonth') {
+			const notes = await loadDailyNoteNodes(element.uri);
+			return notes.map(node => {
+				const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);
+				item.kind = 'dailyNote';
+				item.uri = node.uri;
+				item.resourceUri = node.uri;
+				item.iconPath = new vscode.ThemeIcon('file-text');
+				item.command = {
+					command: 'vscode.open',
+					title: 'Open Daily Note',
+					arguments: [node.uri]
+				};
+				item.contextValue = 'dripDailyNote';
+				return item;
+			});
+		}
+
+		return [];
 	}
 }
 

@@ -22,6 +22,10 @@ const DRIP_OPEN_KB_EDITOR_COMMAND_ID = 'drip.openKbEditor';
 const DRIP_CAPTURE_SELECTION_COMMAND_ID = 'drip.captureSelectionToComposer';
 const DRIP_SELECT_KB_COMMAND_ID = 'drip.selectKnowledgeBase';
 const DRIP_OPEN_RECENT_FILE_COMMAND_ID = 'drip.openRecentFile';
+const DRIP_DAILY_NOTES_VIEW_ID = 'drip.dailyNotes';
+const DRIP_OPEN_TODAY_DAILY_NOTE_COMMAND_ID = 'drip.openTodayDailyNote';
+/** KB-root folder for daily notes (hidden from Knowledge Base tree). */
+const DAILY_NOTES_DIR = 'dailynotes.drip';
 const DRAFTS_KEY = 'drip.drafts';
 const KB_ROOT_KEY = 'drip.kbRoot';
 /** Workspace-scoped list of recently opened/modified dripnote files (max 10). */
@@ -50,6 +54,9 @@ module.exports = {
 	DRIP_CAPTURE_SELECTION_COMMAND_ID,
 	DRIP_SELECT_KB_COMMAND_ID,
 	DRIP_OPEN_RECENT_FILE_COMMAND_ID,
+	DRIP_DAILY_NOTES_VIEW_ID,
+	DRIP_OPEN_TODAY_DAILY_NOTE_COMMAND_ID,
+	DAILY_NOTES_DIR,
 	DRAFTS_KEY,
 	KB_ROOT_KEY,
 	RECENTS_KEY,

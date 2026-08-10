@@ -32,6 +32,7 @@ Grep/read only files relevant to your task.
 | Note extensions | `src/document/model/noteFileTypes.js` |
 | Tree providers | `src/views/lhs/knowledgebase/tree.js` |
 | Recents (last 10 `.d.txt`, KB-portable) | `.dripindex/recents.drip.json` via `src/startup/recentsDrip.js`; `DripState.getRecentFiles` / `touchRecentFile` / `refreshRecentsFromStorage`; view `drip.recents` |
+| Daily Notes (LHS tree; KB folder hidden from KB tree) | KB-root `dailynotes.drip/<year>/<Month YYYY>/` via `src/startup/dailyNotesDrip.js` (`ensureTodayDailyNote` uses `buildNewNoteFile` + normal fileid/heading identity); view `drip.dailyNotes`; command `drip.openTodayDailyNote`; hidden in `kbFilesystem.getKnowledgeBaseTreeChildren` |
 | Create menu, icons, drag-drop | `src/views/lhs/knowledgebase/kbCreateMenu.js`, `kbTreeIcon.js`, `kbTreeDragDrop.js`, `icons/*.svg` |
 | Sidebar behavior | `src/views/lhs/knowledgebase/dripSidebarViews.js` |
 

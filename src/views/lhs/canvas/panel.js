@@ -233,13 +233,13 @@ function getCanvasHtml(webview, extensionUri) {
 					<p class="node-graph-settings-title">Forces</p>
 					<label class="node-graph-chk"><input type="checkbox" id="ng-opt-rigid" /> Rigid mode (freeze nodes)</label>
 					<label class="node-graph-range-label" for="ng-opt-force-center">Center force <span id="ng-opt-force-center-val"></span></label>
-					<input id="ng-opt-force-center" type="range" min="0" max="0.015" step="0.001" value="0.008" />
+					<input id="ng-opt-force-center" type="range" min="0" max="0.015" step="0.001" value="0.003" />
 					<label class="node-graph-range-label" for="ng-opt-force-repel">Repel force <span id="ng-opt-force-repel-val"></span></label>
-					<input id="ng-opt-force-repel" type="range" min="10" max="30" step="0.05" value="20" />
+					<input id="ng-opt-force-repel" type="range" min="10" max="30" step="0.05" value="25" />
 					<label class="node-graph-range-label" for="ng-opt-force-link">Link force <span id="ng-opt-force-link-val"></span></label>
-					<input id="ng-opt-force-link" type="range" min="0" max="1" step="0.01" value="0.75" />
+					<input id="ng-opt-force-link" type="range" min="0" max="1" step="0.01" value="0.7" />
 					<label class="node-graph-range-label" for="ng-opt-link-distance">Link distance <span id="ng-opt-link-distance-val"></span></label>
-					<input id="ng-opt-link-distance" type="range" min="15" max="200" step="5" value="80" />
+					<input id="ng-opt-link-distance" type="range" min="15" max="200" step="5" value="185" />
 				</div>
 			</aside>
 		</div>
