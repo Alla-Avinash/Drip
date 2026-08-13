@@ -153,7 +153,7 @@ function collectDiagnosticsForBlock(lines, start, endExclusive, blockTypeId, set
 				if (isValidRefTargetToken(tok.label)) continue;
 				const d = new vscode.Diagnostic(
 					new vscode.Range(i, tok.start, i, tok.end),
-					`Invalid ref target "${tok.label}". Use @fN or @fN:hN (e.g. @f26, @f45:h18).`,
+					`Invalid ref target "${tok.label}". Use @fN or @fN (topic) (e.g. @f26, @f45 (intro)). Heading targets @fN:hN are not allowed.`,
 					vscode.DiagnosticSeverity.Error
 				);
 				d.code = 'drip.invalidRefTarget';

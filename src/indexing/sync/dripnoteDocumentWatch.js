@@ -170,7 +170,7 @@ function computeIndexPersistenceSignature(parsed) {
 		.sort((a, b) => a[0] - b[0]);
 
 	const refs = (parsed.references || [])
-		.map(r => [r.source_heading_id, r.target_file_id, r.target_heading_id])
+		.map(r => [r.source_heading_id, r.target_file_id])
 		.sort();
 
 	const searchtags = (parsed.searchtags || [])

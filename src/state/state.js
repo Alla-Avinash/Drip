@@ -36,7 +36,7 @@ const {
 	updateRefsOnRename,
 	removeRefsOnDelete
 } = require('../graph/dripnoteReferenceSync');
-const { allocateNextEntityNumber } = require('../indexing/dripnoteIndex');
+const { allocateNextEntityNumber, indexNewNoteImmediately } = require('../indexing/dripnoteIndex');
 const { updateNoteInDripIndex } = require('../indexing/sync/dripnoteIndexUpdate');
 const { removeFileFromDripIndex } = require('../indexing/dripIndexDb');
 const { getKbNoteTreeIcon } = require('../views/lhs/knowledgebase/kbTreeIcon');
@@ -651,6 +651,11 @@ class DripState {
 			}, { fileEntityNumber: n })
 		);
 		await normalizeNoteIdentityFile(fileUri, { context: this.context });
+		try {
+			await indexNewNoteImmediately(kbRoot, fileUri, this.context);
+		} catch (err) {
+			console.error('[DRIP] immediate index after createNoteInFolderFromPicker', err);
+		}
 
 		return fileUri.toString();
 	}
@@ -734,6 +739,11 @@ class DripState {
 			const n = await allocateNextEntityNumber(kbRoot);
 			await writeTextFile(targetUri, buildNewNoteFile(draft, { fileEntityNumber: n }));
 			await normalizeNoteIdentityFile(targetUri, { context: this.context });
+			try {
+				await indexNewNoteImmediately(kbRoot, targetUri, this.context);
+			} catch (err) {
+				console.error('[DRIP] immediate index after composer create', err);
+			}
 		} else {
 			// Backwards compatible path: auto-select best folder/file.
 			const targetFolder = await chooseTargetFolder(kbRoot, normalizedNoteInput);
@@ -769,6 +779,11 @@ class DripState {
 				const n = await allocateNextEntityNumber(kbRoot);
 				await writeTextFile(targetUri, buildNewNoteFile(draft, { fileEntityNumber: n }));
 				await normalizeNoteIdentityFile(targetUri, { context: this.context });
+				try {
+					await indexNewNoteImmediately(kbRoot, targetUri, this.context);
+				} catch (err) {
+					console.error('[DRIP] immediate index after auto-create', err);
+				}
 			}
 		}
 
@@ -810,6 +825,11 @@ class DripState {
 			}, { fileEntityNumber: n })
 		);
 		await normalizeNoteIdentityFile(fileUri, { context: this.context });
+		try {
+			await indexNewNoteImmediately(kbRoot, fileUri, this.context);
+		} catch (err) {
+			console.error('[DRIP] immediate index after createNoteFile', err);
+		}
 
 		await vscode.commands.executeCommand('vscode.open', fileUri);
 		return fileUri;

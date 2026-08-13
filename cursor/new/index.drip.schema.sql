@@ -1,13 +1,16 @@
--- DRIP index.drip — SQLite schema v7
--- Canonical runtime: cursor/new/dripIndexSchema.js (used by src/indexing/dripIndexDb.js)
+-- DRIP index.drip — SQLite schema v8
+-- Docs mirror only — runtime schema: src/indexing/dbSchema/dripIndexSchema.js (via dripIndexDb.js)
 -- Spec: cursor/new/features.txt (DB schema §4–7)
 --
 -- File layout: identity line ABOVE each # heading:
 --   @f23:h1 #abcd1234
 --   # Section title
 --
+-- refs (file-level only):
+--   ref: [@f26 (optional topic), @f45, @f3]
+--
 -- index_meta defaults (seeded on init):
---   schema_version → "7"
+--   schema_version → "8"
 --   next_file_id   → "0"
 --   heading_alloc_<file_id> → per-file non-h0 id pool JSON, e.g. '{"next":4,"free":[2,3]}'
 --   workflow_alloc_<file_id>_<workflow_heading_id> → dense per-workflow task id pool (contiguous .t1…tN)
@@ -42,12 +45,11 @@ CREATE TABLE IF NOT EXISTS heading_references (
 	source_file_id INTEGER NOT NULL,
 	source_heading_id INTEGER NOT NULL,
 	target_file_id INTEGER NOT NULL,
-	target_heading_id INTEGER NOT NULL,
-	PRIMARY KEY (source_file_id, source_heading_id, target_file_id, target_heading_id)
+	PRIMARY KEY (source_file_id, source_heading_id, target_file_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_ref_source ON heading_references(source_file_id, source_heading_id);
-CREATE INDEX IF NOT EXISTS idx_ref_target ON heading_references(target_file_id, target_heading_id);
+CREATE INDEX IF NOT EXISTS idx_ref_target ON heading_references(target_file_id);
 CREATE INDEX IF NOT EXISTS idx_heading_type ON headings(metadata_type);
 CREATE INDEX IF NOT EXISTS idx_headings_title ON headings(title);
 

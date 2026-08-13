@@ -3,7 +3,7 @@
 const path = require('path');
 const vscode = require('vscode');
 const { buildNewNoteFile } = require('../document/kbNoteOps');
-const { allocateNextEntityNumber } = require('../indexing/dripnoteIndex');
+const { allocateNextEntityNumber, indexNewNoteImmediately } = require('../indexing/dripnoteIndex');
 const { normalizeNoteIdentityFile } = require('../indexing/dripnoteFileIdentity');
 const { DAILY_NOTES_DIR } = require('../shared/constants');
 
@@ -141,6 +141,11 @@ async function ensureTodayDailyNote(kbRootUri, now = new Date(), options = {}) {
 	);
 	await vscode.workspace.fs.writeFile(uri, Buffer.from(text, 'utf8'));
 	await normalizeNoteIdentityFile(uri, { context: options.context, kbRoot: kbRootUri });
+	try {
+		await indexNewNoteImmediately(kbRootUri, uri, options.context);
+	} catch (err) {
+		console.error('[DRIP] immediate index after daily note create', err);
+	}
 
 	let initialText = text;
 	try {

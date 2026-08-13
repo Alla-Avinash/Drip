@@ -8,7 +8,7 @@ const {
 	SCHEMA_VERSION,
 	TYPED_METADATA_TABLES,
 	ensureDripIndexSchema
-} = require('../../cursor/new/dripIndexSchema');
+} = require('./dbSchema/dripIndexSchema');
 const { forEachKnowledgeBaseNote } = require('../document/kbNoteOps');
 const { parseNoteForIndex, splitHeaderAndBody, parseFileIdFromHeader } = require('./dripIndexParse');
 const { formatFileEntityId } = require('./dripnoteEntityIds');
@@ -18,6 +18,30 @@ const tagGraphStore = require('../graph/tagGraphStore');
 
 /** @type {Promise<import('sql.js').SqlJsStatic> | null} */
 let sqlJsPromise = null;
+
+/** Serialize file-id allocation per KB so concurrent creates cannot both read the same counter. */
+/** @type {Map<string, Promise<unknown>>} */
+const fileIdAllocationLocks = new Map();
+
+/**
+ * @template T
+ * @param {import('vscode').Uri} kbRootUri
+ * @param {() => Promise<T>} fn
+ * @returns {Promise<T>}
+ */
+function withFileIdAllocationLock(kbRootUri, fn) {
+	const key = String(kbRootUri && kbRootUri.fsPath ? kbRootUri.fsPath : '');
+	const prev = fileIdAllocationLocks.get(key) || Promise.resolve();
+	const run = prev.catch(() => undefined).then(fn);
+	fileIdAllocationLocks.set(
+		key,
+		run.then(
+			() => undefined,
+			() => undefined
+		)
+	);
+	return run;
+}
 
 function getExtensionRootDir() {
 	return path.join(__dirname, '..', '..');
@@ -116,19 +140,18 @@ function normalizeRelPath(kbRootFsPath, noteFsPath) {
 /**
  * @param {import('sql.js').Database} db
  * @param {number} sourceFileId
- * @param {{ source_heading_id: number, target_file_id: number, target_heading_id: number }[]} references
+ * @param {{ source_heading_id: number, target_file_id: number }[]} references
  */
 function insertHeadingReferences(db, sourceFileId, references) {
 	for (const ref of references || []) {
 		db.run(
 			`INSERT OR IGNORE INTO heading_references
-			 (source_file_id, source_heading_id, target_file_id, target_heading_id)
-			 VALUES (?, ?, ?, ?)`,
+			 (source_file_id, source_heading_id, target_file_id)
+			 VALUES (?, ?, ?)`,
 			[
 				sourceFileId,
 				ref.source_heading_id,
-				ref.target_file_id,
-				ref.target_heading_id
+				ref.target_file_id
 			]
 		);
 	}
@@ -425,25 +448,62 @@ async function dripIndexNeedsRebuild(kbRootUri) {
 }
 
 /**
+ * Allocate the next unused sequential file entity id (`@fN` number).
+ * Uses max(counter, MAX(files.id)+1), skips ids already in `files`, bumps
+ * `index_meta.next_file_id`, and saves `index.drip` immediately.
+ *
  * @param {import('vscode').Uri} kbRootUri
  * @returns {Promise<number>}
  */
 async function allocateNextFileEntityNumber(kbRootUri) {
-	const handle = await openDripIndexDb(kbRootUri);
-	try {
-		const counterRow = queryOne(handle.db, `SELECT value FROM index_meta WHERE key = 'next_file_id'`, []);
-		let next = counterRow ? parseInt(String(counterRow[0]), 10) : NaN;
-		if (!Number.isFinite(next)) {
+	return withFileIdAllocationLock(kbRootUri, async () => {
+		const handle = await openDripIndexDb(kbRootUri);
+		try {
+			const counterRow = queryOne(
+				handle.db,
+				`SELECT value FROM index_meta WHERE key = 'next_file_id'`,
+				[]
+			);
 			const maxRow = queryOne(handle.db, 'SELECT COALESCE(MAX(id), -1) FROM files', []);
-			next = maxRow ? Number(maxRow[0]) + 1 : 0;
+			const maxId = maxRow && Number.isFinite(Number(maxRow[0])) ? Number(maxRow[0]) : -1;
+			let counter = counterRow ? parseInt(String(counterRow[0]), 10) : NaN;
+			if (!Number.isFinite(counter) || counter < 0) {
+				counter = 0;
+			}
+
+			let next = Math.max(counter, maxId + 1, 0);
+			for (;;) {
+				const taken = queryOne(handle.db, 'SELECT 1 FROM files WHERE id = ?', [next]);
+				if (!taken) break;
+				next += 1;
+			}
+
+			handle.db.run(`INSERT OR REPLACE INTO index_meta(key, value) VALUES ('next_file_id', ?)`, [
+				String(next + 1)
+			]);
+			await handle.save();
+			return next;
+		} finally {
+			handle.close();
 		}
-		handle.db.run(`INSERT OR REPLACE INTO index_meta(key, value) VALUES ('next_file_id', ?)`, [
-			String(next + 1)
+	});
+}
+
+/**
+ * Keep `next_file_id` ahead of any id that was just written into `files`.
+ * @param {import('sql.js').Database} db
+ * @param {number} usedFileId
+ */
+function bumpNextFileIdCounter(db, usedFileId) {
+	const used = Math.floor(Number(usedFileId));
+	if (!Number.isFinite(used) || used < 0) return;
+	const need = used + 1;
+	const counterRow = queryOne(db, `SELECT value FROM index_meta WHERE key = 'next_file_id'`, []);
+	let counter = counterRow ? parseInt(String(counterRow[0]), 10) : NaN;
+	if (!Number.isFinite(counter) || counter < need) {
+		db.run(`INSERT OR REPLACE INTO index_meta(key, value) VALUES ('next_file_id', ?)`, [
+			String(need)
 		]);
-		await handle.save();
-		return Math.max(0, next);
-	} finally {
-		handle.close();
 	}
 }
 
@@ -893,6 +953,13 @@ function applyParsedNoteToIndex(db, relPath, parsed, context, options) {
 			const maxRow = queryOne(db, 'SELECT COALESCE(MAX(id), -1) FROM files', []);
 			const maxId = maxRow ? Number(maxRow[0]) : -1;
 			fileId = Math.max(0, maxId + 1);
+		} else {
+			const idOwner = queryOne(db, 'SELECT path FROM files WHERE id = ?', [fileId]);
+			if (idOwner && String(idOwner[0] || '').replace(/\\/g, '/') !== normalizedPath) {
+				const maxRow = queryOne(db, 'SELECT COALESCE(MAX(id), -1) FROM files', []);
+				const maxId = maxRow ? Number(maxRow[0]) : -1;
+				fileId = Math.max(0, maxId + 1);
+			}
 		}
 		db.run(
 			`INSERT INTO files (id, path, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
@@ -907,6 +974,7 @@ function applyParsedNoteToIndex(db, relPath, parsed, context, options) {
 		insertParsedHeadingsAndReferences(db, fileId, parsed, tagIdByLower);
 	}
 
+	bumpNextFileIdCounter(db, fileId);
 	return fileId;
 }
 

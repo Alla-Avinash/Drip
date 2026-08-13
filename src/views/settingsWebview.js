@@ -167,7 +167,7 @@ function getSettingsWebviewHtml(webview) {
 			<section id="panel-ref-links" class="panel">
 				<h3>Ref Links</h3>
 				<div class="card">
-					<p class="meta">Colors for <code>ref: [@fN, @fN:hN]</code> lines in heading metadata (same indent level as tags). Empty values fall back to metadata key/value colors, then theme.</p>
+					<p class="meta">Colors for <code>ref: [@fN, @fN (topic)]</code> lines in heading metadata (same indent level as tags). Empty values fall back to metadata key/value colors, then theme.</p>
 					<label class="row" style="display:block;"><span>ref keyword color</span><div class="colorRow"><input type="text" id="ref-keyword-color" placeholder="metadata key color → theme"><input type="color" class="colorPatch" id="ref-keyword-color-picker" title="Choose color"></div></label>
 					<label class="row" style="display:block;"><span>ref target color (values inside brackets)</span><div class="colorRow"><input type="text" id="ref-value-color" placeholder="metadata value color → theme"><input type="color" class="colorPatch" id="ref-value-color-picker" title="Choose color"></div></label>
 					<div class="actions">

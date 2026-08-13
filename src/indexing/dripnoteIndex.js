@@ -767,7 +767,7 @@ async function createOrUpdateIndexForFolder(kbRoot, folderUri, options) {
 }
 
 /**
- * Allocate the next shared file entity number from index.drip.
+ * Allocate the next shared file entity number from index.drip (persisted immediately).
  * @param {import('vscode').Uri} kbRoot
  * @returns {Promise<number>}
  */
@@ -775,6 +775,22 @@ async function allocateNextEntityNumber(kbRoot) {
 	const { allocateNextFileEntityNumber, initEmptyDripIndexFile } = require('./dripIndexDb');
 	await initEmptyDripIndexFile(kbRoot);
 	return allocateNextFileEntityNumber(kbRoot);
+}
+
+/**
+ * Immediately write a newly created note into `index.drip` so its `@fN` is reserved in `files`.
+ * @param {import('vscode').Uri} kbRoot
+ * @param {import('vscode').Uri} noteUri
+ * @param {import('vscode').ExtensionContext | null | undefined} context
+ * @param {string} [text]
+ */
+async function indexNewNoteImmediately(kbRoot, noteUri, context, text) {
+	const { updateNoteInDripIndex } = require('./sync/dripnoteIndexUpdate');
+	await updateNoteInDripIndex(kbRoot, noteUri, context, {
+		force: true,
+		reconcileIdentities: false,
+		text: text != null ? String(text) : undefined
+	});
 }
 
 async function ensureRootIndexIfMissing(kbRoot) {
@@ -932,6 +948,7 @@ module.exports = {
 	extractIndexedRelativePathsFromIndexText,
 	extractIndexSignals,
 	allocateNextEntityNumber,
+	indexNewNoteImmediately,
 	createOrUpdateIndexForFolder,
 	ensureRootIndexIfMissing,
 	findNearestIndexFolder,

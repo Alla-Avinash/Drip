@@ -1,18 +1,19 @@
 'use strict';
 
 /**
- * Canonical SQLite schema for `<kb>/.dripindex/index.drip` (spec: cursor/new/features.txt §4–7).
+ * Runtime SQLite schema for `<kb>/.dripindex/index.drip` (spec: cursor/new/features.txt §4–7).
+ * Human-readable mirror (docs only): cursor/new/index.drip.schema.sql
  *
  * Heading identity in `.d.txt` files: `@fN:hM #hash` on the line **above** `# title` (not below).
  * Per-file heading id allocator: `index_meta.heading_alloc_<file_id>` → JSON `{ "next": N, "free": […] }`.
  *
  * Defaults (application-enforced; see `headings.metadata_type`):
  * - `headings.metadata_type` → SQL NULL when the note has no `.type` marker or an unknown type
- * - `index_meta.schema_version` → `7`
+ * - `index_meta.schema_version` → `8`
  * - `index_meta.next_file_id` → `0`
  */
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 /** @type {string} */
 const SCHEMA_SQL = `
@@ -45,12 +46,11 @@ CREATE TABLE IF NOT EXISTS heading_references (
 	source_file_id INTEGER NOT NULL,
 	source_heading_id INTEGER NOT NULL,
 	target_file_id INTEGER NOT NULL,
-	target_heading_id INTEGER NOT NULL,
-	PRIMARY KEY (source_file_id, source_heading_id, target_file_id, target_heading_id)
+	PRIMARY KEY (source_file_id, source_heading_id, target_file_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_ref_source ON heading_references(source_file_id, source_heading_id);
-CREATE INDEX IF NOT EXISTS idx_ref_target ON heading_references(target_file_id, target_heading_id);
+CREATE INDEX IF NOT EXISTS idx_ref_target ON heading_references(target_file_id);
 CREATE INDEX IF NOT EXISTS idx_heading_type ON headings(metadata_type);
 CREATE INDEX IF NOT EXISTS idx_headings_title ON headings(title);
 
@@ -241,6 +241,38 @@ function migrateHeadingsWithoutHierarchy(db) {
 }
 
 /**
+ * Drop `target_heading_id` from heading_references (refs are file-level `@fN` only).
+ * @param {import('sql.js').Database} db
+ */
+function migrateHeadingReferencesFileOnly(db) {
+	const info = db.exec(`PRAGMA table_info(heading_references)`);
+	if (!info.length || !info[0].values) {
+		return;
+	}
+	const cols = info[0].values.map(row => String(row[1] || '').toLowerCase());
+	if (!cols.includes('target_heading_id')) {
+		return;
+	}
+
+	db.exec(`
+		PRAGMA foreign_keys = OFF;
+		CREATE TABLE heading_references_v8 (
+			source_file_id INTEGER NOT NULL,
+			source_heading_id INTEGER NOT NULL,
+			target_file_id INTEGER NOT NULL,
+			PRIMARY KEY (source_file_id, source_heading_id, target_file_id)
+		);
+		INSERT OR IGNORE INTO heading_references_v8 (source_file_id, source_heading_id, target_file_id)
+			SELECT source_file_id, source_heading_id, target_file_id FROM heading_references;
+		DROP TABLE heading_references;
+		ALTER TABLE heading_references_v8 RENAME TO heading_references;
+		CREATE INDEX IF NOT EXISTS idx_ref_source ON heading_references(source_file_id, source_heading_id);
+		CREATE INDEX IF NOT EXISTS idx_ref_target ON heading_references(target_file_id);
+		PRAGMA foreign_keys = ON;
+	`);
+}
+
+/**
  * @param {import('sql.js').Database} db
  */
 function migrateSchemaIfNeeded(db) {
@@ -257,6 +289,10 @@ function migrateSchemaIfNeeded(db) {
 
 	if (version < 7) {
 		migrateHeadingsWithoutHierarchy(db);
+	}
+
+	if (version < 8) {
+		migrateHeadingReferencesFileOnly(db);
 	}
 
 	db.exec(SCHEMA_SQL);
@@ -283,6 +319,8 @@ function seedInitialIndexMeta(db) {
 function ensureDripIndexSchema(db) {
 	db.exec(SCHEMA_SQL);
 	migrateSchemaIfNeeded(db);
+	// Idempotent: also repair DBs that already report v8 but still have the old column.
+	migrateHeadingReferencesFileOnly(db);
 	seedInitialIndexMeta(db);
 }
 

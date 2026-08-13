@@ -19,6 +19,7 @@ const {
 	mergeParsedNoteWithCache,
 	resolveReparsedNodeIndices
 } = require('./parse/dripIndexIncrementalParse');
+const { splitRefListRespectingParens } = require('../document/parse/dripnoteRefLinks');
 
 /**
  * @param {string} text
@@ -76,11 +77,12 @@ function parseHeadingMetaBlock(metaLines) {
 }
 
 /**
- * Parse `ref: [@f26, @f45:h18, @f3]` targets into numeric file/heading ids.
- * File-only refs use heading_id 0 (spec: file-level / h0).
+ * Parse `ref: [@f26 (topic), @f3]` targets into numeric file ids.
+ * Optional `(topic description)` is display-only and not stored in the index.
+ * Heading targets (`@fN:hM`) are rejected.
  *
  * @param {string} token
- * @returns {{ target_file_id: number, target_heading_id: number } | null}
+ * @returns {{ target_file_id: number } | null}
  */
 function parseRefTargetFromToken(token) {
 	const t = String(token || '').trim();
@@ -88,30 +90,20 @@ function parseRefTargetFromToken(token) {
 		return null;
 	}
 
-	const entityFile = parseFileEntityIdNumber(t);
-	if (entityFile != null) {
-		return { target_file_id: entityFile, target_heading_id: 0 };
-	}
-
-	const m = t.match(/^@+\s*f(\d+)(?:\s*:\s*h?(\d+))?\s*$/i);
+	const m = t.match(/^@+\s*f(\d+)(?:\s*\(([^)]*)\))?\s*$/i);
 	if (!m) {
 		return null;
 	}
 	const targetFileId = parseInt(m[1], 10);
-	if (!Number.isFinite(targetFileId)) {
+	if (!Number.isFinite(targetFileId) || targetFileId < 0) {
 		return null;
 	}
-	const targetHeadingId =
-		m[2] != null && String(m[2]).trim() !== '' ? parseInt(m[2], 10) : 0;
-	if (!Number.isFinite(targetHeadingId)) {
-		return null;
-	}
-	return { target_file_id: targetFileId, target_heading_id: targetHeadingId };
+	return { target_file_id: targetFileId };
 }
 
 /**
  * @param {string} bracketInner
- * @returns {{ target_file_id: number, target_heading_id: number }[]}
+ * @returns {{ target_file_id: number }[]}
  */
 function parseRefTargetsFromBracketList(bracketInner) {
 	const inner = String(bracketInner || '').trim();
@@ -119,13 +111,15 @@ function parseRefTargetsFromBracketList(bracketInner) {
 		return [];
 	}
 
-	/** @type {{ target_file_id: number, target_heading_id: number }[]} */
+	/** @type {{ target_file_id: number }[]} */
 	const out = [];
-	for (const rawToken of inner.split(',')) {
+	const seen = new Set();
+	for (const rawToken of splitRefListRespectingParens(inner)) {
 		const single = parseRefTargetFromToken(rawToken);
-		if (single) {
-			out.push(single);
-		}
+		if (!single) continue;
+		if (seen.has(single.target_file_id)) continue;
+		seen.add(single.target_file_id);
+		out.push(single);
 	}
 	return out;
 }
@@ -244,7 +238,7 @@ function collectSearchTagsFromLines(lines, sourceHeadingId, knownTagsLower) {
 /**
  * Parse relation lines like `pre-req: [react, javascript]`.
  * Tokens are plain text tag names (same as searchable tags), not @f references.
- * Cross-file/heading links use `ref: [@f32:h4, …]` → heading_references.
+ * Cross-file links use `ref: [@f32 (topic), @f3]` → heading_references (file id only).
  *
  * @param {string[]} lines
  * @param {number} sourceHeadingId
@@ -301,7 +295,7 @@ function collectTagsAndRelationsFromLines(lines, sourceHeadingId, knownTagsLower
 
 /**
  * @param {string} line
- * @returns {{ target_file_id: number, target_heading_id: number }[]}
+ * @returns {{ target_file_id: number }[]}
  */
 function parseRefLine(line) {
 	const m = String(line || '').match(/^\s*ref\s*:\s*\[(.*)\]\s*$/i);
@@ -314,17 +308,16 @@ function parseRefLine(line) {
 /**
  * @param {string[]} lines
  * @param {number} sourceHeadingId
- * @returns {{ source_heading_id: number, target_file_id: number, target_heading_id: number }[]}
+ * @returns {{ source_heading_id: number, target_file_id: number }[]}
  */
 function collectReferencesFromLines(lines, sourceHeadingId) {
-	/** @type {{ source_heading_id: number, target_file_id: number, target_heading_id: number }[]} */
+	/** @type {{ source_heading_id: number, target_file_id: number }[]} */
 	const out = [];
 	for (const line of lines || []) {
 		for (const target of parseRefLine(line)) {
 			out.push({
 				source_heading_id: sourceHeadingId,
-				target_file_id: target.target_file_id,
-				target_heading_id: target.target_heading_id
+				target_file_id: target.target_file_id
 			});
 		}
 	}
@@ -386,7 +379,7 @@ function parseHeadingNodeForIndex(lines, node, knownTagsLower, nextAutoHeadingId
 		hash
 	};
 
-	/** @type {{ source_heading_id: number, target_file_id: number, target_heading_id: number }[]} */
+	/** @type {{ source_heading_id: number, target_file_id: number }[]} */
 	const references = [];
 	/** @type {{ source_heading_id: number, tag_name: string }[]} */
 	const searchtags = [];

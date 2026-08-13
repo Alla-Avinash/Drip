@@ -64,7 +64,9 @@ Grep/read only files relevant to your task.
 
 | Concern | Files |
 |---------|-------|
-| `index.drip` SQLite | `src/indexing/dripIndexDb.js`, `cursor/new/dripIndexSchema.js`, `dripIndexParse.js` |
+| `index.drip` SQLite | `src/indexing/dripIndexDb.js`, `dripIndexParse.js` |
+| `index.drip` schema (runtime) | `src/indexing/dbSchema/dripIndexSchema.js` |
+| `index.drip` schema (docs mirror) | `cursor/new/index.drip.schema.sql` |
 | Typed metadata parse | `src/indexing/parse/dripIndexTypedMetadata.js` |
 | Metadata type for index (NULL = untyped) | `src/indexing/parse/dripIndexMetadataType.js` |
 | Metadata validate for index | `src/indexing/parse/dripIndexMetadataValidate.js` |
@@ -76,7 +78,7 @@ Grep/read only files relevant to your task.
 | Tables (v4) | `files`, `headings`, `heading_references`, `tags`, `searchtags`, `relations`, `issue_metadata`, `project_metadata`, `concept_metadata` |
 | `searchtags` | heading → searchable tag (`tags:` / `[…]`) |
 | `relations` | heading → related tag via relation key (`pre-req: [react, …]`) |
-| `heading_references` | `ref: [@f32:h4, …]` cross-file/heading links |
+| `heading_references` | `ref: [@f32 (topic), @f3]` file-level links (no heading target) |
 | KB filesystem walk / ignore | `src/indexing/kbFilesystem.js` |
 | Save/startup sync | `src/indexing/sync/dripnoteIndexUpdate.js`, `dripnoteIndexSync.js`, `src/startup/updateKnowledgeBase.js` |
 | Legacy `_index.d.txt` (deprecated) | `src/indexing/dripnoteIndex.js` |
