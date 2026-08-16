@@ -1,10 +1,12 @@
 'use strict';
 
+const path = require('path');
 const { collectHeadingSequenceValidated, parseHeadingForValidation } = require('../document/parse/dripnoteCanvasParse');
 const { getMetadataSettings } = require('../document/model/dripnoteMetadataTemplates');
 const {
 	classifyPersistentHeadingTitle
 } = require('../document/model/dripnotePersistentHeading');
+const { stripKbNoteExtension } = require('../document/model/noteFileTypes');
 const { computeHeadingHash } = require('./dripIndexParse');
 const { parseFileEntityIdNumber, formatFileEntityId } = require('./dripnoteEntityIds');
 const {
@@ -25,6 +27,10 @@ const headingAllocCache = new Map();
  */
 function headingAllocCacheKey(kbRoot, fileNum) {
 	return `${kbRoot.fsPath}|${Math.max(0, Math.floor(Number(fileNum) || 0))}`;
+}
+
+function clearHeadingAllocCache() {
+	headingAllocCache.clear();
 }
 
 /** `@f23:h0` or `@f23:h1 #abc12345` */
@@ -172,6 +178,132 @@ function writeFileIdIntoTopLines(topLines, fileEntityId) {
 		out.splice(insertAt, 0, `fileid: ${fid}`);
 	}
 	return out;
+}
+
+/**
+ * @param {string} line
+ */
+function isFileKeyLine(line) {
+	return /^\s*(filename|fileid|headings|created|random)\s*:/i.test(String(line || ''));
+}
+
+/**
+ * @param {string[]} lines
+ * @param {number} headingLine
+ */
+function headingBlockStart(lines, headingLine) {
+	const idLine = findOwnedIdentityLineIndex(lines, headingLine);
+	if (idLine >= 0 && idLine < headingLine) return idLine;
+	return headingLine;
+}
+
+/**
+ * @param {string[]} lines
+ * @param {{ noteUri?: import('vscode').Uri, filenameStem?: string }} [options]
+ */
+function resolveFilenameStem(lines, options) {
+	if (options && String(options.filenameStem || '').trim()) {
+		return String(options.filenameStem).trim();
+	}
+	if (options && options.noteUri && options.noteUri.fsPath) {
+		return stripKbNoteExtension(path.basename(options.noteUri.fsPath));
+	}
+	for (const line of lines || []) {
+		const m = String(line || '').match(/^\s*filename\s*:\s*(.*)$/i);
+		if (m && String(m[1] || '').trim()) return String(m[1]).trim();
+	}
+	return 'Untitled';
+}
+
+/**
+ * Canonical file-level block used by live reconcile and reconcile-update:
+ *   filename / fileid / headings
+ *   blank
+ *   @fN:h0
+ *   # . h0 title
+ *   optional about/body text under h0 (kept as-is, including blank lines)
+ *   ---
+ *
+ * Extra headings above `---` are moved below it. Prose under h0 stays above `---`.
+ *
+ * @param {string[]} lines
+ * @param {{ fileEntityId: string, filename: string }} opts
+ * @returns {string[]}
+ */
+function rebuildCanonicalFileLevelBlock(lines, opts) {
+	const src = [...(lines || [])];
+	const filename = String(opts.filename || 'Untitled').trim() || 'Untitled';
+	const fileEntityId = String(opts.fileEntityId || '').trim() || '@f0';
+	const sepIdx = findSeparatorLineIndex(src);
+	const top = sepIdx >= 0 ? src.slice(0, sepIdx) : [];
+	let body;
+	if (sepIdx >= 0) {
+		body = src.slice(sepIdx + 1);
+	} else {
+		let start = 0;
+		while (start < src.length) {
+			const raw = String(src[start] || '');
+			if (!raw.trim() || isFileKeyLine(raw)) {
+				start += 1;
+				continue;
+			}
+			break;
+		}
+		body = src.slice(start);
+	}
+
+	/** @type {number[]} */
+	const headingRows = [];
+	for (let i = 0; i < top.length; i++) {
+		if (parseHeadingForValidation(top[i])) headingRows.push(i);
+	}
+
+	const h0HeadingLine = headingRows.length ? headingRows[0] : -1;
+	let h0Title = `. ${filename}`;
+	/** @type {string[]} */
+	let h0Meta = [];
+	if (h0HeadingLine >= 0) {
+		const parsed = parseHeadingForValidation(top[h0HeadingLine]);
+		const title = parsed && String(parsed.title || '').trim();
+		if (title) h0Title = title;
+		const nextHeading = headingRows.length > 1 ? headingRows[1] : top.length;
+		const nextStart = headingRows.length > 1 ? headingBlockStart(top, headingRows[1]) : top.length;
+		const metaEnd = Math.min(nextHeading, nextStart);
+		h0Meta = top.slice(h0HeadingLine + 1, metaEnd).filter(line => !isFileKeyLine(line));
+	}
+
+	/** @type {string[]} */
+	const moved = [];
+	for (let k = 1; k < headingRows.length; k++) {
+		const start = headingBlockStart(top, headingRows[k]);
+		const end =
+			k + 1 < headingRows.length ? headingBlockStart(top, headingRows[k + 1]) : top.length;
+		const block = top.slice(start, end);
+		if (!block.length) continue;
+		if (moved.length) moved.push('');
+		moved.push(...block);
+	}
+	if (moved.length) {
+		const trimmedBody = [...body];
+		while (trimmedBody.length && !String(trimmedBody[0] || '').trim()) trimmedBody.shift();
+		body = trimmedBody.length ? [...moved, '', ...trimmedBody] : moved;
+	}
+
+	while (body.length && !String(body[body.length - 1] || '').trim()) {
+		body.pop();
+	}
+
+	return [
+		`filename: ${filename}`,
+		`fileid: ${fileEntityId}`,
+		'headings: 0',
+		'',
+		`${fileEntityId}:h0`,
+		`# ${h0Title}`,
+		...h0Meta,
+		'---',
+		...body
+	];
 }
 
 /**
@@ -793,7 +925,7 @@ function removeExtraIdentityLinesForHeadings(lines, nodes) {
 
 /**
  * @param {string} text
- * @param {{ kbHeadingAllocator?: { next: number, free: number[] }, lockedFile?: { fileNum: number, fileEntityId: string }, previousFullText?: string, refreshHashes?: boolean }} [options]
+ * @param {{ kbHeadingAllocator?: { next: number, free: number[] }, lockedFile?: { fileNum: number, fileEntityId: string }, previousFullText?: string, refreshHashes?: boolean, noteUri?: import('vscode').Uri, filenameStem?: string }} [options]
  * @returns {{ text: string, changed: boolean, nonH0Count: number, usedNonH0Ids: number[] }}
  */
 function reconcileHeadingIdentitiesInText(text, options = {}) {
@@ -806,7 +938,14 @@ function reconcileHeadingIdentitiesInText(text, options = {}) {
 		return { text: normalized, changed: false, nonH0Count: 0, usedNonH0Ids: [] };
 	}
 
-	let changed = false;
+	const filenameStem = resolveFilenameStem(lines, options);
+	const rebuilt = rebuildCanonicalFileLevelBlock(lines, {
+		fileEntityId: file.fileEntityId,
+		filename: filenameStem
+	});
+	if (rebuilt.join('\n') !== lines.join('\n')) {
+		lines = rebuilt;
+	}
 
 	const sepIdx = findSeparatorLineIndex(lines);
 	const { nodes: allNodes } = collectHeadingSequenceValidated(lines, 0);
@@ -821,15 +960,14 @@ function reconcileHeadingIdentitiesInText(text, options = {}) {
 		break;
 	}
 
-	if (removeOrphanIdentityNearEmptyHeadings(lines)) changed = true;
+	removeOrphanIdentityNearEmptyHeadings(lines);
 
 	if (!nodes.length) {
-		if (removeOrphanHeadingIdentityLines(lines, [])) changed = true;
+		removeOrphanHeadingIdentityLines(lines, []);
 		const fin = finalizeReconciledText(lines, sepIdx, firstRootBeforeSep, nodes, file);
-		if (fin.topChanged) changed = true;
 		return {
 			text: fin.nextText,
-			changed,
+			changed: fin.nextText !== normalized,
 			nonH0Count: fin.nonH0Count,
 			usedNonH0Ids: []
 		};
@@ -974,7 +1112,6 @@ function reconcileHeadingIdentitiesInText(text, options = {}) {
 		if (removeIdentityForHeadingLines.has(headingLine)) {
 			if (idLine >= 0 && parseHeadingIdentityLine(lines[idLine])) {
 				lines.splice(idLine, 1);
-				changed = true;
 			}
 			continue;
 		}
@@ -983,7 +1120,6 @@ function reconcileHeadingIdentitiesInText(text, options = {}) {
 			const existing = String(lines[idLine] || '');
 			if (existing !== wantLine) {
 				lines[idLine] = wantLine;
-				changed = true;
 			}
 			continue;
 		}
@@ -993,28 +1129,24 @@ function reconcileHeadingIdentitiesInText(text, options = {}) {
 		}
 
 		lines.splice(headingLine, 0, wantLine);
-		changed = true;
 	}
 
 	while (hasRawDuplicateIdentityNums(lines)) {
 		if (!forceResolveRawDuplicateIdentityLines(lines, file, usedNonH0, allocateNonH0Id)) {
 			break;
 		}
-		changed = true;
 	}
 
-	if (removeExtraIdentityLinesForHeadings(lines, nodes)) changed = true;
-
-	if (removeOrphanIdentityNearEmptyHeadings(lines)) changed = true;
+	removeExtraIdentityLinesForHeadings(lines, nodes);
+	removeOrphanIdentityNearEmptyHeadings(lines);
 
 	const { nodes: nodesAfterIdentity } = collectHeadingSequenceValidated(lines, 0);
 	const titledAfterIdentity = nodesAfterIdentity.filter(node =>
 		/\S/.test(String(node.title || '').trim())
 	);
-	if (removeOrphanHeadingIdentityLines(lines, titledAfterIdentity)) changed = true;
+	removeOrphanHeadingIdentityLines(lines, titledAfterIdentity);
 
 	const fin = finalizeReconciledText(lines, sepIdx, firstRootBeforeSep, titledAfterIdentity, file);
-	if (fin.topChanged) changed = true;
 
 	const usedIds = collectUsedNonH0IdsFromNodes(
 		fin.nextText.split('\n'),
@@ -1025,7 +1157,7 @@ function reconcileHeadingIdentitiesInText(text, options = {}) {
 
 	return {
 		text: fin.nextText,
-		changed,
+		changed: fin.nextText !== normalized,
 		nonH0Count: fin.nonH0Count,
 		usedNonH0Ids: usedIds
 	};
@@ -1148,6 +1280,9 @@ module.exports = {
 	parseHeadingIdentityLine,
 	parseFileEntityFromLines,
 	formatHeadingIdentityLine,
+	writeFileIdIntoTopLines,
+	writeHeadingsCountIntoTopLines,
+	rebuildCanonicalFileLevelBlock,
 	findIdentityLineAbove,
 	findHeadingIdentityForNode,
 	findOwnedIdentityLineIndex,
@@ -1168,5 +1303,6 @@ module.exports = {
 	isStructuredHeadingMetadataLine,
 	metaLinesForHash,
 	collectHeadingIdentityDiagnostics,
-	findHeadingIdentityLineIndexes
+	findHeadingIdentityLineIndexes,
+	clearHeadingAllocCache
 };

@@ -315,6 +315,12 @@ async function activate(context) {
 					case 'selectKnowledgeBase':
 						await vscode.commands.executeCommand('drip.selectKnowledgeBase');
 						break;
+					case 'reindexCurrentKbWorkspace':
+						await vscode.commands.executeCommand('drip.reindexCurrentKbWorkspace');
+						break;
+					case 'resetReindexEntireKb':
+						await vscode.commands.executeCommand('drip.resetReindexEntireKb');
+						break;
 					case 'openDripUserSettings':
 						await vscode.commands.executeCommand('workbench.action.openSettings', 'drip');
 						break;

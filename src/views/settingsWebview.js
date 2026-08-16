@@ -71,6 +71,7 @@ function getSettingsWebviewHtml(webview) {
 				<p class="meta">All settings in one place.</p>
 			</div>
 			<button class="navBtn active" data-panel="kb">Knowledge Base</button>
+			<button class="navBtn" data-panel="update">Update</button>
 			<button class="navBtn" data-panel="types">Metadata Types</button>
 			<button class="navBtn" data-panel="relations">Tags & Relations</button>
 			<button class="navBtn" data-panel="ref-links">Ref Links</button>
@@ -108,6 +109,25 @@ function getSettingsWebviewHtml(webview) {
 					</label>
 					<div class="actions">
 						<button id="btn-user-settings" class="secondary">Open User Settings (DRIP)</button>
+					</div>
+				</div>
+			</section>
+
+			<section id="panel-update" class="panel">
+				<h3>Update</h3>
+				<p class="meta">Fix file ids, heading ids, and <code>index.drip</code> when the SQLite index and notes disagree. Both actions rewrite <code>.d.txt</code> identity lines when needed.</p>
+				<div class="card">
+					<h3>Update/reindex the current KB working space</h3>
+					<p class="meta">Keeps the existing <code>index.drip</code>. Runs reconcile-update on notes currently in the working KB (honors <code>.dripignore</code>). Colliding <code>@fN</code> values that already belong to another existing file get a new id.</p>
+					<div class="actions">
+						<button id="btn-reindex-workspace">Update/reindex the current KB working space</button>
+					</div>
+				</div>
+				<div class="card">
+					<h3>Reset/reindex the entire KB driplock folder</h3>
+					<p class="meta">Deletes <code>index.drip</code>, creates a fresh database, then reconcile-updates every note in the driplock folder (including ignored paths, except <code>.dripindex</code>). File ids that collide while rebuilding are assigned from scratch.</p>
+					<div class="actions">
+						<button id="btn-reset-reindex-entire" class="secondary">Reset/reindex the entire KB driplock folder</button>
 					</div>
 				</div>
 			</section>
@@ -248,6 +268,7 @@ function getSettingsWebviewHtml(webview) {
 		const navButtons = Array.prototype.slice.call(document.querySelectorAll('.navBtn'));
 		const panels = {
 			kb: document.getElementById('panel-kb'),
+			update: document.getElementById('panel-update'),
 			types: document.getElementById('panel-types'),
 			relations: document.getElementById('panel-relations'),
 			'ref-links': document.getElementById('panel-ref-links'),
@@ -1134,6 +1155,12 @@ function getSettingsWebviewHtml(webview) {
 		});
 		document.getElementById('btn-select-kb').addEventListener('click', function () {
 			vscode.postMessage({ type: 'selectKnowledgeBase' });
+		});
+		document.getElementById('btn-reindex-workspace').addEventListener('click', function () {
+			vscode.postMessage({ type: 'reindexCurrentKbWorkspace' });
+		});
+		document.getElementById('btn-reset-reindex-entire').addEventListener('click', function () {
+			vscode.postMessage({ type: 'resetReindexEntireKb' });
 		});
 		document.getElementById('btn-user-settings').addEventListener('click', function () {
 			vscode.postMessage({ type: 'openDripUserSettings' });

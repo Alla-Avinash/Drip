@@ -14,6 +14,7 @@ const { removeFileFromDripIndex, resolveSequentialFileEntityForKbNote } = requir
 const { updateNoteInDripIndex, updateDripIndexScope } = require('./sync/dripnoteIndexUpdate');
 const { reconcileHeadingIdentitiesScope } = require('./dripnoteHeadingIdentityReconcile');
 const { createDripnoteIndexUpdateQueue } = require('./sync/dripnoteIndexUpdateQueue');
+const { promptAndRunKbReindex } = require('./sync/dripnoteKbReindex');
 const {
 	DOCUMENT_WATCH_MANIFEST,
 	HEADING_HASH_REFRESH_MS,
@@ -1148,6 +1149,36 @@ function registerDripnoteIndexSync(context, state) {
 			if (!kbRoot) return;
 			await indexQueue.flushAllPending();
 			await updateKnowledgeBase(context, kbRoot, { force: true });
+		}),
+		vscode.commands.registerCommand('drip.reindexCurrentKbWorkspace', async () => {
+			if (!isStartupCheckReady()) {
+				const check = await runStartupCheck(context, state);
+				if (!check.ok) {
+					return;
+				}
+			}
+			const kbRoot = await state.ensureKnowledgeBaseRoot();
+			if (!kbRoot) {
+				void vscode.window.showWarningMessage('Select a knowledge base folder first.');
+				return;
+			}
+			await indexQueue.flushAllPending();
+			await promptAndRunKbReindex('workspace', kbRoot, context);
+		}),
+		vscode.commands.registerCommand('drip.resetReindexEntireKb', async () => {
+			if (!isStartupCheckReady()) {
+				const check = await runStartupCheck(context, state);
+				if (!check.ok) {
+					return;
+				}
+			}
+			const kbRoot = await state.ensureKnowledgeBaseRoot();
+			if (!kbRoot) {
+				void vscode.window.showWarningMessage('Select a knowledge base folder first.');
+				return;
+			}
+			await indexQueue.flushAllPending();
+			await promptAndRunKbReindex('reset', kbRoot, context);
 		}),
 		vscode.commands.registerCommand('drip.updateIndexScope', async item => {
 			const kbRoot = await state.ensureKnowledgeBaseRoot();

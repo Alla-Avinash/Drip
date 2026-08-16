@@ -1009,6 +1009,84 @@ async function removeFileFromDripIndex(kbRootUri, relPath) {
 }
 
 /**
+ * Look up a `files` row by sequential id.
+ * @param {import('vscode').Uri} kbRootUri
+ * @param {number} fileId
+ * @returns {Promise<{ id: number, path: string, name: string } | null>}
+ */
+async function lookupFileRowById(kbRootUri, fileId) {
+	const id = Math.floor(Number(fileId));
+	if (!Number.isFinite(id) || id < 0) {
+		return null;
+	}
+	const handle = await openDripIndexDb(kbRootUri);
+	try {
+		const row = queryOne(handle.db, 'SELECT id, path, name FROM files WHERE id = ?', [id]);
+		if (!row) {
+			return null;
+		}
+		return {
+			id: Number(row[0]),
+			path: String(row[1] || '').replace(/\\/g, '/'),
+			name: String(row[2] || '')
+		};
+	} finally {
+		handle.close();
+	}
+}
+
+/**
+ * Bind `fileId` to this parsed note path and replace all heading-scoped rows.
+ * Used by unwired `reconcileUpdate` (reclaim / first insert / new id).
+ *
+ * @param {import('sql.js').Database} db
+ * @param {number} fileId
+ * @param {ReturnType<typeof parseNoteForIndex>} parsed
+ * @param {import('vscode').ExtensionContext | null | undefined} [context]
+ * @returns {number}
+ */
+function replaceParsedNoteAtFileId(db, fileId, parsed, context) {
+	const id = Math.floor(Number(fileId));
+	const normalizedPath = String((parsed && parsed.file && parsed.file.path) || '').replace(/\\/g, '/');
+	const tagIdByLower = syncTagsTableFromGraph(db, context);
+
+	const pathOwner = queryOne(db, 'SELECT id FROM files WHERE path = ?', [normalizedPath]);
+	if (pathOwner) {
+		const ownerId = Number(pathOwner[0]);
+		if (Number.isFinite(ownerId) && ownerId !== id) {
+			deleteFileHeadingScopedRows(db, ownerId);
+			db.run('DELETE FROM files WHERE id = ?', [ownerId]);
+		}
+	}
+
+	const existing = queryOne(db, 'SELECT id FROM files WHERE id = ?', [id]);
+	if (existing) {
+		db.run(`UPDATE files SET path = ?, name = ?, updated_at = ? WHERE id = ?`, [
+			normalizedPath,
+			parsed.file.name,
+			parsed.file.updated_at,
+			id
+		]);
+		deleteFileHeadingScopedRows(db, id);
+	} else {
+		db.run(
+			`INSERT INTO files (id, path, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+			[
+				id,
+				normalizedPath,
+				parsed.file.name,
+				parsed.file.created_at,
+				parsed.file.updated_at
+			]
+		);
+	}
+
+	insertParsedHeadingsAndReferences(db, id, parsed, tagIdByLower);
+	bumpNextFileIdCounter(db, id);
+	return id;
+}
+
+/**
  * Create an empty index.drip SQLite file with schema when missing.
  * @param {import('vscode').Uri} kbRootUri
  */
@@ -1019,6 +1097,20 @@ async function initEmptyDripIndexFile(kbRootUri) {
 	} finally {
 		handle.close();
 	}
+}
+
+/**
+ * Delete `<kb>/.dripindex/index.drip` and create a fresh empty schema.
+ * @param {import('vscode').Uri} kbRootUri
+ */
+async function resetDripIndexDatabase(kbRootUri) {
+	const indexUri = getIndexDbUri(kbRootUri);
+	try {
+		await vscode.workspace.fs.delete(indexUri, { useTrash: false });
+	} catch {
+		// missing is fine
+	}
+	await initEmptyDripIndexFile(kbRootUri);
 }
 
 module.exports = {
@@ -1032,8 +1124,11 @@ module.exports = {
 	initEmptyDripIndexFile,
 	listDiskNotePaths,
 	listIndexedFilePaths,
+	lookupFileRowById,
 	openDripIndexDb,
 	rebuildDripIndex,
+	replaceParsedNoteAtFileId,
+	resetDripIndexDatabase,
 	recomputeHeadingAllocatorState,
 	syncFileHeadingAllocatorFromUsedIds,
 	readFileHeadingAllocator,

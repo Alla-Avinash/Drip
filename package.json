@@ -241,6 +241,18 @@
 				"icon": "$(sync)"
 			},
 			{
+				"command": "drip.reindexCurrentKbWorkspace",
+				"title": "Update/reindex the current KB working space",
+				"category": "DRIP",
+				"icon": "$(sync)"
+			},
+			{
+				"command": "drip.resetReindexEntireKb",
+				"title": "Reset/reindex the entire KB driplock folder",
+				"category": "DRIP",
+				"icon": "$(debug-restart)"
+			},
+			{
 				"command": "drip.updateIndexScope",
 				"title": "DRIP: Update index",
 				"category": "DRIP",
@@ -714,9 +726,14 @@
 					"group": "navigation@4"
 				},
 				{
-					"command": "drip.rebuildKbIndexNow",
+					"command": "drip.reindexCurrentKbWorkspace",
 					"when": "view == drip.knowledgeBase && drip.startupCheckComplete",
 					"group": "navigation@5"
+				},
+				{
+					"command": "drip.resetReindexEntireKb",
+					"when": "view == drip.knowledgeBase && drip.startupCheckComplete",
+					"group": "navigation@5.1"
 				},
 				{
 					"command": "drip.selectKnowledgeBase",
@@ -751,9 +768,14 @@
 					"group": "2_kb@2"
 				},
 				{
-					"command": "drip.rebuildKbIndexNow",
+					"command": "drip.reindexCurrentKbWorkspace",
 					"when": "view == drip.knowledgeBase && drip.startupCheckComplete",
 					"group": "2_kb@3"
+				},
+				{
+					"command": "drip.resetReindexEntireKb",
+					"when": "view == drip.knowledgeBase && drip.startupCheckComplete",
+					"group": "2_kb@3.1"
 				},
 				{
 					"command": "drip.processPendingLinkMigrations",
@@ -813,9 +835,14 @@
 					"group": "dripEmpty@3"
 				},
 				{
-					"command": "drip.rebuildKbIndexNow",
+					"command": "drip.reindexCurrentKbWorkspace",
 					"when": "view == drip.knowledgeBase && drip.kbEmptySelection && drip.startupCheckComplete",
 					"group": "dripEmpty@4"
+				},
+				{
+					"command": "drip.resetReindexEntireKb",
+					"when": "view == drip.knowledgeBase && drip.kbEmptySelection && drip.startupCheckComplete",
+					"group": "dripEmpty@4.1"
 				},
 				{
 					"command": "drip.refreshTree",

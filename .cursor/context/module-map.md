@@ -57,6 +57,7 @@ Grep/read only files relevant to your task.
 | Entity IDs | `src/indexing/dripnoteEntityIds.js`, `src/indexing/dripnoteFileIdDefinitions.js` |
 | Heading identity (`@fN:hM`) reconcile | `src/indexing/dripnoteHeadingIdentity.js` — hash suffix, `index.drip` per-file allocator (`heading_alloc_*`) |
 | Heading identity reconcile on disk (index update) | `src/indexing/dripnoteHeadingIdentityReconcile.js` — `reconcileNoteHeadingIdentitiesOnDisk`, `reconcileHeadingIdentitiesScope` |
+| **reconcile-update** (unwired; planned feature base) | `src/indexing/sync/dripnoteReconcileUpdate.js` — `reconcileUpdate`: file-id ownership vs `files.path`, header/h0 above `---`, heading rewrite, immediate `index.drip` persist. Not hooked to editor events. |
 | Copy heading id command | `src/views/editor/dripnoteHeadingIdentityDisplay.js` |
 | ID migration | `src/indexing/dripnoteFileIdMigration.js` |
 
@@ -75,6 +76,7 @@ Grep/read only files relevant to your task.
 | Index update buffer (6s) | `src/indexing/sync/dripnoteIndexUpdateQueue.js` |
 | Document edit surveillance | `src/indexing/sync/dripnoteDocumentWatch.js` (`DOCUMENT_WATCH_MANIFEST`) |
 | VS Code event wiring | `src/indexing/dripnoteIndexSync.js` |
+| KB reindex (settings + toolbar) | `src/indexing/sync/dripnoteKbReindex.js` — workspace (`.dripignore`) vs full driplock reset (`index.drip` wipe). Commands: `drip.reindexCurrentKbWorkspace`, `drip.resetReindexEntireKb` |
 | Tables (v4) | `files`, `headings`, `heading_references`, `tags`, `searchtags`, `relations`, `issue_metadata`, `project_metadata`, `concept_metadata` |
 | `searchtags` | heading → searchable tag (`tags:` / `[…]`) |
 | `relations` | heading → related tag via relation key (`pre-req: [react, …]`) |

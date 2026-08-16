@@ -122,19 +122,19 @@ async function listImmediateFolderChildrenOfRoot(rootUri) {
  * @param {import('vscode').Uri} currentUri
  * @param {(note: { uri: import('vscode').Uri, relativePath: string, text: string }) => void | Promise<void>} visitor
  */
-async function walkKbNoteFiles(rootUri, currentUri, visitor) {
+async function walkKbNoteFiles(rootUri, currentUri, visitor, options) {
 	const entries = await vscode.workspace.fs.readDirectory(currentUri);
 
 	for (const [name, type] of entries) {
 		const childUri = vscode.Uri.joinPath(currentUri, name);
 		const relativePath = toRelativePath(rootUri, childUri);
 
-		if (await isPathIgnored(rootUri, relativePath)) {
+		if (await isPathIgnored(rootUri, relativePath, options)) {
 			continue;
 		}
 
 		if (type === vscode.FileType.Directory) {
-			await walkKbNoteFiles(rootUri, childUri, visitor);
+			await walkKbNoteFiles(rootUri, childUri, visitor, options);
 			continue;
 		}
 
@@ -151,19 +151,19 @@ async function walkKbNoteFiles(rootUri, currentUri, visitor) {
  * @param {import('vscode').Uri} currentUri
  * @param {(note: { uri: import('vscode').Uri, relativePath: string }) => void | Promise<void>} visitor
  */
-async function walkKbNoteUris(rootUri, currentUri, visitor) {
+async function walkKbNoteUris(rootUri, currentUri, visitor, options) {
 	const entries = await vscode.workspace.fs.readDirectory(currentUri);
 
 	for (const [name, type] of entries) {
 		const childUri = vscode.Uri.joinPath(currentUri, name);
 		const relativePath = toRelativePath(rootUri, childUri);
 
-		if (await isPathIgnored(rootUri, relativePath)) {
+		if (await isPathIgnored(rootUri, relativePath, options)) {
 			continue;
 		}
 
 		if (type === vscode.FileType.Directory) {
-			await walkKbNoteUris(rootUri, childUri, visitor);
+			await walkKbNoteUris(rootUri, childUri, visitor, options);
 			continue;
 		}
 
@@ -177,7 +177,7 @@ async function walkKbNoteUris(rootUri, currentUri, visitor) {
  * Visit each KB note path without reading file content.
  * @param {import('vscode').Uri} rootUri
  * @param {(note: { uri: import('vscode').Uri, relativePath: string }) => void | Promise<void>} visitor
- * @param {{ yieldEvery?: number }} [options]
+ * @param {{ yieldEvery?: number, respectDripignore?: boolean }} [options]
  */
 async function forEachKnowledgeBaseNotePath(rootUri, visitor, options) {
 	const yieldEvery = options && options.yieldEvery > 0 ? options.yieldEvery : 50;
@@ -188,7 +188,7 @@ async function forEachKnowledgeBaseNotePath(rootUri, visitor, options) {
 		if (n % yieldEvery === 0) {
 			await new Promise(r => setImmediate(r));
 		}
-	});
+	}, options);
 }
 
 /**
@@ -238,7 +238,28 @@ async function loadIgnoreMatchersAt(dirUri) {
  * Nested .dripignore: each directory may contain `.dripignore`. Patterns are relative to that directory.
  * When testing path `rel` from KB root, we merge rules from root down through each ancestor directory.
  */
-async function isPathIgnored(rootUri, relativePath) {
+/**
+ * Always skip `.dripindex/` and nested `.driplock` folders (not `.dripignore`).
+ * @param {string} relativePath
+ */
+function isHardExcludedKbRelativePath(relativePath) {
+	const normalized = String(relativePath || '')
+		.replace(/\\/g, '/')
+		.replace(/^\/+|\/+$/g, '');
+	if (!normalized) {
+		return false;
+	}
+	const parts = normalized.split('/').filter(Boolean);
+	if (parts.some(p => String(p || '') === '.dripindex')) {
+		return true;
+	}
+	if (parts.some(p => String(p || '').toLowerCase().endsWith('.driplock'))) {
+		return true;
+	}
+	return false;
+}
+
+async function isPathIgnored(rootUri, relativePath, options) {
 	const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
 	if (!normalized) {
 		return false;
@@ -247,15 +268,12 @@ async function isPathIgnored(rootUri, relativePath) {
 	const parts = normalized.split('/').filter(Boolean);
 	const last = parts[parts.length - 1];
 
-	// KB-internal DRIP storage — never show or scan.
-	if (parts.some(p => String(p || '') === '.dripindex')) {
+	if (isHardExcludedKbRelativePath(normalized)) {
 		return true;
 	}
 
-	// `.driplock` subfolders are hard boundaries: never show or scan anything inside them.
-	// (Root itself is selected as the KB; relative paths never include the root folder name.)
-	if (parts.some(p => String(p || '').toLowerCase().endsWith('.driplock'))) {
-		return true;
+	if (options && options.respectDripignore === false) {
+		return false;
 	}
 
 	// Ignore rules must never hide `.dripignore` files (patterns like `.dripignore` would otherwise match self).

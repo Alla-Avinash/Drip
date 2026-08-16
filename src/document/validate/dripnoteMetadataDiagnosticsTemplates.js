@@ -22,7 +22,8 @@ const {
 	parseRefTokenRangesFromLine
 } = require('../parse/dripnoteRefLinks');
 const {
-	collectHeadingIdentityDiagnostics
+	collectHeadingIdentityDiagnostics,
+	parseHeadingIdentityLine
 } = require('../../indexing/dripnoteHeadingIdentity');
 const { collectWorkflowDiagnostics } = require('../workflow/dripnoteWorkflowDiagnostics');
 const { parseFileEntityIdNumber } = require('../../indexing/dripnoteEntityIds');
@@ -39,6 +40,8 @@ const KEY_VALUE_RE = /^\s*([a-z][a-z0-9_-]*)\s*:\s*(.+)$/i;
 const HEADING_ID_LINE_RE = /^\s*@+\s*f\d+\s*:\s*h\d+\b/i;
 const HEADING_IDENTITY_DUPLICATE_CODE = 'drip.duplicateHeadingIdentity';
 const HEADING_IDENTITY_FILE_MISMATCH_CODE = 'drip.headingIdentityFileMismatch';
+const EXTRA_FILE_LEVEL_HEADING_CODE = 'drip.extraFileLevelHeading';
+const H0_BELOW_SEPARATOR_CODE = 'drip.h0BelowSeparator';
 const COMMENT_RE = /^\s*\/\//;
 const FIXED_ALLOWED_KEYS = new Set(['filename', 'created', 'random', 'fileid', 'tags', 'pre-req']);
 const UNKNOWN_TAG_CODE_PREFIX = 'drip.unknownTag:';
@@ -430,6 +433,54 @@ function pushHeadingIdentityDiagnostics(lines, diagnostics, document) {
 	}
 }
 
+/**
+ * File-level metadata (above `---`) may contain only h0. Headings below `---` must not use h0.
+ * @param {string[]} lines
+ * @param {vscode.Diagnostic[]} diagnostics
+ */
+function pushFileLevelHeadingDiagnostics(lines, diagnostics) {
+	let sepIdx = -1;
+	for (let i = 0; i < (lines || []).length; i++) {
+		if (String(lines[i] || '').trim() === '---') {
+			sepIdx = i;
+			break;
+		}
+	}
+	if (sepIdx < 0) {
+		return;
+	}
+
+	/** @type {number[]} */
+	const topHeadingRows = [];
+	for (let i = 0; i < sepIdx; i++) {
+		if (HEADING_RE.test(String(lines[i] || ''))) topHeadingRows.push(i);
+	}
+	for (let k = 1; k < topHeadingRows.length; k++) {
+		const row = topHeadingRows[k];
+		const line = String(lines[row] || '');
+		const d = new vscode.Diagnostic(
+			new vscode.Range(row, 0, row, Math.max(1, line.length)),
+			'File-level metadata may only contain one heading (h0). Move extra headings below ---.',
+			vscode.DiagnosticSeverity.Error
+		);
+		d.code = EXTRA_FILE_LEVEL_HEADING_CODE;
+		diagnostics.push(d);
+	}
+
+	for (let i = sepIdx + 1; i < lines.length; i++) {
+		const parsed = parseHeadingIdentityLine(lines[i]);
+		if (!parsed || parsed.headingNum !== 0) continue;
+		const line = String(lines[i] || '');
+		const d = new vscode.Diagnostic(
+			new vscode.Range(i, 0, i, Math.max(1, line.length)),
+			'h0 is only allowed in file-level metadata above ---. Headings below --- must use h1 or higher.',
+			vscode.DiagnosticSeverity.Error
+		);
+		d.code = H0_BELOW_SEPARATOR_CODE;
+		diagnostics.push(d);
+	}
+}
+
 function registerDripnoteMetadataDiagnostics(context) {
 	const collection = vscode.languages.createDiagnosticCollection('dripnote-metadata');
 	context.subscriptions.push(collection);
@@ -543,6 +594,7 @@ function registerDripnoteMetadataDiagnostics(context) {
 		pushLeadingIndentSpaceDiagnostics(lines, diagnostics);
 		pushHeadingHierarchyIndentDiagnostics(lines, diagnostics);
 		pushHeadingIdentityDiagnostics(lines, diagnostics, document);
+		pushFileLevelHeadingDiagnostics(lines, diagnostics);
 		const knownTags = knownTagsLowerSet(context);
 		const { topEnd } = splitFileTopRegion(lines);
 		const topSettings = { ...settings, strictValidation: false };
