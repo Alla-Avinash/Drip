@@ -2,7 +2,7 @@
 
 const vscode = require('vscode');
 const { emptyGraph } = require('../graph/tagGraphStore');
-const { getDefaultKnowledgeBaseSettingsObject } = require('./defaultKnowledgeBaseSettings');
+const { getDefaultKnowledgeBaseSettingsObject, buildBundledKnowledgeBaseSettingsSnapshot } = require('./defaultKnowledgeBaseSettings');
 
 const DRIPINDEX_DIR = '.dripindex';
 const INDEX_FILE = 'index.drip';
@@ -128,12 +128,7 @@ function buildDefaultSettingsSnapshot() {
  * @returns {Record<string, unknown>}
  */
 function buildFreshKnowledgeBaseSettingsSnapshot() {
-	return {
-		format: 'drip-settings',
-		version: 1,
-		savedAt: new Date().toISOString(),
-		settings: buildFreshKnowledgeBaseSettingsObject()
-	};
+	return buildBundledKnowledgeBaseSettingsSnapshot();
 }
 
 /**

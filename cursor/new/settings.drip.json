@@ -1,0 +1,368 @@
+{
+  "format": "drip-settings",
+  "version": 1,
+  "savedAt": "2026-08-03T07:18:18.120Z",
+  "settings": {
+    "autoOpenComposerOnSidebarReveal": true,
+    "knowledgeBaseFileExtensions": [
+      ".d.txt",
+      ".md"
+    ],
+    "defaultNewNoteExtension": ".d.txt",
+    "experimentalEmbeddings": true,
+    "embeddingModel": "Xenova/all-MiniLM-L6-v2",
+    "dripnoteAllowedMetadataKeys": [],
+    "dripnoteCustomTypeMarkers": [],
+    "dripnoteCustomColors": {},
+    "metadataTemplatesEnabled": true,
+    "metadataStrictValidation": true,
+    "metadataIgnoreErrors": false,
+    "metadataAutoInsertTemplate": true,
+    "metadataShowIndentErrors": true,
+    "showHeadingHierarchyIndentErrors": true,
+    "metadataUseCustomColors": false,
+    "metadataTypes": [
+      {
+        "id": "concept",
+        "marker": ".concept",
+        "shortcut": "c",
+        "color": "",
+        "displayTemplate": true,
+        "attributes": {
+          "difficulty": {
+            "kind": "enum",
+            "default": "",
+            "required": false,
+            "values": [
+              "hard",
+              "medium",
+              "easy"
+            ]
+          },
+          "status": {
+            "kind": "enum",
+            "default": "",
+            "required": false,
+            "values": [
+              "completed",
+              "active",
+              "pending",
+              "do-research"
+            ]
+          },
+          "importance": {
+            "kind": "enum",
+            "default": "low",
+            "required": false,
+            "values": [
+              "high",
+              "medium",
+              "low"
+            ]
+          }
+        }
+      },
+      {
+        "id": "task",
+        "marker": ".task",
+        "shortcut": "t",
+        "color": "",
+        "displayTemplate": true,
+        "attributes": {
+          "difficulty": {
+            "kind": "enum",
+            "default": "",
+            "required": false,
+            "values": [
+              "hard",
+              "medium",
+              "easy"
+            ]
+          },
+          "status": {
+            "kind": "enum",
+            "default": "in-progress",
+            "required": false,
+            "values": [
+              "in-progress",
+              "to-do",
+              "completed",
+              "backlog"
+            ]
+          },
+          "priority": {
+            "kind": "enum",
+            "default": "",
+            "required": false,
+            "values": [
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "deadline": {
+            "kind": "datetime",
+            "default": "",
+            "required": false
+          },
+          "duration": {
+            "kind": "duration",
+            "default": "",
+            "required": false
+          },
+          "category": {
+            "kind": "enum",
+            "default": "",
+            "required": false,
+            "values": [
+              "new-feature",
+              "feature-updation",
+              "issue",
+              "bug"
+            ]
+          }
+        }
+      },
+      {
+        "id": "project",
+        "marker": ".project",
+        "shortcut": "p",
+        "color": "",
+        "displayTemplate": true,
+        "attributes": {
+          "status": {
+            "kind": "enum",
+            "default": "",
+            "required": true,
+            "values": [
+              "in-progress",
+              "to-do",
+              "completed"
+            ]
+          },
+          "priority": {
+            "kind": "enum",
+            "default": "",
+            "required": false,
+            "values": [
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "deadline": {
+            "kind": "datetime",
+            "default": "",
+            "required": false
+          }
+        }
+      },
+      {
+        "id": "feature",
+        "marker": ".feature",
+        "shortcut": "f",
+        "color": "",
+        "displayTemplate": true,
+        "attributes": {
+          "implemented": {
+            "kind": "enum",
+            "default": "",
+            "required": false,
+            "values": [
+              "true",
+              "false"
+            ]
+          }
+        }
+      },
+      {
+        "id": "issue",
+        "marker": ".issue",
+        "shortcut": "i",
+        "color": "",
+        "displayTemplate": true,
+        "attributes": {
+          "priority": {
+            "kind": "enum",
+            "default": "",
+            "required": false,
+            "values": [
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "status": {
+            "kind": "enum",
+            "default": "",
+            "required": true,
+            "values": [
+              "in-progress",
+              "to-do",
+              "completed"
+            ]
+          },
+          "deadline": {
+            "kind": "datetime",
+            "default": "",
+            "required": false
+          },
+          "category": {
+            "kind": "enum",
+            "default": "problem",
+            "required": false,
+            "values": [
+              "problem",
+              "bug"
+            ]
+          }
+        }
+      },
+      {
+        "id": "decision",
+        "marker": ".decision",
+        "shortcut": "d",
+        "color": "",
+        "displayTemplate": true,
+        "attributes": {
+          "category": {
+            "kind": "enum",
+            "default": "",
+            "required": false,
+            "values": [
+              "architecture",
+              "ux design",
+              "performance optimization"
+            ]
+          }
+        }
+      }
+    ],
+    "metadataTypeColors": {
+      "new-type": "#4ec9b0"
+    },
+    "tagsRelationsConfig": {
+      "relations": [
+        {
+          "name": "tags",
+          "description": "Special default relation for tags.",
+          "locked": true
+        },
+        {
+          "name": "pre-req",
+          "description": "Prerequisite relation.",
+          "locked": false
+        },
+        {
+          "name": "components",
+          "description": "describe the drip components present",
+          "locked": false
+        }
+      ],
+      "allowed": [
+        "tags",
+        "pre-req",
+        "components"
+      ],
+      "tagValues": [],
+      "relationKeywordColor": "",
+      "tagsKeywordColor": ""
+    },
+    "refLinksConfig": {
+      "refKeywordColor": "",
+      "refValueColor": ""
+    },
+    "dripMetadataMarks": {
+      "marks": [
+        {
+          "name": "L",
+          "description": "Link marker. Example: L: ![file-name - @fileid](rel/path/to/file)",
+          "markColor": "#ebc998",
+          "textColor": "#d2b7fb",
+          "locked": true
+        },
+        {
+          "name": "Q",
+          "description": "Question marker",
+          "markColor": "#e1a8a8",
+          "textColor": "#e1a8a8",
+          "locked": false
+        },
+        {
+          "name": "R",
+          "description": "Reference marker",
+          "markColor": "#ebc998",
+          "textColor": "#d2b7fb",
+          "locked": false
+        },
+        {
+          "name": "T",
+          "description": "terms and keywords in that specific paragraph or a particular metadata section",
+          "markColor": "#afcdf3",
+          "textColor": "",
+          "locked": false
+        },
+        {
+          "name": "Prob",
+          "description": "describe any problems",
+          "markColor": "#e3a0a0",
+          "textColor": "",
+          "locked": false
+        },
+        {
+          "name": "Sol",
+          "description": "describe a solution",
+          "markColor": "#c9f59e",
+          "textColor": "",
+          "locked": false
+        },
+        {
+          "name": "Impl",
+          "description": "implementation",
+          "markColor": "#c9f59e",
+          "textColor": "",
+          "locked": false
+        },
+        {
+          "name": "Tradeoffs",
+          "description": "tradeoffs of a current implementation which is followed",
+          "markColor": "#c9f59e",
+          "textColor": "",
+          "locked": false
+        },
+        {
+          "name": "Issue",
+          "description": "issue",
+          "markColor": "#e3a0a0",
+          "textColor": "",
+          "locked": false
+        },
+        {
+          "name": "Idea",
+          "description": "this represents an idea that you have thought of, this can be ideas of various implementations which are tought of about",
+          "markColor": "#5699f0",
+          "textColor": "",
+          "locked": false
+        },
+        {
+          "name": "Note",
+          "description": "this represents a note to be taken.. ",
+          "markColor": "#eeb26d",
+          "textColor": "",
+          "locked": false
+        },
+        {
+          "name": "Ex",
+          "description": "example of the concepts.. ",
+          "markColor": "#eeb26d",
+          "textColor": "",
+          "locked": false
+        }
+      ]
+    },
+    "metadataKeyColor": "",
+    "metadataValueColor": "",
+    "canvasVisibleTypeIds": [],
+    "canvasShowHeadingsWithoutType": true
+  }
+}

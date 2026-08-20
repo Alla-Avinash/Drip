@@ -91,14 +91,12 @@ function asStringArray(v) {
 }
 
 /**
- * Metadata heading shortcut without leading dot; case is preserved (.c ≠ .C).
+ * Metadata heading shortcut as stored in settings (trim only).
  * @param {string} raw
  * @returns {string}
  */
 function normalizeMetadataShortcut(raw) {
-	const s = String(raw || '').trim();
-	if (!s) return '';
-	return s.replace(/\./g, '');
+	return String(raw || '').trim();
 }
 
 /**
@@ -107,7 +105,8 @@ function normalizeMetadataShortcut(raw) {
  */
 function formatMetadataShortcutDisplay(shortcut) {
 	const s = normalizeMetadataShortcut(shortcut);
-	return s ? `.${s}` : '';
+	if (!s) return '';
+	return s.startsWith('.') ? s : `.${s}`;
 }
 
 function normalizeMetadataType(raw) {
@@ -164,8 +163,9 @@ function getMetadataSettings() {
 		mapByMarker.set(t.marker.toLowerCase(), t);
 		if (t.shortcut) {
 			mapByShortcut.set(t.shortcut, t);
-			// Accept legacy dotted keys if any caller builds maps without normalizing.
-			mapByShortcut.set(`.${t.shortcut}`, t);
+			if (!t.shortcut.startsWith('.')) {
+				mapByShortcut.set(`.${t.shortcut}`, t);
+			}
 		}
 	}
 	const relationsCfg = c.get('tagsRelationsConfig', DEFAULT_TAG_RELATIONS);

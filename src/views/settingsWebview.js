@@ -408,8 +408,7 @@ function getSettingsWebviewHtml(webview) {
 				var id = String(t.id || '').trim().toLowerCase();
 				var markerRaw = String(t.marker || (id ? ('.' + id) : '')).trim();
 				var marker = markerRaw ? (markerRaw.startsWith('.') ? markerRaw : '.' + markerRaw) : '';
-				var shortcutRaw = String(t.shortcut || '').trim();
-				var shortcut = shortcutRaw.replace(/\./g, '');
+				var shortcut = String(t.shortcut != null ? t.shortcut : '').trim();
 				var color = String(t.color || colors[id] || '').trim();
 				out.push({
 					id: id,
@@ -546,7 +545,7 @@ function getSettingsWebviewHtml(webview) {
 							'<div class="typeGrid">' +
 								'<label class="row" style="display:block;margin:0;"><span>Type Id</span><input type="text" data-role="type-id" value="' + escapeHtml(t.id) + '"></label>' +
 								'<label class="row" style="display:block;margin:0;"><span>Marker (must start with .)</span><input type="text" data-role="type-marker" value="' + escapeHtml(t.marker) + '"></label>' +
-								'<label class="row" style="display:block;margin:0;"><span>Shortcut (no . allowed)</span><input type="text" data-role="type-shortcut" value="' + escapeHtml(t.shortcut) + '" placeholder="t"></label>' +
+								'<label class="row" style="display:block;margin:0;"><span>Heading shortcut</span><input type="text" data-role="type-shortcut" value="' + escapeHtml(t.shortcut) + '" placeholder="t"></label>' +
 								'<label class="row" style="display:block;margin:0;"><span>Type Color</span><div class="colorRow"><input type="text" data-role="type-color" value="' + escapeHtml(t.color) + '" placeholder="theme default"' + (t.useThemeColor ? ' disabled' : '') + '><input type="color" class="colorPatch" data-role="type-color-picker" value="' + escapeHtml(/^#([0-9a-f]{6})$/i.test(String(t.color || '')) ? t.color : '#808080') + '"' + (t.useThemeColor ? ' disabled' : '') + '></div></label>' +
 								'<label class="row" style="display:block;margin:0;"><input type="checkbox" data-role="type-theme-color"' + (t.useThemeColor ? ' checked' : '') + '><span>Use theme default color</span></label>' +
 								'<label class="row" style="display:block;margin:0;"><input type="checkbox" data-role="type-display-template"' + (t.displayTemplate !== false ? ' checked' : '') + '><span>Display template for this type</span></label>' +
@@ -627,10 +626,7 @@ function getSettingsWebviewHtml(webview) {
 				out.push({
 					id: id,
 					marker: marker,
-					shortcut: (function () {
-						var s = String(t.shortcut || '').trim();
-						return s.replace(/\./g, '');
-					})(),
+					shortcut: String(t.shortcut != null ? t.shortcut : '').trim(),
 					color: t.useThemeColor ? '' : String(t.color || '').trim(),
 					displayTemplate: t.displayTemplate !== false,
 					attributes: attrsObj
@@ -857,9 +853,8 @@ function getSettingsWebviewHtml(webview) {
 				target.value = typeRef.marker;
 			}
 			if (role === 'type-shortcut') {
-				var shortVal = String(target.value || '').trim().replace(/\./g, '');
-				typeRef.shortcut = shortVal;
-				target.value = typeRef.shortcut;
+				typeRef.shortcut = String(target.value != null ? target.value : '').trim();
+				return;
 			}
 			if (role === 'type-color') {
 				typeRef.color = String(target.value || '').trim();

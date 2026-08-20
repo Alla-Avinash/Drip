@@ -23,6 +23,7 @@ Grep/read only files relevant to your task.
 | KB pick / `.driplock` userflow | `src/startup/selectKnowledgeBase.js` |
 | `.dripindex/` skeleton init | `src/startup/initializeDripIndex.js` |
 | `settings.drip.json` load/save/import/export | `src/startup/settingsDrip.js` |
+| New `.driplock` default settings template | `src/startup/settings.drip.json` → `defaultKnowledgeBaseSettings.js` → `initializeDripIndex.js` (`ensureDripIndexSkeleton`) |
 | `drafts.drip/` storage | `src/startup/draftsDrip.js` |
 | KB sidecar load on startup | `src/startup/loadKbSidecar.js` |
 | `startup_check` (restored window) | `src/startup/startupCheck.js` |
