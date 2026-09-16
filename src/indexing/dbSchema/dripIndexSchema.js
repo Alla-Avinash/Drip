@@ -7,13 +7,19 @@
  * Heading identity in `.d.txt` files: `@fN:hM #hash` on the line **above** `# title` (not below).
  * Per-file heading id allocator: `index_meta.heading_alloc_<file_id>` → JSON `{ "next": N, "free": […] }`.
  *
- * Defaults (application-enforced; see `headings.metadata_type`):
- * - `headings.metadata_type` → SQL NULL when the note has no `.type` marker or an unknown type
- * - `index_meta.schema_version` → `8`
+ * Defaults (application-enforced; see `headings.metadata_type_id`):
+ * - `headings.metadata_type_id` → SQL NULL when the note has no `.type` marker or an unknown type
+ * - `index_meta.schema_version` → `10`
  * - `index_meta.next_file_id` → `0`
+ *
+ * Lookup tables (name stored once; rows reference ids):
+ * - `metadata_types(metadata_type_id, metadata_type_name)`
+ * - `relation_types(relation_type_id, relation_type_name)`
+ *
+ * Typed metadata (hot keys only) + `metadata_remaining_keys` EAV for the rest.
  */
 
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 10;
 
 /** @type {string} */
 const SCHEMA_SQL = `
@@ -32,14 +38,25 @@ CREATE TABLE IF NOT EXISTS files (
 	updated_at INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS metadata_types (
+	metadata_type_id INTEGER PRIMARY KEY,
+	metadata_type_name TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS relation_types (
+	relation_type_id INTEGER PRIMARY KEY,
+	relation_type_name TEXT NOT NULL UNIQUE
+);
+
 CREATE TABLE IF NOT EXISTS headings (
 	file_id INTEGER NOT NULL,
 	heading_id INTEGER NOT NULL,
 	title TEXT NOT NULL,
-	metadata_type TEXT,
+	metadata_type_id INTEGER,
 	hash TEXT,
 	PRIMARY KEY (file_id, heading_id),
-	FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
+	FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE,
+	FOREIGN KEY (metadata_type_id) REFERENCES metadata_types(metadata_type_id)
 );
 
 CREATE TABLE IF NOT EXISTS heading_references (
@@ -51,7 +68,7 @@ CREATE TABLE IF NOT EXISTS heading_references (
 
 CREATE INDEX IF NOT EXISTS idx_ref_source ON heading_references(source_file_id, source_heading_id);
 CREATE INDEX IF NOT EXISTS idx_ref_target ON heading_references(target_file_id);
-CREATE INDEX IF NOT EXISTS idx_heading_type ON headings(metadata_type);
+CREATE INDEX IF NOT EXISTS idx_heading_type ON headings(metadata_type_id);
 CREATE INDEX IF NOT EXISTS idx_headings_title ON headings(title);
 
 CREATE TABLE IF NOT EXISTS tags (
@@ -73,46 +90,94 @@ CREATE INDEX IF NOT EXISTS idx_searchtags_tag ON searchtags(tag_id);
 CREATE TABLE IF NOT EXISTS relations (
 	from_file_id INTEGER NOT NULL,
 	from_heading_id INTEGER NOT NULL,
-	relation_type TEXT NOT NULL,
+	relation_type_id INTEGER NOT NULL,
 	tag_id INTEGER NOT NULL,
-	PRIMARY KEY (from_file_id, from_heading_id, relation_type, tag_id),
+	PRIMARY KEY (from_file_id, from_heading_id, relation_type_id, tag_id),
+	FOREIGN KEY (relation_type_id) REFERENCES relation_types(relation_type_id),
 	FOREIGN KEY (tag_id) REFERENCES tags(tag_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_file_id, from_heading_id);
 CREATE INDEX IF NOT EXISTS idx_relations_tag ON relations(tag_id);
+CREATE INDEX IF NOT EXISTS idx_relations_type ON relations(relation_type_id);
+
+CREATE TABLE IF NOT EXISTS concept_metadata (
+	file_id INTEGER NOT NULL,
+	heading_id INTEGER NOT NULL,
+	status TEXT,
+	PRIMARY KEY (file_id, heading_id),
+	FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS project_metadata (
+	file_id INTEGER NOT NULL,
+	heading_id INTEGER NOT NULL,
+	status TEXT,
+	deadline INTEGER,
+	PRIMARY KEY (file_id, heading_id),
+	FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_sort ON project_metadata(deadline);
+
+CREATE TABLE IF NOT EXISTS task_metadata (
+	file_id INTEGER NOT NULL,
+	heading_id INTEGER NOT NULL,
+	status TEXT,
+	category TEXT,
+	deadline INTEGER,
+	priority TEXT,
+	PRIMARY KEY (file_id, heading_id),
+	FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_sort ON task_metadata(deadline, priority);
 
 CREATE TABLE IF NOT EXISTS issue_metadata (
 	file_id INTEGER NOT NULL,
 	heading_id INTEGER NOT NULL,
 	status TEXT,
-	priority TEXT,
+	category TEXT,
 	deadline INTEGER,
-	work_minutes INTEGER,
+	priority TEXT,
 	PRIMARY KEY (file_id, heading_id),
 	FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_issue_sort ON issue_metadata(deadline, priority);
 
-CREATE TABLE IF NOT EXISTS project_metadata (
+CREATE TABLE IF NOT EXISTS decision_metadata (
 	file_id INTEGER NOT NULL,
 	heading_id INTEGER NOT NULL,
-	status TEXT,
+	category TEXT,
 	PRIMARY KEY (file_id, heading_id),
 	FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS concept_metadata (
+CREATE TABLE IF NOT EXISTS metadata_remaining_keys (
 	file_id INTEGER NOT NULL,
 	heading_id INTEGER NOT NULL,
-	difficulty TEXT,
-	PRIMARY KEY (file_id, heading_id),
-	FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
+	metadata_type_id INTEGER NOT NULL,
+	key TEXT NOT NULL,
+	value TEXT,
+	PRIMARY KEY (file_id, heading_id, metadata_type_id, key),
+	FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE,
+	FOREIGN KEY (metadata_type_id) REFERENCES metadata_types(metadata_type_id)
 );
+
+CREATE INDEX IF NOT EXISTS idx_remaining_keys_heading ON metadata_remaining_keys(file_id, heading_id);
+CREATE INDEX IF NOT EXISTS idx_remaining_keys_type_key ON metadata_remaining_keys(metadata_type_id, key);
 `;
 
-const TYPED_METADATA_TABLES = ['issue_metadata', 'project_metadata', 'concept_metadata'];
+const TYPED_METADATA_TABLES = [
+	'concept_metadata',
+	'project_metadata',
+	'task_metadata',
+	'issue_metadata',
+	'decision_metadata'
+];
+
+const REMAINING_METADATA_TABLE = 'metadata_remaining_keys';
 
 /**
  * @param {import('sql.js').Database} db
@@ -175,16 +240,22 @@ function migrateLegacyRelationsTable(db) {
 	}
 	if (recreateRelations) {
 		db.exec(`
+			CREATE TABLE IF NOT EXISTS relation_types (
+				relation_type_id INTEGER PRIMARY KEY,
+				relation_type_name TEXT NOT NULL UNIQUE
+			);
 			CREATE TABLE relations (
 				from_file_id INTEGER NOT NULL,
 				from_heading_id INTEGER NOT NULL,
-				relation_type TEXT NOT NULL,
+				relation_type_id INTEGER NOT NULL,
 				tag_id INTEGER NOT NULL,
-				PRIMARY KEY (from_file_id, from_heading_id, relation_type, tag_id),
+				PRIMARY KEY (from_file_id, from_heading_id, relation_type_id, tag_id),
+				FOREIGN KEY (relation_type_id) REFERENCES relation_types(relation_type_id),
 				FOREIGN KEY (tag_id) REFERENCES tags(tag_id)
 			);
 			CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_file_id, from_heading_id);
 			CREATE INDEX IF NOT EXISTS idx_relations_tag ON relations(tag_id);
+			CREATE INDEX IF NOT EXISTS idx_relations_type ON relations(relation_type_id);
 		`);
 	}
 }
@@ -273,6 +344,336 @@ function migrateHeadingReferencesFileOnly(db) {
 }
 
 /**
+ * v9: metadata_types / relation_types lookup tables; headings + relations store ids not text.
+ * Idempotent: skips when columns already use *_id.
+ * @param {import('sql.js').Database} db
+ */
+function migrateMetadataAndRelationTypeIds(db) {
+	db.exec(`
+		CREATE TABLE IF NOT EXISTS metadata_types (
+			metadata_type_id INTEGER PRIMARY KEY,
+			metadata_type_name TEXT NOT NULL UNIQUE
+		);
+		CREATE TABLE IF NOT EXISTS relation_types (
+			relation_type_id INTEGER PRIMARY KEY,
+			relation_type_name TEXT NOT NULL UNIQUE
+		);
+	`);
+
+	const headingsNeedMigrate =
+		tableExists(db, 'headings') && columnExists(db, 'headings', 'metadata_type');
+	if (headingsNeedMigrate) {
+		const distinct = db.exec(
+			`SELECT DISTINCT TRIM(LOWER(metadata_type)) FROM headings
+			 WHERE metadata_type IS NOT NULL AND TRIM(metadata_type) != ''`
+		);
+		let nextMetaId = 0;
+		const maxMeta = db.exec(`SELECT COALESCE(MAX(metadata_type_id), -1) FROM metadata_types`);
+		if (maxMeta.length && maxMeta[0].values.length) {
+			nextMetaId = Number(maxMeta[0].values[0][0]) + 1;
+		}
+		/** @type {Map<string, number>} */
+		const metaIdByName = new Map();
+		const existingMeta = db.exec(`SELECT metadata_type_id, metadata_type_name FROM metadata_types`);
+		if (existingMeta.length) {
+			for (const row of existingMeta[0].values) {
+				metaIdByName.set(String(row[1] || '').toLowerCase(), Number(row[0]));
+			}
+		}
+		if (distinct.length) {
+			for (const row of distinct[0].values) {
+				const name = String(row[0] || '').toLowerCase();
+				if (!name || metaIdByName.has(name)) {
+					continue;
+				}
+				db.run(
+					`INSERT INTO metadata_types (metadata_type_id, metadata_type_name) VALUES (?, ?)`,
+					[nextMetaId, name]
+				);
+				metaIdByName.set(name, nextMetaId);
+				nextMetaId += 1;
+			}
+		}
+
+		db.exec(`
+			PRAGMA foreign_keys = OFF;
+			DROP INDEX IF EXISTS idx_heading_type;
+			DROP TABLE IF EXISTS headings_v9;
+			CREATE TABLE headings_v9 (
+				file_id INTEGER NOT NULL,
+				heading_id INTEGER NOT NULL,
+				title TEXT NOT NULL,
+				metadata_type_id INTEGER,
+				hash TEXT,
+				PRIMARY KEY (file_id, heading_id),
+				FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE,
+				FOREIGN KEY (metadata_type_id) REFERENCES metadata_types(metadata_type_id)
+			);
+			INSERT INTO headings_v9 (file_id, heading_id, title, metadata_type_id, hash)
+				SELECT h.file_id, h.heading_id, h.title,
+					CASE
+						WHEN h.metadata_type IS NULL OR TRIM(h.metadata_type) = '' THEN NULL
+						ELSE (
+							SELECT m.metadata_type_id FROM metadata_types m
+							WHERE m.metadata_type_name = TRIM(LOWER(h.metadata_type))
+						)
+					END,
+					h.hash
+				FROM headings h;
+			DROP TABLE headings;
+			ALTER TABLE headings_v9 RENAME TO headings;
+			CREATE INDEX IF NOT EXISTS idx_heading_type ON headings(metadata_type_id);
+			CREATE INDEX IF NOT EXISTS idx_headings_title ON headings(title);
+			PRAGMA foreign_keys = ON;
+		`);
+	}
+
+	const relationsNeedMigrate =
+		tableExists(db, 'relations') && columnExists(db, 'relations', 'relation_type');
+	if (relationsNeedMigrate) {
+		const distinctRel = db.exec(
+			`SELECT DISTINCT TRIM(LOWER(relation_type)) FROM relations
+			 WHERE relation_type IS NOT NULL AND TRIM(relation_type) != ''`
+		);
+		let nextRelId = 0;
+		const maxRel = db.exec(`SELECT COALESCE(MAX(relation_type_id), -1) FROM relation_types`);
+		if (maxRel.length && maxRel[0].values.length) {
+			nextRelId = Number(maxRel[0].values[0][0]) + 1;
+		}
+		/** @type {Map<string, number>} */
+		const relIdByName = new Map();
+		const existingRel = db.exec(`SELECT relation_type_id, relation_type_name FROM relation_types`);
+		if (existingRel.length) {
+			for (const row of existingRel[0].values) {
+				relIdByName.set(String(row[1] || '').toLowerCase(), Number(row[0]));
+			}
+		}
+		if (distinctRel.length) {
+			for (const row of distinctRel[0].values) {
+				const name = String(row[0] || '').toLowerCase();
+				if (!name || relIdByName.has(name)) {
+					continue;
+				}
+				db.run(
+					`INSERT INTO relation_types (relation_type_id, relation_type_name) VALUES (?, ?)`,
+					[nextRelId, name]
+				);
+				relIdByName.set(name, nextRelId);
+				nextRelId += 1;
+			}
+		}
+
+		db.exec(`
+			PRAGMA foreign_keys = OFF;
+			DROP INDEX IF EXISTS idx_relations_from;
+			DROP INDEX IF EXISTS idx_relations_tag;
+			DROP INDEX IF EXISTS idx_relations_type;
+			DROP TABLE IF EXISTS relations_v9;
+			CREATE TABLE relations_v9 (
+				from_file_id INTEGER NOT NULL,
+				from_heading_id INTEGER NOT NULL,
+				relation_type_id INTEGER NOT NULL,
+				tag_id INTEGER NOT NULL,
+				PRIMARY KEY (from_file_id, from_heading_id, relation_type_id, tag_id),
+				FOREIGN KEY (relation_type_id) REFERENCES relation_types(relation_type_id),
+				FOREIGN KEY (tag_id) REFERENCES tags(tag_id)
+			);
+			INSERT OR IGNORE INTO relations_v9 (from_file_id, from_heading_id, relation_type_id, tag_id)
+				SELECT r.from_file_id, r.from_heading_id, rt.relation_type_id, r.tag_id
+				FROM relations r
+				INNER JOIN relation_types rt
+					ON rt.relation_type_name = TRIM(LOWER(r.relation_type));
+			DROP TABLE relations;
+			ALTER TABLE relations_v9 RENAME TO relations;
+			CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_file_id, from_heading_id);
+			CREATE INDEX IF NOT EXISTS idx_relations_tag ON relations(tag_id);
+			CREATE INDEX IF NOT EXISTS idx_relations_type ON relations(relation_type_id);
+			PRAGMA foreign_keys = ON;
+		`);
+	}
+}
+
+/**
+ * v10: five typed metadata tables + metadata_remaining_keys EAV.
+ * Best-effort copy from v9 shapes; rebuild index if old rows look incomplete.
+ * @param {import('sql.js').Database} db
+ */
+function migrateTypedMetadataV10(db) {
+	db.exec(`
+		CREATE TABLE IF NOT EXISTS metadata_remaining_keys (
+			file_id INTEGER NOT NULL,
+			heading_id INTEGER NOT NULL,
+			metadata_type_id INTEGER NOT NULL,
+			key TEXT NOT NULL,
+			value TEXT,
+			PRIMARY KEY (file_id, heading_id, metadata_type_id, key),
+			FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE,
+			FOREIGN KEY (metadata_type_id) REFERENCES metadata_types(metadata_type_id)
+		);
+		CREATE INDEX IF NOT EXISTS idx_remaining_keys_heading ON metadata_remaining_keys(file_id, heading_id);
+		CREATE INDEX IF NOT EXISTS idx_remaining_keys_type_key ON metadata_remaining_keys(metadata_type_id, key);
+	`);
+
+	const conceptNeeds =
+		tableExists(db, 'concept_metadata') && columnExists(db, 'concept_metadata', 'difficulty');
+	if (conceptNeeds) {
+		db.exec(`
+			PRAGMA foreign_keys = OFF;
+			CREATE TABLE concept_metadata_v10 (
+				file_id INTEGER NOT NULL,
+				heading_id INTEGER NOT NULL,
+				status TEXT,
+				PRIMARY KEY (file_id, heading_id),
+				FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
+			);
+			INSERT OR IGNORE INTO concept_metadata_v10 (file_id, heading_id, status)
+				SELECT file_id, heading_id, NULL FROM concept_metadata;
+			INSERT OR IGNORE INTO metadata_remaining_keys (file_id, heading_id, metadata_type_id, key, value)
+				SELECT c.file_id, c.heading_id, h.metadata_type_id, 'difficulty', c.difficulty
+				FROM concept_metadata c
+				INNER JOIN headings h ON h.file_id = c.file_id AND h.heading_id = c.heading_id
+				WHERE c.difficulty IS NOT NULL AND TRIM(c.difficulty) != ''
+				  AND h.metadata_type_id IS NOT NULL;
+			DROP TABLE concept_metadata;
+			ALTER TABLE concept_metadata_v10 RENAME TO concept_metadata;
+			PRAGMA foreign_keys = ON;
+		`);
+	} else if (!tableExists(db, 'concept_metadata')) {
+		db.exec(`
+			CREATE TABLE concept_metadata (
+				file_id INTEGER NOT NULL,
+				heading_id INTEGER NOT NULL,
+				status TEXT,
+				PRIMARY KEY (file_id, heading_id),
+				FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
+			);
+		`);
+	}
+
+	const projectNeeds =
+		tableExists(db, 'project_metadata') && !columnExists(db, 'project_metadata', 'deadline');
+	if (projectNeeds) {
+		db.exec(`
+			PRAGMA foreign_keys = OFF;
+			CREATE TABLE project_metadata_v10 (
+				file_id INTEGER NOT NULL,
+				heading_id INTEGER NOT NULL,
+				status TEXT,
+				deadline INTEGER,
+				PRIMARY KEY (file_id, heading_id),
+				FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
+			);
+			INSERT OR IGNORE INTO project_metadata_v10 (file_id, heading_id, status, deadline)
+				SELECT file_id, heading_id, status, NULL FROM project_metadata;
+			DROP TABLE project_metadata;
+			ALTER TABLE project_metadata_v10 RENAME TO project_metadata;
+			CREATE INDEX IF NOT EXISTS idx_project_sort ON project_metadata(deadline);
+			PRAGMA foreign_keys = ON;
+		`);
+	}
+
+	const issueOld =
+		tableExists(db, 'issue_metadata') && columnExists(db, 'issue_metadata', 'work_minutes');
+	if (issueOld) {
+		db.exec(`
+			PRAGMA foreign_keys = OFF;
+			CREATE TABLE IF NOT EXISTS task_metadata (
+				file_id INTEGER NOT NULL,
+				heading_id INTEGER NOT NULL,
+				status TEXT,
+				category TEXT,
+				deadline INTEGER,
+				priority TEXT,
+				PRIMARY KEY (file_id, heading_id),
+				FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
+			);
+			CREATE TABLE issue_metadata_v10 (
+				file_id INTEGER NOT NULL,
+				heading_id INTEGER NOT NULL,
+				status TEXT,
+				category TEXT,
+				deadline INTEGER,
+				priority TEXT,
+				PRIMARY KEY (file_id, heading_id),
+				FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
+			);
+			INSERT OR IGNORE INTO task_metadata (file_id, heading_id, status, category, deadline, priority)
+				SELECT i.file_id, i.heading_id, i.status, NULL, i.deadline, i.priority
+				FROM issue_metadata i
+				INNER JOIN headings h ON h.file_id = i.file_id AND h.heading_id = i.heading_id
+				INNER JOIN metadata_types mt ON mt.metadata_type_id = h.metadata_type_id
+				WHERE mt.metadata_type_name = 'task';
+			INSERT OR IGNORE INTO issue_metadata_v10 (file_id, heading_id, status, category, deadline, priority)
+				SELECT i.file_id, i.heading_id, i.status, NULL, i.deadline, i.priority
+				FROM issue_metadata i
+				INNER JOIN headings h ON h.file_id = i.file_id AND h.heading_id = i.heading_id
+				LEFT JOIN metadata_types mt ON mt.metadata_type_id = h.metadata_type_id
+				WHERE mt.metadata_type_name IS NULL OR mt.metadata_type_name != 'task';
+			INSERT OR IGNORE INTO metadata_remaining_keys (file_id, heading_id, metadata_type_id, key, value)
+				SELECT i.file_id, i.heading_id, h.metadata_type_id, 'duration', CAST(i.work_minutes AS TEXT)
+				FROM issue_metadata i
+				INNER JOIN headings h ON h.file_id = i.file_id AND h.heading_id = i.heading_id
+				WHERE i.work_minutes IS NOT NULL AND h.metadata_type_id IS NOT NULL;
+			DROP TABLE issue_metadata;
+			ALTER TABLE issue_metadata_v10 RENAME TO issue_metadata;
+			CREATE INDEX IF NOT EXISTS idx_issue_sort ON issue_metadata(deadline, priority);
+			CREATE INDEX IF NOT EXISTS idx_task_sort ON task_metadata(deadline, priority);
+			PRAGMA foreign_keys = ON;
+		`);
+	}
+
+	if (!tableExists(db, 'task_metadata')) {
+		db.exec(`
+			CREATE TABLE task_metadata (
+				file_id INTEGER NOT NULL,
+				heading_id INTEGER NOT NULL,
+				status TEXT,
+				category TEXT,
+				deadline INTEGER,
+				priority TEXT,
+				PRIMARY KEY (file_id, heading_id),
+				FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
+			);
+			CREATE INDEX IF NOT EXISTS idx_task_sort ON task_metadata(deadline, priority);
+		`);
+	}
+
+	if (!tableExists(db, 'decision_metadata')) {
+		db.exec(`
+			CREATE TABLE decision_metadata (
+				file_id INTEGER NOT NULL,
+				heading_id INTEGER NOT NULL,
+				category TEXT,
+				PRIMARY KEY (file_id, heading_id),
+				FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
+			);
+		`);
+	}
+
+	if (tableExists(db, 'issue_metadata') && !columnExists(db, 'issue_metadata', 'category')) {
+		db.exec(`
+			PRAGMA foreign_keys = OFF;
+			CREATE TABLE issue_metadata_v10b (
+				file_id INTEGER NOT NULL,
+				heading_id INTEGER NOT NULL,
+				status TEXT,
+				category TEXT,
+				deadline INTEGER,
+				priority TEXT,
+				PRIMARY KEY (file_id, heading_id),
+				FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
+			);
+			INSERT OR IGNORE INTO issue_metadata_v10b (file_id, heading_id, status, category, deadline, priority)
+				SELECT file_id, heading_id, status, NULL, deadline, priority FROM issue_metadata;
+			DROP TABLE issue_metadata;
+			ALTER TABLE issue_metadata_v10b RENAME TO issue_metadata;
+			CREATE INDEX IF NOT EXISTS idx_issue_sort ON issue_metadata(deadline, priority);
+			PRAGMA foreign_keys = ON;
+		`);
+	}
+}
+
+/**
  * @param {import('sql.js').Database} db
  */
 function migrateSchemaIfNeeded(db) {
@@ -293,6 +694,14 @@ function migrateSchemaIfNeeded(db) {
 
 	if (version < 8) {
 		migrateHeadingReferencesFileOnly(db);
+	}
+
+	if (version < 9) {
+		migrateMetadataAndRelationTypeIds(db);
+	}
+
+	if (version < 10) {
+		migrateTypedMetadataV10(db);
 	}
 
 	db.exec(SCHEMA_SQL);
@@ -319,8 +728,10 @@ function seedInitialIndexMeta(db) {
 function ensureDripIndexSchema(db) {
 	db.exec(SCHEMA_SQL);
 	migrateSchemaIfNeeded(db);
-	// Idempotent: also repair DBs that already report v8 but still have the old column.
+	// Idempotent repairs for DBs that already report a version but still have old columns.
 	migrateHeadingReferencesFileOnly(db);
+	migrateMetadataAndRelationTypeIds(db);
+	migrateTypedMetadataV10(db);
 	seedInitialIndexMeta(db);
 }
 
@@ -328,6 +739,7 @@ module.exports = {
 	SCHEMA_VERSION,
 	SCHEMA_SQL,
 	TYPED_METADATA_TABLES,
+	REMAINING_METADATA_TABLE,
 	ensureDripIndexSchema,
 	seedInitialIndexMeta,
 	getSchemaVersion

@@ -330,18 +330,33 @@ DB schema for the indexing of the
             file_id INT NOT NULL,
             heading_id INT NOT NULL,
 
-            parent_id INT,
-
             title TEXT NOT NULL,
 
-            metadata_type TEXT,
+            metadata_type_id INT,           --> FK to metadata_types (NULL = no/unknown type)
 
             hash TEXT,                               ---> an 8 digit simple hash created from a-z + A-Z + 0-9 these characters
 
             PRIMARY KEY(file_id, heading_id),
 
             FOREIGN KEY(file_id)
-            REFERENCES files(id)
+            REFERENCES files(id),
+
+            FOREIGN KEY(metadata_type_id)
+            REFERENCES metadata_types(metadata_type_id)
+        );
+
+        METADATA TYPES LOOKUP (name stored once; headings store the id)
+        CREATE TABLE metadata_types (
+            metadata_type_id INT NOT NULL,
+            metadata_type_name TEXT NOT NULL UNIQUE,
+            PRIMARY KEY(metadata_type_id)
+        );
+
+        RELATION TYPES LOOKUP (same idea as tags / metadata_types)
+        CREATE TABLE relation_types (
+            relation_type_id INT NOT NULL,
+            relation_type_name TEXT NOT NULL UNIQUE,
+            PRIMARY KEY(relation_type_id)
         );
 
         Reference headings table 
@@ -377,40 +392,48 @@ DB schema for the indexing of the
 
     5. Metadata Tables
 
-        Each metadata type has its own strongly typed table, depending on the key-values present in the metadata type's drip settings...
-        I want the drip settings for the metadata type key-value's to be of only enums or int (will store int or date-time in the unix timestamp or the time duration) or date-time(will store them as int internally) or time duration (will store them as int internally) or float types only.. 
-        I want to remove the "options" column which is present to define the key-value pairs types in the metadata types.. the user cannot type any custom text in the values of the key-values in the metadata types  
-        I will convert the date types to be of unix timestamps to store them as int --> for example used to store the duedate/ deadline field in a single format 
-            we can reder these date time values in a different format like "MM-DD-YYYY HH:MM" OR "April 04 2024 hh:mm" or "April 09 2026"
-        I will also keep the time interval range as to define estimated work duration in the format of minutes, to store the time duration in a common format and then we can reder this minutes format to any other defined below formats like	
-            "5 days 2hr 30min " or "5 months" or "2 years"
-        we can also make the user define the enum order, as it can be used to define the order of the ascending or descending order to sort this particular field in the key of the metadata type
+        Hot keys live in one typed table per metadata type (filter/sort).
+        All other validated key/values go to metadata_remaining_keys (EAV) so cards
+        can load without re-reading .d.txt files.
 
-        This allows:
-            fast indexing
-            efficient sorting
-            proper enum usage
-            optimized filtering
+        concept_metadata: status
+        project_metadata: status, deadline
+        task_metadata: status, category, deadline, priority
+        issue_metadata: status, category, deadline, priority
+        decision_metadata: category
+
+        CREATE TABLE metadata_remaining_keys (
+            file_id INT NOT NULL,
+            heading_id INT NOT NULL,
+            metadata_type_id INT NOT NULL,
+            key TEXT NOT NULL,
+            value TEXT,
+            PRIMARY KEY (file_id, heading_id, metadata_type_id, key),
+            FOREIGN KEY(file_id, heading_id) REFERENCES headings(file_id, heading_id),
+            FOREIGN KEY(metadata_type_id) REFERENCES metadata_types(metadata_type_id)
+        );
+
+        Types without a typed table (e.g. feature) store all keys in metadata_remaining_keys.
 
         ISSUE METADATA
             for example the issue metadata has these fields in the drip settins for metadata type of "issue" 
                 status: enum()
                 priority: enum()
                 deadline: int (timestamp)
-                work time: int (time duration)
+                category: enum()
                 
         CREATE TABLE issue_metadata (
             file_id int NOT NULL,
 
             heading_id int NOT NULL,
 
-            status enum,
+            status TEXT,
 
-            priority enum,
+            category TEXT,
 
             deadline INTEGER,
 
-            work_time INTEGER,
+            priority TEXT,
 
             PRIMARY KEY(file_id, heading_id),
 
@@ -480,17 +503,24 @@ DB schema for the indexing of the
             from_file_id TEXT NOT NULL,
             from_heading_id TEXT NOT NULL,
 
-            relation_type TEXT NOT NULL,
+            relation_type_id INT NOT NULL,
 
-            to_file_id TEXT NOT NULL,
-            to_heading_id TEXT NOT NULL
+            tag_id INT NOT NULL,
+
+            PRIMARY KEY (from_file_id, from_heading_id, relation_type_id, tag_id),
+
+            FOREIGN KEY(relation_type_id)
+            REFERENCES relation_types(relation_type_id),
+
+            FOREIGN KEY(tag_id)
+            REFERENCES tags(tag_id)
         );
 
 
     8. Important Indexes
         Heading Type
         CREATE INDEX idx_heading_type
-        ON headings(metadata_type);
+        ON headings(metadata_type_id);
 
         Hierarchy
         CREATE INDEX idx_parent

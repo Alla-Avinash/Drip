@@ -7,6 +7,7 @@ const { INDEX_FILE, getDripIndexRootUri } = require('../startup/initializeDripIn
 const {
 	SCHEMA_VERSION,
 	TYPED_METADATA_TABLES,
+	REMAINING_METADATA_TABLE,
 	ensureDripIndexSchema
 } = require('./dbSchema/dripIndexSchema');
 const { forEachKnowledgeBaseNote } = require('../document/kbNoteOps');
@@ -79,6 +80,7 @@ function deleteFileHeadingScopedRows(db, fileId) {
 	for (const table of TYPED_METADATA_TABLES) {
 		db.run(`DELETE FROM ${table} WHERE file_id = ?`, [fileId]);
 	}
+	db.run(`DELETE FROM ${REMAINING_METADATA_TABLE} WHERE file_id = ?`, [fileId]);
 	db.run('DELETE FROM headings WHERE file_id = ?', [fileId]);
 }
 
@@ -101,6 +103,10 @@ function deleteHeadingScopedRows(db, fileId, headingId) {
 	for (const table of TYPED_METADATA_TABLES) {
 		db.run(`DELETE FROM ${table} WHERE file_id = ? AND heading_id = ?`, [fileId, headingId]);
 	}
+	db.run(`DELETE FROM ${REMAINING_METADATA_TABLE} WHERE file_id = ? AND heading_id = ?`, [
+		fileId,
+		headingId
+	]);
 	db.run('DELETE FROM headings WHERE file_id = ? AND heading_id = ?', [fileId, headingId]);
 }
 
@@ -232,40 +238,155 @@ function syncTagsTableFromGraph(db, context, options) {
 }
 
 /**
+ * Load or create a row in a (id, name) lookup table. Names are stored lowercased.
+ * @param {import('sql.js').Database} db
+ * @param {'metadata_types' | 'relation_types'} table
+ * @param {string} idColumn
+ * @param {string} nameColumn
+ * @param {string} rawName
+ * @param {Map<string, number>} idByLower
+ * @returns {number | null}
+ */
+function ensureLookupTypeId(db, table, idColumn, nameColumn, rawName, idByLower) {
+	const name = String(rawName || '').trim().toLowerCase();
+	if (!name) {
+		return null;
+	}
+	if (idByLower.has(name)) {
+		return /** @type {number} */ (idByLower.get(name));
+	}
+	const existing = queryOne(
+		db,
+		`SELECT ${idColumn} FROM ${table} WHERE ${nameColumn} = ?`,
+		[name]
+	);
+	if (existing) {
+		const id = Number(existing[0]);
+		idByLower.set(name, id);
+		return id;
+	}
+	const maxRow = queryOne(db, `SELECT COALESCE(MAX(${idColumn}), -1) FROM ${table}`, []);
+	const nextId = maxRow ? Number(maxRow[0]) + 1 : 0;
+	db.run(`INSERT INTO ${table} (${idColumn}, ${nameColumn}) VALUES (?, ?)`, [nextId, name]);
+	idByLower.set(name, nextId);
+	return nextId;
+}
+
+/**
+ * @param {import('sql.js').Database} db
+ * @returns {{ metadataTypeIdByLower: Map<string, number>, relationTypeIdByLower: Map<string, number> }}
+ */
+function loadTypeLookupMaps(db) {
+	/** @type {Map<string, number>} */
+	const metadataTypeIdByLower = new Map();
+	const metaRows = db.exec('SELECT metadata_type_id, metadata_type_name FROM metadata_types');
+	if (metaRows.length) {
+		for (const row of metaRows[0].values) {
+			metadataTypeIdByLower.set(String(row[1] || '').toLowerCase(), Number(row[0]));
+		}
+	}
+	/** @type {Map<string, number>} */
+	const relationTypeIdByLower = new Map();
+	const relRows = db.exec('SELECT relation_type_id, relation_type_name FROM relation_types');
+	if (relRows.length) {
+		for (const row of relRows[0].values) {
+			relationTypeIdByLower.set(String(row[1] || '').toLowerCase(), Number(row[0]));
+		}
+	}
+	return { metadataTypeIdByLower, relationTypeIdByLower };
+}
+
+/**
  * @param {import('sql.js').Database} db
  * @param {number} fileId
- * @param {{ heading_id: number, table: string, fields: Record<string, string | number | null> }[]} typedMetadata
+ * @param {{ heading_id: number, table: string | null, fields: Record<string, string | number | null>, remaining?: { key: string, value: string | null }[], metadata_type?: string }[]} typedMetadata
+ * @param {Map<string, number>} metadataTypeIdByLower
  */
-function insertTypedMetadataRows(db, fileId, typedMetadata) {
+function insertTypedMetadataRows(db, fileId, typedMetadata, metadataTypeIdByLower) {
+	const metaMap = metadataTypeIdByLower || new Map();
 	for (const entry of typedMetadata || []) {
 		const table = String(entry.table || '');
-		if (!TYPED_METADATA_TABLES.includes(table)) {
-			continue;
-		}
 		const fields = entry.fields || {};
 		const headingId = entry.heading_id;
-		if (table === 'issue_metadata') {
-			db.run(
-				`INSERT INTO issue_metadata (file_id, heading_id, status, priority, deadline, work_minutes)
-				 VALUES (?, ?, ?, ?, ?, ?)`,
-				[
+
+		if (table && TYPED_METADATA_TABLES.includes(table) && Object.keys(fields).length) {
+			if (table === 'concept_metadata') {
+				db.run(`INSERT INTO concept_metadata (file_id, heading_id, status) VALUES (?, ?, ?)`, [
 					fileId,
 					headingId,
-					fields.status != null ? String(fields.status) : null,
-					fields.priority != null ? String(fields.priority) : null,
-					fields.deadline != null ? Number(fields.deadline) : null,
-					fields.work_minutes != null ? Number(fields.work_minutes) : null
-				]
-			);
-		} else if (table === 'project_metadata') {
+					fields.status != null ? String(fields.status) : null
+				]);
+			} else if (table === 'project_metadata') {
+				db.run(
+					`INSERT INTO project_metadata (file_id, heading_id, status, deadline) VALUES (?, ?, ?, ?)`,
+					[
+						fileId,
+						headingId,
+						fields.status != null ? String(fields.status) : null,
+						fields.deadline != null ? Number(fields.deadline) : null
+					]
+				);
+			} else if (table === 'task_metadata') {
+				db.run(
+					`INSERT INTO task_metadata (file_id, heading_id, status, category, deadline, priority)
+					 VALUES (?, ?, ?, ?, ?, ?)`,
+					[
+						fileId,
+						headingId,
+						fields.status != null ? String(fields.status) : null,
+						fields.category != null ? String(fields.category) : null,
+						fields.deadline != null ? Number(fields.deadline) : null,
+						fields.priority != null ? String(fields.priority) : null
+					]
+				);
+			} else if (table === 'issue_metadata') {
+				db.run(
+					`INSERT INTO issue_metadata (file_id, heading_id, status, category, deadline, priority)
+					 VALUES (?, ?, ?, ?, ?, ?)`,
+					[
+						fileId,
+						headingId,
+						fields.status != null ? String(fields.status) : null,
+						fields.category != null ? String(fields.category) : null,
+						fields.deadline != null ? Number(fields.deadline) : null,
+						fields.priority != null ? String(fields.priority) : null
+					]
+				);
+			} else if (table === 'decision_metadata') {
+				db.run(
+					`INSERT INTO decision_metadata (file_id, heading_id, category) VALUES (?, ?, ?)`,
+					[fileId, headingId, fields.category != null ? String(fields.category) : null]
+				);
+			}
+		}
+
+		const remaining = entry.remaining || [];
+		if (!remaining.length) {
+			continue;
+		}
+		const typeName = String(entry.metadata_type || '').trim().toLowerCase();
+		const metadataTypeId = ensureLookupTypeId(
+			db,
+			'metadata_types',
+			'metadata_type_id',
+			'metadata_type_name',
+			typeName,
+			metaMap
+		);
+		if (metadataTypeId == null) {
+			continue;
+		}
+		for (const pair of remaining) {
+			const key = String(pair.key || '').trim().toLowerCase();
+			if (!key) continue;
+			if (pair.value == null || !String(pair.value).trim()) {
+				continue;
+			}
 			db.run(
-				`INSERT INTO project_metadata (file_id, heading_id, status) VALUES (?, ?, ?)`,
-				[fileId, headingId, fields.status != null ? String(fields.status) : null]
-			);
-		} else if (table === 'concept_metadata') {
-			db.run(
-				`INSERT INTO concept_metadata (file_id, heading_id, difficulty) VALUES (?, ?, ?)`,
-				[fileId, headingId, fields.difficulty != null ? String(fields.difficulty) : null]
+				`INSERT OR REPLACE INTO ${REMAINING_METADATA_TABLE}
+				 (file_id, heading_id, metadata_type_id, key, value)
+				 VALUES (?, ?, ?, ?, ?)`,
+				[fileId, headingId, metadataTypeId, key, String(pair.value).trim()]
 			);
 		}
 	}
@@ -299,8 +420,9 @@ function filterParsedByHeadingIds(parsed, headingIds) {
  * @param {number} sourceFileId
  * @param {{ searchtags?: { source_heading_id: number, tag_name: string }[], relations?: object[] }} parsed
  * @param {Map<string, number>} tagIdByLower
+ * @param {Map<string, number>} relationTypeIdByLower
  */
-function insertSearchTagsAndRelations(db, sourceFileId, parsed, tagIdByLower) {
+function insertSearchTagsAndRelations(db, sourceFileId, parsed, tagIdByLower, relationTypeIdByLower) {
 	for (const row of parsed.searchtags || []) {
 		const tagId = tagIdByLower.get(String(row.tag_name || '').toLowerCase());
 		if (tagId == null) {
@@ -317,16 +439,22 @@ function insertSearchTagsAndRelations(db, sourceFileId, parsed, tagIdByLower) {
 		if (tagId == null) {
 			continue;
 		}
+		const relationTypeId = ensureLookupTypeId(
+			db,
+			'relation_types',
+			'relation_type_id',
+			'relation_type_name',
+			rel.relation_type,
+			relationTypeIdByLower
+		);
+		if (relationTypeId == null) {
+			continue;
+		}
 		db.run(
 			`INSERT OR IGNORE INTO relations
-			 (from_file_id, from_heading_id, relation_type, tag_id)
+			 (from_file_id, from_heading_id, relation_type_id, tag_id)
 			 VALUES (?, ?, ?, ?)`,
-			[
-				sourceFileId,
-				rel.source_heading_id,
-				String(rel.relation_type || '').toLowerCase(),
-				tagId
-			]
+			[sourceFileId, rel.source_heading_id, relationTypeId, tagId]
 		);
 	}
 }
@@ -336,8 +464,19 @@ function insertSearchTagsAndRelations(db, sourceFileId, parsed, tagIdByLower) {
  * @param {number} fileId
  * @param {{ headings: object[], references: object[], searchtags?: object[], relations?: object[] }} parsed
  * @param {Map<string, number>} tagIdByLower
+ * @param {Map<string, number>} [metadataTypeIdByLower]
+ * @param {Map<string, number>} [relationTypeIdByLower]
  */
-function insertParsedHeadingsAndReferences(db, fileId, parsed, tagIdByLower) {
+function insertParsedHeadingsAndReferences(
+	db,
+	fileId,
+	parsed,
+	tagIdByLower,
+	metadataTypeIdByLower,
+	relationTypeIdByLower
+) {
+	const metaMap = metadataTypeIdByLower || new Map();
+	const relMap = relationTypeIdByLower || new Map();
 	const seenHeadingIds = new Set();
 	for (const heading of parsed.headings || []) {
 		const headingId = heading.heading_id;
@@ -345,21 +484,27 @@ function insertParsedHeadingsAndReferences(db, fileId, parsed, tagIdByLower) {
 			continue;
 		}
 		seenHeadingIds.add(headingId);
+		const typeName = normalizeMetadataTypeForIndex(heading.metadata_type);
+		const metadataTypeId =
+			typeName == null
+				? null
+				: ensureLookupTypeId(
+						db,
+						'metadata_types',
+						'metadata_type_id',
+						'metadata_type_name',
+						typeName,
+						metaMap
+					);
 		db.run(
-			`INSERT INTO headings (file_id, heading_id, title, metadata_type, hash)
+			`INSERT INTO headings (file_id, heading_id, title, metadata_type_id, hash)
 			 VALUES (?, ?, ?, ?, ?)`,
-			[
-				fileId,
-				headingId,
-				heading.title,
-				normalizeMetadataTypeForIndex(heading.metadata_type),
-				heading.hash
-			]
+			[fileId, headingId, heading.title, metadataTypeId, heading.hash]
 		);
 	}
 	insertHeadingReferences(db, fileId, parsed.references);
-	insertSearchTagsAndRelations(db, fileId, parsed, tagIdByLower);
-	insertTypedMetadataRows(db, fileId, parsed.typedMetadata);
+	insertSearchTagsAndRelations(db, fileId, parsed, tagIdByLower, relMap);
+	insertTypedMetadataRows(db, fileId, parsed.typedMetadata, metaMap);
 }
 
 /**
@@ -836,9 +981,11 @@ async function rebuildDripIndex(kbRootUri, context) {
 		for (const table of TYPED_METADATA_TABLES) {
 			handle.db.run(`DELETE FROM ${table}`);
 		}
+		handle.db.run(`DELETE FROM ${REMAINING_METADATA_TABLE}`);
 		handle.db.run('DELETE FROM headings');
 		handle.db.run('DELETE FROM files');
 		const tagIdByLower = syncTagsTableFromGraph(handle.db, context, { replaceAll: true });
+		const { metadataTypeIdByLower, relationTypeIdByLower } = loadTypeLookupMaps(handle.db);
 
 		await forEachKnowledgeBaseNote(
 			kbRootUri,
@@ -886,7 +1033,14 @@ async function rebuildDripIndex(kbRootUri, context) {
 					]
 				);
 
-				insertParsedHeadingsAndReferences(handle.db, fileId, parsed, tagIdByLower);
+				insertParsedHeadingsAndReferences(
+					handle.db,
+					fileId,
+					parsed,
+					tagIdByLower,
+					metadataTypeIdByLower,
+					relationTypeIdByLower
+				);
 			},
 			{ yieldEvery: 20 }
 		);
@@ -923,6 +1077,7 @@ function applyParsedNoteToIndex(db, relPath, parsed, context, options) {
 	const normalizedPath = String(relPath || '').replace(/\\/g, '/');
 	const incremental = !(options && options.incremental === false);
 	const tagIdByLower = syncTagsTableFromGraph(db, context);
+	const { metadataTypeIdByLower, relationTypeIdByLower } = loadTypeLookupMaps(db);
 
 	const existing = queryOne(db, 'SELECT id FROM files WHERE path = ?', [normalizedPath]);
 	let fileId = parsed.fileId;
@@ -942,11 +1097,25 @@ function applyParsedNoteToIndex(db, relPath, parsed, context, options) {
 					deleteHeadingScopedRows(db, fileId, headingId);
 				}
 				const slice = filterParsedByHeadingIds(parsed, dirtySet);
-				insertParsedHeadingsAndReferences(db, fileId, slice, tagIdByLower);
+				insertParsedHeadingsAndReferences(
+					db,
+					fileId,
+					slice,
+					tagIdByLower,
+					metadataTypeIdByLower,
+					relationTypeIdByLower
+				);
 			}
 		} else {
 			deleteFileHeadingScopedRows(db, fileId);
-			insertParsedHeadingsAndReferences(db, fileId, parsed, tagIdByLower);
+			insertParsedHeadingsAndReferences(
+				db,
+				fileId,
+				parsed,
+				tagIdByLower,
+				metadataTypeIdByLower,
+				relationTypeIdByLower
+			);
 		}
 	} else {
 		if (fileId == null || !Number.isFinite(fileId) || fileId < 0) {
@@ -971,7 +1140,14 @@ function applyParsedNoteToIndex(db, relPath, parsed, context, options) {
 				parsed.file.updated_at
 			]
 		);
-		insertParsedHeadingsAndReferences(db, fileId, parsed, tagIdByLower);
+		insertParsedHeadingsAndReferences(
+			db,
+			fileId,
+			parsed,
+			tagIdByLower,
+			metadataTypeIdByLower,
+			relationTypeIdByLower
+		);
 	}
 
 	bumpNextFileIdCounter(db, fileId);
@@ -1049,6 +1225,7 @@ function replaceParsedNoteAtFileId(db, fileId, parsed, context) {
 	const id = Math.floor(Number(fileId));
 	const normalizedPath = String((parsed && parsed.file && parsed.file.path) || '').replace(/\\/g, '/');
 	const tagIdByLower = syncTagsTableFromGraph(db, context);
+	const { metadataTypeIdByLower, relationTypeIdByLower } = loadTypeLookupMaps(db);
 
 	const pathOwner = queryOne(db, 'SELECT id FROM files WHERE path = ?', [normalizedPath]);
 	if (pathOwner) {
@@ -1081,7 +1258,14 @@ function replaceParsedNoteAtFileId(db, fileId, parsed, context) {
 		);
 	}
 
-	insertParsedHeadingsAndReferences(db, id, parsed, tagIdByLower);
+	insertParsedHeadingsAndReferences(
+		db,
+		id,
+		parsed,
+		tagIdByLower,
+		metadataTypeIdByLower,
+		relationTypeIdByLower
+	);
 	bumpNextFileIdCounter(db, id);
 	return id;
 }

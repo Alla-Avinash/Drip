@@ -182,7 +182,7 @@ function computeIndexPersistenceSignature(parsed) {
 		.sort();
 
 	const typed = (parsed.typedMetadata || [])
-		.map(t => [t.heading_id, t.table, t.fields])
+		.map(t => [t.heading_id, t.table, t.fields, t.remaining || []])
 		.sort((a, b) => a[0] - b[0]);
 
 	return JSON.stringify({

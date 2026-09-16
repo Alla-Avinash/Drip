@@ -2,103 +2,143 @@
 
 const { collectValidatedMetadataKeyValues, parseDatetimeToUnixSeconds } = require('./dripIndexMetadataValidate');
 
-/** Metadata type id → SQLite typed table (schema v6). */
+/** Metadata type id → typed SQLite table (schema v10). Types without a table use EAV only. */
 const METADATA_TYPE_TABLE = {
-	issue: 'issue_metadata',
-	task: 'issue_metadata',
+	concept: 'concept_metadata',
 	project: 'project_metadata',
-	concept: 'concept_metadata'
-};
-
-/** Normalized metadata key → `issue_metadata` column. */
-const ISSUE_COLUMN_BY_KEY = {
-	status: 'status',
-	priority: 'priority',
-	deadline: 'deadline',
-	work_time: 'work_minutes',
-	'work-time': 'work_minutes',
-	worktime: 'work_minutes',
-	'work-minutes': 'work_minutes',
-	'work minutes': 'work_minutes',
-	duration: 'work_minutes'
-};
-
-/** Normalized metadata key → `project_metadata` column. */
-const PROJECT_COLUMN_BY_KEY = {
-	status: 'status'
-};
-
-/** Normalized metadata key → `concept_metadata` column. */
-const CONCEPT_COLUMN_BY_KEY = {
-	difficulty: 'difficulty'
+	task: 'task_metadata',
+	issue: 'issue_metadata',
+	decision: 'decision_metadata'
 };
 
 /**
+ * Hot keys stored as typed columns. Everything else → metadata_remaining_keys.
+ * Values: 'text' | 'int' (unix deadline / numeric).
+ * @type {Record<string, Record<string, 'text' | 'int'>>}
+ */
+const TYPED_COLUMNS_BY_TYPE = {
+	concept: { status: 'text' },
+	project: { status: 'text', deadline: 'int' },
+	task: { status: 'text', category: 'text', deadline: 'int', priority: 'text' },
+	issue: { status: 'text', category: 'text', deadline: 'int', priority: 'text' },
+	decision: { category: 'text' }
+};
+
+/**
+ * @param {string} key
+ * @returns {string}
+ */
+function normalizeKey(key) {
+	return String(key || '')
+		.trim()
+		.toLowerCase()
+		.replace(/\s+/g, ' ');
+}
+
+/**
+ * @param {string | number | null} value
+ * @param {'text' | 'int'} kind
+ * @returns {string | number | null}
+ */
+function coerceTypedValue(value, kind) {
+	if (value == null) return null;
+	if (kind === 'int') {
+		const n = Number(value);
+		return Number.isFinite(n) ? n : null;
+	}
+	return String(value);
+}
+
+/**
+ * Split validated key/values into typed columns vs remaining EAV pairs.
+ *
  * @param {string} metadataType
  * @param {Map<string, string | number | null>} keyValues
- * @returns {{ table: string, row: Record<string, string | number | null> } | null}
+ * @returns {{
+ *   table: string | null,
+ *   row: Record<string, string | number | null>,
+ *   remaining: { key: string, value: string | null }[]
+ * }}
  */
-function buildTypedMetadataRow(metadataType, keyValues) {
+function buildTypedMetadataSplit(metadataType, keyValues) {
 	const typeId = String(metadataType || '').trim().toLowerCase();
-	const table = METADATA_TYPE_TABLE[typeId];
-	if (!table || !keyValues || !keyValues.size) {
-		return null;
-	}
+	const table = METADATA_TYPE_TABLE[typeId] || null;
+	const typedCols = TYPED_COLUMNS_BY_TYPE[typeId] || null;
 
 	/** @type {Record<string, string | number | null>} */
 	const row = {};
+	/** @type {{ key: string, value: string | null }[]} */
+	const remaining = [];
 
-	if (table === 'issue_metadata') {
-		for (const [key, value] of keyValues.entries()) {
-			const col = ISSUE_COLUMN_BY_KEY[key.replace(/\s+/g, ' ')] || ISSUE_COLUMN_BY_KEY[key.replace(/\s+/g, '_')];
-			if (!col) continue;
-			if (col === 'deadline' || col === 'work_minutes') {
-				row[col] = value != null ? Number(value) : null;
-			} else {
-				row[col] = value != null ? String(value) : null;
+	if (!keyValues || !keyValues.size) {
+		return { table, row, remaining };
+	}
+
+	for (const [rawKey, value] of keyValues.entries()) {
+		const key = normalizeKey(rawKey);
+		const colKind = typedCols ? typedCols[key] : undefined;
+		if (colKind) {
+			const coerced = coerceTypedValue(value, colKind);
+			if (coerced == null) {
+				continue;
 			}
+			if (typeof coerced === 'string' && !coerced.trim()) {
+				continue;
+			}
+			row[key] = coerced;
+			continue;
 		}
-	} else if (table === 'project_metadata') {
-		for (const [key, value] of keyValues.entries()) {
-			const col = PROJECT_COLUMN_BY_KEY[key];
-			if (col) row[col] = value != null ? String(value) : null;
+		// EAV: only store keys that have a real value — never null/empty placeholders.
+		if (value == null) {
+			continue;
 		}
-	} else if (table === 'concept_metadata') {
-		for (const [key, value] of keyValues.entries()) {
-			const col = CONCEPT_COLUMN_BY_KEY[key];
-			if (col) row[col] = value != null ? String(value) : null;
+		const asText = String(value).trim();
+		if (!asText) {
+			continue;
 		}
+		remaining.push({
+			key,
+			value: asText
+		});
 	}
 
-	if (!Object.keys(row).length) {
-		return null;
-	}
-	return { table, row };
+	return { table, row, remaining };
 }
 
 /**
  * @param {number} headingId
  * @param {string | null | undefined} metadataType
  * @param {string[]} metaLines
- * @returns {{ heading_id: number, metadata_type: string, table: string, fields: Record<string, string | number | null> } | null}
+ * @returns {{
+ *   heading_id: number,
+ *   metadata_type: string,
+ *   table: string | null,
+ *   fields: Record<string, string | number | null>,
+ *   remaining: { key: string, value: string | null }[]
+ * } | null}
  */
 function parseTypedMetadataForHeading(headingId, metadataType, metaLines) {
 	const typeId = String(metadataType || '').trim().toLowerCase();
 	if (!typeId) return null;
 	const keyValues = collectValidatedMetadataKeyValues(metadataType, metaLines);
-	const built = buildTypedMetadataRow(typeId, keyValues);
-	if (!built) return null;
+	const built = buildTypedMetadataSplit(typeId, keyValues);
+	if (!Object.keys(built.row).length && !built.remaining.length) {
+		return null;
+	}
 	return {
 		heading_id: headingId,
 		metadata_type: typeId,
 		table: built.table,
-		fields: built.row
+		fields: built.row,
+		remaining: built.remaining
 	};
 }
 
 module.exports = {
 	METADATA_TYPE_TABLE,
+	TYPED_COLUMNS_BY_TYPE,
 	collectValidatedMetadataKeyValues,
+	buildTypedMetadataSplit,
 	parseTypedMetadataForHeading,
 	parseDatetimeToUnixSeconds
 };
