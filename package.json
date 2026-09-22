@@ -328,12 +328,12 @@
 				"drip.experimentalEmbeddings": {
 					"type": "boolean",
 					"default": true,
-					"description": "Use Transformers.js (ONNX) sentence embeddings for Suggestions (top folders + next folder/file picks) and AI deep-match in DRIP Storage, instead of token overlap. First use downloads the model to the Hugging Face cache."
+					"description": "Use Transformers.js (ONNX) sentence embeddings for Suggestions (top folders + next folder/file picks) and AI deep-match in DRIP Storage, instead of token overlap. First use downloads the model into the DRIP extension folder (.cache/transformers), not the system Hugging Face cache."
 				},
 				"drip.embeddingModel": {
 					"type": "string",
 					"default": "Xenova/all-MiniLM-L6-v2",
-					"description": "Sentence embedding model id (Xenova ONNX build). Example: Xenova/all-MiniLM-L6-v2"
+					"description": "Sentence embedding model id (Xenova ONNX build). Changing this deletes and rebuilds heading and folder embeddings only (not note IDs or metadata). Example: Xenova/all-MiniLM-L6-v2"
 				},
 				"drip.dripnoteAllowedMetadataKeys": {
 					"type": "array",
@@ -965,7 +965,10 @@
 		]
 	},
 	"scripts": {
-		"compile-web": "tsgo --project ./tsconfig.json --noEmit"
+		"compile-web": "tsgo --project ./tsconfig.json --noEmit",
+		"bench:embeddings": "node benchmarks/run.js",
+		"bench:embeddings:real": "node benchmarks/run.js --real",
+		"bench:embeddings:all": "node benchmarks/run.js --all --real"
 	},
 	"devDependencies": {
 		"@types/node": "22.x"
@@ -976,6 +979,8 @@
 	},
 	"dependencies": {
 		"@xenova/transformers": "^2.17.2",
-		"sql.js": "^1.12.0"
+		"better-sqlite3": "^13.0.3",
+		"faiss-node": "^0.5.1",
+		"sqlite-vec": "^0.1.9"
 	}
 }

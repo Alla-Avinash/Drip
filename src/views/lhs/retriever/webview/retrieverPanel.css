@@ -48,12 +48,161 @@ main {
 .rz-scope-strip {
 	display: flex;
 	flex-wrap: wrap;
-	align-items: center;
+	align-items: flex-end;
 	gap: 8px;
 	padding: 8px 12px 6px;
 	border-bottom: 1px solid var(--rz-border);
 	background: var(--vscode-sideBar-background, var(--rz-bg));
 	flex-shrink: 0;
+}
+.rz-corpus-field {
+	margin: 0 !important;
+	max-width: 260px;
+	flex: 0 1 260px;
+}
+.rz-corpus-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+.rz-corpus-row .rz-select {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+.rz-corpus-edit-btn {
+	flex: 0 0 auto;
+	padding: 4px 8px;
+	font-size: 11px;
+}
+.rz-custom-corpus {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	padding: 12px;
+	border-bottom: 1px solid var(--rz-border);
+	background: var(--vscode-editorWidget-background, var(--rz-bg));
+}
+.rz-custom-corpus[hidden],
+.rz-custom-corpus.hidden {
+	display: none !important;
+}
+.rz-custom-corpus-inner {
+	max-width: 640px;
+}
+.rz-custom-corpus-title {
+	margin: 0 0 4px;
+	font-size: 15px;
+	font-weight: 600;
+}
+.rz-custom-corpus-sub {
+	margin: 0 0 12px;
+	font-size: 12px;
+	color: var(--rz-muted);
+	line-height: 1.4;
+}
+.rz-custom-drop {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 88px;
+	margin: 0 0 8px;
+	padding: 16px;
+	border: 1px dashed var(--rz-border);
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--rz-fg) 4%, transparent);
+	cursor: copy;
+	text-align: center;
+}
+.rz-custom-drop.is-dragover {
+	border-color: var(--vscode-focusBorder);
+	background: var(--vscode-list-hoverBackground);
+}
+.rz-custom-drop-label {
+	font-size: 12px;
+	color: var(--rz-muted);
+}
+.rz-custom-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-bottom: 10px;
+}
+.rz-custom-entries {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+.rz-custom-entry {
+	display: grid;
+	grid-template-columns: auto 1fr auto;
+	gap: 8px;
+	align-items: start;
+	padding: 8px 10px;
+	border: 1px solid var(--rz-border);
+	border-radius: 6px;
+	background: var(--vscode-sideBar-background, var(--rz-bg));
+}
+.rz-custom-entry-kind {
+	font-size: 10px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--rz-muted);
+	padding-top: 2px;
+}
+.rz-custom-entry-body {
+	min-width: 0;
+}
+.rz-custom-entry-name {
+	font-size: 12px;
+	font-weight: 600;
+	word-break: break-word;
+}
+.rz-custom-entry-path {
+	font-size: 11px;
+	color: var(--rz-muted);
+	font-family: var(--vscode-editor-font-family);
+	word-break: break-all;
+}
+.rz-custom-entry-remove {
+	border: none;
+	background: transparent;
+	color: var(--rz-muted);
+	cursor: pointer;
+	font-size: 16px;
+	line-height: 1;
+	padding: 0 2px;
+}
+.rz-custom-entry-remove:hover {
+	color: var(--rz-fg);
+}
+.rz-custom-empty {
+	margin: 8px 0 0;
+	font-size: 11px;
+	color: var(--rz-muted);
+}
+.rz-custom-empty.hidden {
+	display: none !important;
+}
+.rz-custom-footer {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	margin-top: 14px;
+	padding-top: 10px;
+	border-top: 1px solid var(--rz-border);
+}
+.rz-custom-footer-spacer {
+	flex: 1 1 8px;
+}
+.rz-custom-footer .rz-btn:not(.secondary) {
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+	border: 1px solid transparent;
 }
 .rz-scope-strip-label {
 	font-size: 11px;
@@ -132,7 +281,10 @@ button.rz-suggest-item {
 	font-size: 12px;
 	color: var(--rz-fg);
 	background: transparent;
-	display: block;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 6px 10px;
 }
 button.rz-suggest-item:hover,
 button.rz-suggest-item:focus {
@@ -141,14 +293,23 @@ button.rz-suggest-item:focus {
 }
 .rz-suggest-title {
 	font-weight: 600;
+	flex: 1 1 auto;
+	min-width: 0;
+}
+.rz-suggest-score {
+	flex: 0 0 auto;
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+	opacity: 0.7;
 }
 .rz-suggest-meta {
 	display: block;
+	flex: 1 0 100%;
 	font-size: 11px;
 	color: var(--rz-muted);
 	font-family: var(--vscode-editor-font-family);
 	word-break: break-all;
-	margin-top: 2px;
+	margin-top: 0;
 }
 .rz-inline-hint {
 	margin: 0 0 6px;
@@ -207,6 +368,24 @@ button.rz-suggest-item:focus {
 	border-bottom: 1px solid var(--rz-border);
 	background: var(--vscode-editorWidget-background, var(--rz-bg));
 }
+.filter-row-tags-rel {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	gap: 12px 16px;
+	align-items: start;
+}
+.filter-block--half {
+	min-width: 0;
+}
+.filter-block--half .filter-select-field,
+.filter-block--half .tag-input-row,
+.filter-block--half .rz-tag-picker {
+	max-width: none;
+	width: 100%;
+}
+.filter-select-field {
+	margin: 0 0 8px;
+}
 .filter-block .filter-label {
 	display: block;
 	font-size: 11px;
@@ -215,6 +394,11 @@ button.rz-suggest-item:focus {
 	letter-spacing: 0.04em;
 	color: var(--rz-muted);
 	margin-bottom: 6px;
+}
+@media (max-width: 520px) {
+	.filter-row-tags-rel {
+		grid-template-columns: 1fr;
+	}
 }
 .chip-row {
 	display: flex;
@@ -275,7 +459,7 @@ button.rz-scope-chip[data-selected='true'] {
 	border-color: var(--vscode-focusBorder, #0078d4) !important;
 	background-color: var(--vscode-sideBar-background, var(--vscode-editor-background)) !important;
 	background-image: none !important;
-	color: var(--rz-fg) !important;
+	/* Keep accent color from Settings Type Color (inline style); do not force foreground */
 	font-weight: 700 !important;
 	box-shadow:
 		0 0 0 2px var(--vscode-editor-background, var(--rz-bg)),
@@ -321,6 +505,56 @@ button.rz-scope-chip[data-selected='true']:focus-visible {
 .tag-input-row {
 	max-width: 420px;
 }
+.rz-tag-picker {
+	position: relative;
+	max-width: 420px;
+}
+.rz-tag-suggest {
+	position: absolute;
+	left: 0;
+	right: 0;
+	top: calc(100% + 2px);
+	z-index: 30;
+	max-height: 180px;
+	overflow: auto;
+	border: 1px solid var(--rz-border);
+	border-radius: 6px;
+	background: var(--vscode-dropdown-background, var(--vscode-editor-background));
+	box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+.rz-tag-suggest.hidden {
+	display: none !important;
+}
+.rz-tag-suggest-hdr {
+	padding: 6px 10px 2px;
+	font-size: 10px;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	opacity: 0.65;
+	user-select: none;
+}
+button.rz-tag-suggest-item.rz-tag-suggest-sem {
+	opacity: 0.92;
+	font-style: italic;
+}
+button.rz-tag-suggest-item {
+	display: block;
+	width: 100%;
+	text-align: left;
+	border: none;
+	background: transparent;
+	color: var(--rz-fg);
+	font: inherit;
+	font-size: 12px;
+	padding: 7px 10px;
+	cursor: pointer;
+}
+button.rz-tag-suggest-item:hover,
+button.rz-tag-suggest-item:focus {
+	outline: none;
+	background: var(--vscode-list-hoverBackground);
+}
 .rz-tag-entry {
 	width: 100%;
 	padding: 6px 8px;
@@ -332,6 +566,90 @@ button.rz-scope-chip[data-selected='true']:focus-visible {
 	font-size: 12px;
 }
 .rz-tag-entry:focus { outline: 1px solid var(--vscode-focusBorder); }
+.rz-group-section {
+	margin: 0 0 8px;
+	border: 1px solid var(--rz-border);
+	border-radius: 8px;
+	overflow: hidden;
+}
+button.rz-group-toggle {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	text-align: left;
+	border: none;
+	background: var(--vscode-sideBar-background, transparent);
+	color: var(--rz-fg);
+	font: inherit;
+	font-size: 12px;
+	font-weight: 600;
+	padding: 8px 10px;
+	cursor: pointer;
+}
+button.rz-group-toggle:hover {
+	background: var(--vscode-list-hoverBackground);
+}
+.rz-group-toggle-chevron {
+	display: inline-flex;
+	transition: transform 0.12s ease;
+}
+.rz-group-toggle-chevron.is-open {
+	transform: rotate(90deg);
+}
+.rz-group-body {
+	padding: 4px 8px 8px;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+.rz-group-body[hidden] {
+	display: none !important;
+}
+.rz-bc-kv {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px 6px;
+	font-size: 11px;
+	color: var(--rz-muted);
+	line-height: 1.35;
+}
+.rz-bc-kv-item {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 2px;
+	max-width: 100%;
+	padding: 2px 7px;
+	border-radius: 4px;
+	font-family: var(--vscode-editor-font-family);
+	font-weight: 600;
+	border: 1px solid color-mix(in srgb, var(--rz-meta-key, var(--vscode-symbolIcon-keywordForeground, var(--rz-border))) 45%, transparent);
+	background: var(
+		--rz-meta-kv-bg,
+		var(
+			--rz-meta-key-bg,
+			color-mix(in srgb, var(--rz-meta-key, var(--vscode-symbolIcon-keywordForeground, var(--rz-fg))) 14%, transparent)
+		)
+	);
+}
+.rz-bc-k {
+	font-weight: 600;
+	/* Match dripnote metadata key (keyword.other) / Settings metadataKeyColor when set */
+	color: var(--rz-meta-key, var(--vscode-symbolIcon-keywordForeground, var(--rz-fg)));
+}
+.rz-bc-colon {
+	color: var(--rz-meta-key, var(--vscode-symbolIcon-keywordForeground, var(--rz-fg)));
+	opacity: 0.75;
+}
+.rz-bc-v {
+	/* Match dripnote metadata value (string) / Settings metadataValueColor when set */
+	font-weight: 600;
+	color: var(--rz-meta-value, var(--vscode-debugTokenExpression-string, var(--rz-fg)));
+}
+.rz-bc-kv-item strong {
+	font-weight: 600;
+	color: var(--rz-meta-key, var(--vscode-symbolIcon-keywordForeground, var(--rz-fg)));
+}
 .viewport {
 	flex: 1;
 	min-height: 0;
@@ -339,6 +657,12 @@ button.rz-scope-chip[data-selected='true']:focus-visible {
 	display: flex;
 	flex-direction: column;
 	position: relative;
+}
+/* Author `display: flex` beats UA [hidden] — force collapse or list+board both eat flex space */
+.result-list[hidden],
+.result-board[hidden],
+.empty[hidden] {
+	display: none !important;
 }
 .empty {
 	text-align: center;
@@ -388,13 +712,23 @@ button.rz-scope-chip[data-selected='true']:focus-visible {
 .rz-card-tags {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 4px;
-	margin-top: 4px;
+	gap: 3px;
+	margin-top: 0;
+	max-width: 100%;
+	overflow: hidden;
+	max-height: 2.4em;
 }
 .rz-board-grid {
 	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-	gap: 10px;
+	/* Always 2 cards per row — sidebar is often <400px so auto-fill(200px) collapsed to 1 column */
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 8px;
+	align-items: stretch;
+}
+.rz-board-grid > .rz-card {
+	min-width: 0;
+	max-width: 100%;
+	height: 100%;
 }
 .rz-row {
 	display: flex;
@@ -406,11 +740,29 @@ button.rz-scope-chip[data-selected='true']:focus-visible {
 	padding: 10px 12px;
 	border-radius: 8px;
 	border: 1px solid var(--rz-border);
-	background: var(--vscode-list-inactiveSelectionBackground, transparent);
+	/* Solid surface so metadata/tag accents are not lost on transparent list rows */
+	background: var(--vscode-sideBar-background, var(--vscode-editorWidget-background, var(--rz-bg)));
 	color: var(--rz-fg);
 	cursor: pointer;
 	font: inherit;
 	transition: background 0.08s ease, border-color 0.08s ease;
+}
+.rz-row-head {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 10px;
+	width: 100%;
+}
+.rz-score-pill {
+	flex: 0 0 auto;
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+	opacity: 0.75;
+	padding: 1px 6px;
+	border-radius: 999px;
+	border: 1px solid var(--rz-border);
+	color: var(--vscode-descriptionForeground, var(--rz-fg));
 }
 .rz-row:hover {
 	background: var(--vscode-list-hoverBackground);
@@ -495,12 +847,41 @@ button.rz-file-group-header:hover {
 	opacity: 0.65;
 }
 .rz-type-pill {
-	font-size: 10px;
+	display: inline-flex;
+	align-items: center;
+	/* Match metadata key (.rz-bc-k / .rz-bc-kv) size + font */
+	font-size: 11px;
+	font-weight: 600;
 	font-family: var(--vscode-editor-font-family);
-	color: var(--rz-muted);
-	border: 1px solid var(--rz-border);
-	padding: 1px 6px;
+	line-height: 1.35;
+	padding: 2px 7px;
 	border-radius: 4px;
+}
+.rz-type-pill--theme {
+	color: var(--rz-type-theme-fg, var(--vscode-symbolIcon-classForeground, #4ec9b0));
+	border: 1px solid
+		color-mix(
+			in srgb,
+			var(--rz-type-theme-fg, var(--vscode-symbolIcon-classForeground, #4ec9b0)) 50%,
+			transparent
+		);
+	background: var(
+		--rz-type-theme-bg,
+		color-mix(
+			in srgb,
+			var(--rz-type-theme-fg, var(--vscode-symbolIcon-classForeground, #4ec9b0)) 32%,
+			transparent
+		)
+	);
+}
+.rz-type-pill--theme.rz-type-pill--muted {
+	color: var(--rz-muted);
+	border-color: var(--rz-border);
+	background: color-mix(in srgb, var(--rz-fg) 8%, transparent);
+	font-weight: 600;
+}
+.rz-type-pill.rz-type-pill--settings[style] {
+	font-weight: 600;
 }
 .rz-bc {
 	font-size: 11px;
@@ -539,14 +920,20 @@ button.rz-file-group-header:hover {
 	align-items: center;
 	margin-top: 2px;
 }
+.rz-rel-key {
+	font-size: 10px;
+	font-weight: 600;
+	color: var(--rz-muted);
+	margin-right: 2px;
+}
 .rz-tag-pill {
 	display: inline-block;
 	font-size: 10px;
 	padding: 1px 6px;
 	border-radius: 4px;
-	border: 1px solid var(--rz-border);
-	color: var(--rz-muted);
-	background: transparent;
+	border: 1px solid var(--rz-tags-color, var(--rz-border));
+	color: var(--rz-tags-color, var(--rz-fg));
+	background: var(--rz-tags-bg, color-mix(in srgb, var(--rz-tags-color, var(--rz-fg)) 18%, transparent));
 	line-height: 1.35;
 }
 .rz-tag-more {
@@ -557,33 +944,69 @@ button.rz-file-group-header:hover {
 	display: flex;
 	flex-direction: column;
 	align-items: flex-start;
-	gap: 6px;
-	padding: 12px;
-	border-radius: 8px;
+	gap: 4px;
+	padding: 8px 10px;
+	border-radius: 6px;
 	border: 1px solid var(--rz-border);
-	background: var(--vscode-sideBar-background, var(--rz-bg));
+	background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background, var(--rz-bg)));
 	color: var(--rz-fg);
 	cursor: pointer;
 	font: inherit;
 	text-align: left;
-	min-height: 72px;
+	/* Compact slot — not a full list-row height */
+	min-height: 0;
+	max-height: 148px;
+	min-width: 0;
+	overflow: hidden;
+	box-sizing: border-box;
 	transition: border-color 0.08s ease, background 0.08s ease;
 }
 .rz-card:hover {
 	border-color: var(--vscode-focusBorder);
 	background: var(--vscode-list-hoverBackground);
 }
+.rz-card .rz-row-head {
+	min-width: 0;
+	width: 100%;
+	gap: 6px;
+}
 .rz-card-title {
 	font-weight: 600;
 	font-size: 12px;
-	line-height: 1.35;
-	word-break: break-word;
+	line-height: 1.3;
+	min-width: 0;
+	flex: 1 1 auto;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.rz-card .rz-type-pill {
+	flex: 0 0 auto;
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.rz-card .rz-bc-kv {
+	gap: 3px 4px;
+	max-width: 100%;
+	overflow: hidden;
+}
+.rz-card .rz-bc-kv-item {
+	padding: 1px 5px;
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 .rz-card-path {
 	font-size: 10px;
 	color: var(--rz-muted);
 	font-family: var(--vscode-editor-font-family);
-	word-break: break-all;
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 .rz-footer-wrap {
 	flex-shrink: 0;
@@ -694,6 +1117,178 @@ aside h3 {
 	user-select: none;
 }
 .aside-check input { accent-color: var(--rz-accent); }
+.rz-clear-attr-filters {
+	display: block;
+	width: 100%;
+	margin: 10px 0 0;
+	padding: 5px 8px;
+	font-size: 11px;
+}
+.rz-attr-filter-panel {
+	margin-top: 12px;
+	padding-top: 10px;
+	border-top: 1px solid var(--rz-border);
+}
+.rz-attr-filter-panel[hidden],
+.rz-attr-filter-panel.hidden {
+	display: none !important;
+}
+.rz-attr-filter-empty {
+	font-size: 11px;
+	color: var(--rz-muted);
+	margin: 0 0 6px;
+	line-height: 1.35;
+}
+.rz-attr-filter-body {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+.rz-attr-type-hdr {
+	font-size: 11px;
+	font-weight: 600;
+	font-family: var(--vscode-editor-font-family);
+	color: var(--rz-type-theme-fg, var(--vscode-symbolIcon-classForeground, var(--rz-fg)));
+	margin-bottom: 6px;
+}
+.rz-attr-key {
+	display: grid;
+	grid-template-columns: minmax(72px, 0.9fr) minmax(0, 1.4fr);
+	gap: 6px 8px;
+	align-items: start;
+	margin-bottom: 8px;
+}
+.rz-attr-key-label {
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--rz-muted);
+	padding-top: 6px;
+	word-break: break-word;
+}
+.rz-attr-box-wrap {
+	position: relative;
+	min-width: 0;
+}
+.rz-attr-box {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 6px;
+	width: 100%;
+	min-height: 28px;
+	padding: 4px 8px;
+	border-radius: 4px;
+	border: 1px solid var(--rz-border);
+	background: var(--vscode-input-background);
+	color: var(--vscode-input-foreground);
+	font: inherit;
+	font-size: 11px;
+	text-align: left;
+	cursor: pointer;
+}
+.rz-attr-box:hover {
+	border-color: var(--vscode-focusBorder);
+}
+.rz-attr-box.is-active {
+	border-color: var(--vscode-focusBorder);
+	font-weight: 600;
+}
+.rz-attr-box-text {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.rz-attr-box-caret {
+	flex: 0 0 auto;
+	opacity: 0.65;
+	font-size: 10px;
+}
+.rz-attr-menu {
+	position: absolute;
+	left: 0;
+	right: 0;
+	top: calc(100% + 2px);
+	z-index: 40;
+	display: none;
+	flex-direction: column;
+	max-height: 200px;
+	overflow: auto;
+	padding: 4px 0;
+	border: 1px solid var(--rz-border);
+	border-radius: 4px;
+	background: var(--vscode-dropdown-background, var(--vscode-editor-background));
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
+}
+.rz-attr-menu.is-open {
+	display: flex;
+}
+.rz-attr-menu[hidden]:not(.is-open) {
+	display: none !important;
+}
+.rz-attr-menu-hint {
+	padding: 2px 10px 4px;
+	font-size: 10px;
+	color: var(--rz-muted);
+	user-select: none;
+}
+.rz-attr-opt {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	width: 100%;
+	margin: 0;
+	padding: 6px 10px;
+	border: none;
+	border-radius: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	font-size: 11px;
+	text-align: left;
+	cursor: pointer;
+}
+button.rz-attr-opt:hover,
+label.rz-attr-opt:hover {
+	background: var(--vscode-list-hoverBackground);
+}
+.rz-attr-opt.is-selected {
+	background: var(--vscode-list-activeSelectionBackground);
+	color: var(--vscode-list-activeSelectionForeground);
+}
+.rz-attr-opt-check input {
+	margin: 0;
+	accent-color: var(--vscode-focusBorder, #0078d4);
+}
+.rz-attr-extra {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	margin-top: 4px;
+	grid-column: 2;
+}
+.rz-attr-extra-dur {
+	display: grid;
+	grid-template-columns: 1fr auto;
+	gap: 4px;
+}
+.rz-attr-extra input[type='datetime-local'],
+.rz-attr-extra input[type='number'],
+.rz-attr-extra .rz-select {
+	width: 100%;
+	font-size: 11px;
+	padding: 4px 6px;
+	border-radius: 4px;
+	border: 1px solid var(--rz-border);
+	background: var(--vscode-input-background);
+	color: var(--vscode-input-foreground);
+	font: inherit;
+}
+.rz-attr-key .rz-attr-extra {
+	grid-column: 1 / -1;
+	margin-left: 0;
+}
 .pill-note {
 	display: inline-block;
 	margin-top: 12px;
@@ -703,3 +1298,5 @@ aside h3 {
 	color: var(--rz-muted);
 	border: 1px solid var(--rz-border);
 }
+
+.rz-group-section { margin: 0 0 8px; border: 1px solid var(--rz-border); border-radius: 8px; overflow: hidden; }

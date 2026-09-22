@@ -136,6 +136,16 @@ async function chooseTargetFolder(rootUri, noteInput) {
  * @param {{ useEmbeddings?: boolean, embeddingModelId?: string }} [options]
  */
 async function rankFolderCandidates(rootUri, noteInput, limit = 4, options = {}) {
+	if (options.useEmbeddings === true) {
+		const { rankFoldersFromIndex } = require('../retrieval/storageIndexRank');
+		const fromIndex = await rankFoldersFromIndex(rootUri, noteInput, limit, {
+			embeddingModelId: options.embeddingModelId
+		});
+		if (fromIndex && fromIndex.length) {
+			return fromIndex;
+		}
+	}
+
 	const headingText = `${noteInput.title}\n${noteInput.headings}\n${noteInput.content || ''}`;
 	const folders = await listImmediateFolderChildrenOfRoot(rootUri);
 

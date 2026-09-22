@@ -303,15 +303,24 @@ async function persistReconcileUpdate(kbRootUri, noteUri, text, fileId, mode, co
 	parsed.fileId = fileId;
 
 	const handle = await openDripIndexDb(kbRootUri);
+	/** @type {{ fileId: number, headingId: number }[]} */
+	const embeddingUpserts = [];
 	try {
 		handle.db.run('BEGIN');
 		if (mode === MODE_EXISTING) {
-			applyParsedNoteToIndex(handle.db, relPath, parsed, context, { incremental: true });
+			applyParsedNoteToIndex(handle.db, relPath, parsed, context, {
+				incremental: true,
+				embeddingUpserts
+			});
 		} else {
-			replaceParsedNoteAtFileId(handle.db, fileId, parsed, context);
+			replaceParsedNoteAtFileId(handle.db, fileId, parsed, context, { embeddingUpserts });
 		}
 		handle.db.run('COMMIT');
 		await handle.save();
+		const { enqueueHeadingEmbeddingUpserts } = require('../embeddings/headingEmbeddingSync');
+		enqueueHeadingEmbeddingUpserts(kbRootUri, embeddingUpserts);
+		const { enqueueFolderEmbeddingsForNotePath } = require('../embeddings/folderEmbeddingSync');
+		enqueueFolderEmbeddingsForNotePath(kbRootUri, relPath);
 	} catch (err) {
 		try {
 			handle.db.run('ROLLBACK');

@@ -1,4 +1,4 @@
--- DRIP index.drip — SQLite schema v10
+-- DRIP index.drip — SQLite schema v11
 -- Docs mirror only — runtime schema: src/indexing/dbSchema/dripIndexSchema.js (via dripIndexDb.js)
 -- Spec: cursor/new/features.txt (DB schema §4–7)
 --
@@ -10,13 +10,17 @@
 --   ref: [@f26 (optional topic), @f45, @f3]
 --
 -- index_meta defaults (seeded on init):
---   schema_version → "10"
+--   schema_version → "11"
 --   next_file_id   → "0"
 --   heading_alloc_<file_id> → per-file non-h0 id pool JSON, e.g. '{"next":4,"free":[2,3]}'
 --   workflow_alloc_<file_id>_<workflow_heading_id> → dense per-workflow task id pool (contiguous .t1…tN)
+--   embedding_model / embedding_dimensions / embedding_format_version / embedding_generation
+--   next_embedding_id → allocator for heading_embedding_records.embedding_id
 --
 -- Lookup tables store each type name once; headings/relations reference ids.
 -- Typed tables store hot keys; metadata_remaining_keys stores the rest (EAV).
+-- Heading vectors: heading_embedding_records + sqlite-vec virtual table heading_embedding_vectors
+--   (created at runtime via ensureHeadingEmbeddingStorage; not plain CREATE TABLE).
 
 PRAGMA foreign_keys = ON;
 
@@ -157,7 +161,7 @@ CREATE TABLE IF NOT EXISTS metadata_remaining_keys (
 	heading_id INTEGER NOT NULL,
 	metadata_type_id INTEGER NOT NULL,
 	key TEXT NOT NULL,
-	value TEXT,
+	value TEXT NOT NULL,
 	PRIMARY KEY (file_id, heading_id, metadata_type_id, key),
 	FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE,
 	FOREIGN KEY (metadata_type_id) REFERENCES metadata_types(metadata_type_id)
@@ -165,3 +169,45 @@ CREATE TABLE IF NOT EXISTS metadata_remaining_keys (
 
 CREATE INDEX IF NOT EXISTS idx_remaining_keys_heading ON metadata_remaining_keys(file_id, heading_id);
 CREATE INDEX IF NOT EXISTS idx_remaining_keys_type_key ON metadata_remaining_keys(metadata_type_id, key);
+CREATE INDEX IF NOT EXISTS idx_remaining_keys_lookup ON metadata_remaining_keys(metadata_type_id, key, value);
+
+-- Embedding id map (no content_hash / updated_at / model_id per row)
+CREATE TABLE IF NOT EXISTS heading_embedding_records (
+	embedding_id INTEGER PRIMARY KEY,
+	file_id INTEGER NOT NULL,
+	heading_id INTEGER NOT NULL,
+	UNIQUE (file_id, heading_id),
+	FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_heading_embedding_file ON heading_embedding_records(file_id);
+
+-- Runtime (sqlite-vec), dimensions from index_meta.embedding_dimensions (default 384):
+-- CREATE VIRTUAL TABLE heading_embedding_vectors USING vec0(
+--   embedding_id INTEGER PRIMARY KEY,
+--   embedding float[384]
+-- );
+--
+-- FAISS ANN sidecar (not SQLite; only when vectorCount > 1000 at KB lock):
+--   .dripindex/heading-embeddings.faiss
+--   .dripindex/heading-embeddings.faiss.json  (embeddingIds[] label → embedding_id)
+
+-- Folder embeddings (exact sqlite-vec only; same embedding_* model meta):
+CREATE TABLE IF NOT EXISTS folder_embedding_records (
+	embedding_id INTEGER PRIMARY KEY,
+	folder_path TEXT NOT NULL UNIQUE
+);
+CREATE INDEX IF NOT EXISTS idx_folder_embedding_path ON folder_embedding_records(folder_path);
+-- Runtime: CREATE VIRTUAL TABLE folder_embedding_vectors USING vec0(...);
+-- index_meta.next_folder_embedding_id
+
+-- Tag embeddings (exact sqlite-vec only; used by Retriever tag suggest — no FAISS):
+CREATE TABLE IF NOT EXISTS tag_embedding_records (
+	embedding_id INTEGER PRIMARY KEY,
+	tag_id INTEGER NOT NULL UNIQUE,
+	FOREIGN KEY (tag_id) REFERENCES tags(tag_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_tag_embedding_tag ON tag_embedding_records(tag_id);
+-- Runtime: CREATE VIRTUAL TABLE tag_embedding_vectors USING vec0(...);
+-- index_meta.next_tag_embedding_id
+

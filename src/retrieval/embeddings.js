@@ -1,23 +1,95 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+
 /** Default ONNX model (sentence embeddings, ~22M params). */
 const DEFAULT_MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
+
+/** Relative to the DRIP extension root (survives node_modules reinstalls). */
+const EMBEDDING_CACHE_REL = path.join('.cache', 'transformers');
 
 const MAX_CHARS = 6000;
 
 /** @type {Map<string, Promise<unknown>>} */
 const pipelineCache = new Map();
 
+/** @type {string | null} */
+let configuredCacheDir = null;
+
+/**
+ * Extension root: `…/extensions/drip` (or packaged VSIX extract dir).
+ * @param {string} [extensionPath] from `context.extensionPath` when available
+ * @returns {string}
+ */
+function resolveExtensionRoot(extensionPath) {
+	if (extensionPath && String(extensionPath).trim()) {
+		return path.resolve(String(extensionPath));
+	}
+	// src/retrieval → extension root
+	return path.resolve(__dirname, '..', '..');
+}
+
+/**
+ * Absolute path for Transformers.js / HF model weights (DRIP-local, not system HF home).
+ * @param {string} [extensionPath]
+ * @returns {string}
+ */
+function getEmbeddingModelCacheDir(extensionPath) {
+	return path.join(resolveExtensionRoot(extensionPath), EMBEDDING_CACHE_REL);
+}
+
+/**
+ * Point @xenova/transformers at `<extension>/.cache/transformers` so weights stay with DRIP.
+ * Safe to call more than once; call from activate before any encode.
+ * @param {string} [extensionPath]
+ * @returns {string} cache directory used
+ */
+function configureEmbeddingModelCache(extensionPath) {
+	const cacheDir = getEmbeddingModelCacheDir(extensionPath);
+	if (configuredCacheDir === cacheDir) {
+		return cacheDir;
+	}
+	try {
+		fs.mkdirSync(cacheDir, { recursive: true });
+	} catch (err) {
+		console.warn('[DRIP] could not create embedding cache dir', cacheDir, err && err.message);
+	}
+	// Also steer any HF tooling that reads process env (avoid user/system ~/.cache/huggingface).
+	process.env.TRANSFORMERS_CACHE = cacheDir;
+	process.env.HF_HOME = cacheDir;
+	configuredCacheDir = cacheDir;
+	console.log(`[DRIP] embedding model cache → ${cacheDir}`);
+	return cacheDir;
+}
+
+/**
+ * Apply cacheDir on the transformers env object (must run after dynamic import).
+ * @param {{ cacheDir?: string, useFSCache?: boolean }} env
+ */
+function applyTransformersEnvCache(env) {
+	const cacheDir = configuredCacheDir || configureEmbeddingModelCache();
+	if (env && typeof env === 'object') {
+		env.cacheDir = cacheDir;
+		if ('useFSCache' in env) {
+			env.useFSCache = true;
+		}
+	}
+	return cacheDir;
+}
+
 /**
  * @param {string} [modelId]
  */
 async function getEmbeddingPipeline(modelId = DEFAULT_MODEL_ID) {
+	configureEmbeddingModelCache();
 	if (!pipelineCache.has(modelId)) {
 		pipelineCache.set(
 			modelId,
 			(async () => {
-				const { pipeline } = await import('@xenova/transformers');
-				return pipeline('feature-extraction', modelId);
+				const transformers = await import('@xenova/transformers');
+				applyTransformersEnvCache(transformers.env);
+				return transformers.pipeline('feature-extraction', modelId);
 			})()
 		);
 	}
@@ -98,9 +170,11 @@ async function warmupEmbeddingModel(modelId) {
  */
 async function runEmbeddingBenchmark(log, modelId = DEFAULT_MODEL_ID) {
 	const lines = typeof log === 'function' ? log : () => {};
+	const cacheDir = configureEmbeddingModelCache();
 
 	lines(`Model: ${modelId}`);
-	lines('First load downloads ~90MB of ONNX weights to the Hugging Face cache (one-time per machine).');
+	lines(`Cache (DRIP extension-local): ${cacheDir}`);
+	lines('First load downloads ~90MB of ONNX weights into that folder (reused for this extension install).');
 	lines('');
 
 	const tLoad = Date.now();
@@ -156,10 +230,14 @@ async function rescorePoolWithEmbeddings(pool, queryText, opts = {}) {
 
 function resetEmbeddingPipelineForTests() {
 	pipelineCache.clear();
+	configuredCacheDir = null;
 }
 
 module.exports = {
 	DEFAULT_MODEL_ID,
+	EMBEDDING_CACHE_REL,
+	getEmbeddingModelCacheDir,
+	configureEmbeddingModelCache,
 	getEmbeddingPipeline,
 	warmupEmbeddingModel,
 	batchCosineScores,

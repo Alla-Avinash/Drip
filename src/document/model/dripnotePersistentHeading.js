@@ -31,6 +31,39 @@ function classifyPersistentHeadingTitle(title, settings) {
 	return { persistent: true, metadataType: null };
 }
 
+/**
+ * Strip leading metadata type junk from a heading title at **index ingest** only.
+ * File text keeps `# .c Title`; `headings.title` stores `Title` (type → metadata_type_id).
+ *
+ * Handles: `.c`, `.t4`, `.concept`, bare `. Title`, lone `.`.
+ *
+ * @param {string} title
+ * @returns {string}
+ */
+function stripHeadingTitleTypePrefix(title) {
+	let t = String(title || '')
+		.replace(/\s+/g, ' ')
+		.trim();
+	if (!t.startsWith('.')) {
+		return t;
+	}
+	if (t === '.') {
+		return '';
+	}
+	// Bare untyped: ". Title" or ".  Title"
+	if (/^\.\s+/.test(t)) {
+		return t.replace(/^\.\s+/, '').trim();
+	}
+	// Known-shaped marker/shortcut: ".c Title", ".t4 Title", ".concept Foo"
+	const m = t.match(/^\.([A-Za-z][A-Za-z0-9_-]*)(?:\s+|$)(.*)$/);
+	if (m) {
+		return String(m[2] || '').trim();
+	}
+	// Fallback: drop leading dot only
+	return t.replace(/^\./, '').trim();
+}
+
 module.exports = {
-	classifyPersistentHeadingTitle
+	classifyPersistentHeadingTitle,
+	stripHeadingTitleTypePrefix
 };

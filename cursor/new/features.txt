@@ -407,13 +407,15 @@ DB schema for the indexing of the
             heading_id INT NOT NULL,
             metadata_type_id INT NOT NULL,
             key TEXT NOT NULL,
-            value TEXT,
+            value TEXT NOT NULL,
             PRIMARY KEY (file_id, heading_id, metadata_type_id, key),
             FOREIGN KEY(file_id, heading_id) REFERENCES headings(file_id, heading_id),
             FOREIGN KEY(metadata_type_id) REFERENCES metadata_types(metadata_type_id)
         );
 
-        Types without a typed table (e.g. feature) store all keys in metadata_remaining_keys.
+        Only configured keys explicitly present with a valid, non-empty value are stored.
+        Missing/null keys never create EAV rows.
+        Types without a typed table (e.g. feature) store all such keys in metadata_remaining_keys.
 
         ISSUE METADATA
             for example the issue metadata has these fields in the drip settins for metadata type of "issue" 
@@ -441,15 +443,13 @@ DB schema for the indexing of the
             REFERENCES headings(file_id, heading_id)
         );
 
-        the below are also samples of how things can look.. and this schema is completely built from the metadata types from the drip settings..
-
         PROJECT METADATA
         CREATE TABLE project_metadata (
             file_id int NOT NULL,
             heading_id int NOT NULL,
 
-            progress INT,
-            owner enum,
+            status TEXT,
+            deadline INTEGER,
             PRIMARY KEY(file_id, heading_id),
 
             FOREIGN KEY(file_id, heading_id)
@@ -461,8 +461,7 @@ DB schema for the indexing of the
             file_id int NOT NULL,
             heading_id int NOT NULL,
 
-            difficulty enum,
-            domain enum,
+            status TEXT,
             PRIMARY KEY(file_id, heading_id),
 
             FOREIGN KEY(file_id, heading_id)

@@ -387,6 +387,9 @@ function registerDripnoteCustomDecorations(context) {
 }
 
 module.exports = {
-	registerDripnoteCustomDecorations
+	registerDripnoteCustomDecorations,
+	getMetadataColorSettings,
+	getRelationsKeywordColors,
+	getCustomColorMap
 };
 

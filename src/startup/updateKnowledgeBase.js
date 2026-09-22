@@ -27,6 +27,14 @@ async function updateKnowledgeBase(context, kbRootUri, options) {
 
 	const needsUpdate = force || (await dripIndexNeedsRebuild(kbRootUri));
 	if (!needsUpdate) {
+		const { repairHeadingEmbeddingsInBackground } = require('../indexing/embeddings/headingEmbeddingSync');
+		void repairHeadingEmbeddingsInBackground(kbRootUri).catch(err => {
+			console.error('[DRIP] heading embedding repair failed', err);
+		});
+		const { repairFolderEmbeddingsInBackground } = require('../indexing/embeddings/folderEmbeddingSync');
+		void repairFolderEmbeddingsInBackground(kbRootUri).catch(err => {
+			console.error('[DRIP] folder embedding repair failed', err);
+		});
 		if (!quiet) {
 			void vscode.window.showInformationMessage('DRIP knowledge base index is up to date.');
 		}
@@ -36,6 +44,22 @@ async function updateKnowledgeBase(context, kbRootUri, options) {
 	await normalizeAllNoteIdentities(kbRootUri, context);
 	await reconcileAllKbNoteHeadingIdentities(kbRootUri, context);
 	await rebuildDripIndex(kbRootUri, context);
+
+	// Background: encode any headings missing vectors (full rebuild clears embeddings).
+	const { repairHeadingEmbeddingsInBackground } = require('../indexing/embeddings/headingEmbeddingSync');
+	void repairHeadingEmbeddingsInBackground(kbRootUri).catch(err => {
+		console.error('[DRIP] heading embedding repair failed', err);
+	});
+	const { repairFolderEmbeddingsInBackground } = require('../indexing/embeddings/folderEmbeddingSync');
+	void repairFolderEmbeddingsInBackground(kbRootUri).catch(err => {
+		console.error('[DRIP] folder embedding repair failed', err);
+	});
+
+	// Re-lock search method after rebuild (vector count may have changed).
+	const { lockHeadingEmbeddingSearchMethod } = require('../indexing/embeddings/headingEmbeddingSearchMethod');
+	void lockHeadingEmbeddingSearchMethod(kbRootUri, { force: true }).catch(err => {
+		console.error('[DRIP] heading embedding search lock failed', err);
+	});
 
 	if (!quiet) {
 		void vscode.window.showInformationMessage('DRIP knowledge base index updated.');

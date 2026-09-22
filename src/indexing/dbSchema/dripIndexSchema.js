@@ -9,17 +9,24 @@
  *
  * Defaults (application-enforced; see `headings.metadata_type_id`):
  * - `headings.metadata_type_id` → SQL NULL when the note has no `.type` marker or an unknown type
- * - `index_meta.schema_version` → `10`
+ * - `index_meta.schema_version` → `11`
  * - `index_meta.next_file_id` → `0`
+ * - `index_meta.embedding_*` → model/dims/format/generation (see headingEmbeddingStore.js)
  *
  * Lookup tables (name stored once; rows reference ids):
  * - `metadata_types(metadata_type_id, metadata_type_name)`
  * - `relation_types(relation_type_id, relation_type_name)`
  *
  * Typed metadata (hot keys only) + `metadata_remaining_keys` EAV for the rest.
+ * Heading embeddings (v11): `heading_embedding_records` + sqlite-vec `heading_embedding_vectors`.
+ * Folder embeddings (v11 additive): `folder_embedding_records` + `folder_embedding_vectors` (exact only).
  */
 
-const SCHEMA_VERSION = 10;
+const { ensureHeadingEmbeddingStorage } = require('../embeddings/headingEmbeddingStore');
+const { ensureFolderEmbeddingStorage } = require('../embeddings/folderEmbeddingStore');
+const { ensureTagEmbeddingStorage } = require('../embeddings/tagEmbeddingStore');
+
+const SCHEMA_VERSION = 11;
 
 /** @type {string} */
 const SCHEMA_SQL = `
@@ -159,7 +166,7 @@ CREATE TABLE IF NOT EXISTS metadata_remaining_keys (
 	heading_id INTEGER NOT NULL,
 	metadata_type_id INTEGER NOT NULL,
 	key TEXT NOT NULL,
-	value TEXT,
+	value TEXT NOT NULL,
 	PRIMARY KEY (file_id, heading_id, metadata_type_id, key),
 	FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE,
 	FOREIGN KEY (metadata_type_id) REFERENCES metadata_types(metadata_type_id)
@@ -167,6 +174,18 @@ CREATE TABLE IF NOT EXISTS metadata_remaining_keys (
 
 CREATE INDEX IF NOT EXISTS idx_remaining_keys_heading ON metadata_remaining_keys(file_id, heading_id);
 CREATE INDEX IF NOT EXISTS idx_remaining_keys_type_key ON metadata_remaining_keys(metadata_type_id, key);
+CREATE INDEX IF NOT EXISTS idx_remaining_keys_lookup ON metadata_remaining_keys(metadata_type_id, key, value);
+
+-- Embedding id map (vectors live in sqlite-vec virtual table — see ensureHeadingEmbeddingStorage)
+CREATE TABLE IF NOT EXISTS heading_embedding_records (
+	embedding_id INTEGER PRIMARY KEY,
+	file_id INTEGER NOT NULL,
+	heading_id INTEGER NOT NULL,
+	UNIQUE (file_id, heading_id),
+	FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_heading_embedding_file ON heading_embedding_records(file_id);
 `;
 
 const TYPED_METADATA_TABLES = [
@@ -180,7 +199,7 @@ const TYPED_METADATA_TABLES = [
 const REMAINING_METADATA_TABLE = 'metadata_remaining_keys';
 
 /**
- * @param {import('sql.js').Database} db
+ * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  * @returns {number}
  */
 function getSchemaVersion(db) {
@@ -199,7 +218,7 @@ function getSchemaVersion(db) {
 }
 
 /**
- * @param {import('sql.js').Database} db
+ * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  * @param {string} table
  * @param {string} column
  */
@@ -210,7 +229,19 @@ function columnExists(db, table, column) {
 }
 
 /**
- * @param {import('sql.js').Database} db
+ * @param {import('../db/dripSqlite').DripSqliteDatabase} db
+ * @param {string} table
+ * @param {string} column
+ */
+function columnIsNotNull(db, table, column) {
+	const info = db.exec(`PRAGMA table_info(${table})`);
+	if (!info.length) return false;
+	const row = info[0].values.find(value => String(value[1] || '') === column);
+	return !!row && Number(row[3]) === 1;
+}
+
+/**
+ * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  * @param {string} table
  */
 function tableExists(db, table) {
@@ -221,7 +252,7 @@ function tableExists(db, table) {
 
 /**
  * Legacy v2 relations shape → v3 tag_id relations.
- * @param {import('sql.js').Database} db
+ * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  */
 function migrateLegacyRelationsTable(db) {
 	let recreateRelations = false;
@@ -262,7 +293,7 @@ function migrateLegacyRelationsTable(db) {
 
 /**
  * Untyped headings use SQL NULL (not a sentinel string).
- * @param {import('sql.js').Database} db
+ * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  */
 function migrateMetadataTypeNullable(db) {
 	if (!tableExists(db, 'headings')) {
@@ -282,7 +313,7 @@ function migrateMetadataTypeNullable(db) {
 
 /**
  * Persistent headings no longer store document hierarchy in index.drip.
- * @param {import('sql.js').Database} db
+ * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  */
 function migrateHeadingsWithoutHierarchy(db) {
 	if (!tableExists(db, 'headings') || !columnExists(db, 'headings', 'parent_id')) {
@@ -313,7 +344,7 @@ function migrateHeadingsWithoutHierarchy(db) {
 
 /**
  * Drop `target_heading_id` from heading_references (refs are file-level `@fN` only).
- * @param {import('sql.js').Database} db
+ * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  */
 function migrateHeadingReferencesFileOnly(db) {
 	const info = db.exec(`PRAGMA table_info(heading_references)`);
@@ -346,7 +377,7 @@ function migrateHeadingReferencesFileOnly(db) {
 /**
  * v9: metadata_types / relation_types lookup tables; headings + relations store ids not text.
  * Idempotent: skips when columns already use *_id.
- * @param {import('sql.js').Database} db
+ * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  */
 function migrateMetadataAndRelationTypeIds(db) {
 	db.exec(`
@@ -496,7 +527,7 @@ function migrateMetadataAndRelationTypeIds(db) {
 /**
  * v10: five typed metadata tables + metadata_remaining_keys EAV.
  * Best-effort copy from v9 shapes; rebuild index if old rows look incomplete.
- * @param {import('sql.js').Database} db
+ * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  */
 function migrateTypedMetadataV10(db) {
 	db.exec(`
@@ -505,14 +536,46 @@ function migrateTypedMetadataV10(db) {
 			heading_id INTEGER NOT NULL,
 			metadata_type_id INTEGER NOT NULL,
 			key TEXT NOT NULL,
-			value TEXT,
+			value TEXT NOT NULL,
 			PRIMARY KEY (file_id, heading_id, metadata_type_id, key),
 			FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE,
 			FOREIGN KEY (metadata_type_id) REFERENCES metadata_types(metadata_type_id)
 		);
 		CREATE INDEX IF NOT EXISTS idx_remaining_keys_heading ON metadata_remaining_keys(file_id, heading_id);
 		CREATE INDEX IF NOT EXISTS idx_remaining_keys_type_key ON metadata_remaining_keys(metadata_type_id, key);
+		CREATE INDEX IF NOT EXISTS idx_remaining_keys_lookup ON metadata_remaining_keys(metadata_type_id, key, value);
 	`);
+
+	if (!columnIsNotNull(db, 'metadata_remaining_keys', 'value')) {
+		db.exec(`
+			PRAGMA foreign_keys = OFF;
+			DROP TABLE IF EXISTS metadata_remaining_keys_v10;
+			CREATE TABLE metadata_remaining_keys_v10 (
+				file_id INTEGER NOT NULL,
+				heading_id INTEGER NOT NULL,
+				metadata_type_id INTEGER NOT NULL,
+				key TEXT NOT NULL,
+				value TEXT NOT NULL,
+				PRIMARY KEY (file_id, heading_id, metadata_type_id, key),
+				FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE,
+				FOREIGN KEY (metadata_type_id) REFERENCES metadata_types(metadata_type_id)
+			);
+			INSERT OR IGNORE INTO metadata_remaining_keys_v10
+				(file_id, heading_id, metadata_type_id, key, value)
+				SELECT file_id, heading_id, metadata_type_id, key, value
+				FROM metadata_remaining_keys
+				WHERE value IS NOT NULL AND TRIM(value) != '';
+			DROP TABLE metadata_remaining_keys;
+			ALTER TABLE metadata_remaining_keys_v10 RENAME TO metadata_remaining_keys;
+			CREATE INDEX IF NOT EXISTS idx_remaining_keys_heading
+				ON metadata_remaining_keys(file_id, heading_id);
+			CREATE INDEX IF NOT EXISTS idx_remaining_keys_type_key
+				ON metadata_remaining_keys(metadata_type_id, key);
+			CREATE INDEX IF NOT EXISTS idx_remaining_keys_lookup
+				ON metadata_remaining_keys(metadata_type_id, key, value);
+			PRAGMA foreign_keys = ON;
+		`);
+	}
 
 	const conceptNeeds =
 		tableExists(db, 'concept_metadata') && columnExists(db, 'concept_metadata', 'difficulty');
@@ -674,7 +737,7 @@ function migrateTypedMetadataV10(db) {
 }
 
 /**
- * @param {import('sql.js').Database} db
+ * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  */
 function migrateSchemaIfNeeded(db) {
 	migrateLegacyRelationsTable(db);
@@ -704,7 +767,14 @@ function migrateSchemaIfNeeded(db) {
 		migrateTypedMetadataV10(db);
 	}
 
+	if (version < 11) {
+		// Records table comes from SCHEMA_SQL; vec0 + meta via ensureHeadingEmbeddingStorage.
+	}
+
 	db.exec(SCHEMA_SQL);
+	ensureHeadingEmbeddingStorage(db);
+	ensureFolderEmbeddingStorage(db);
+	ensureTagEmbeddingStorage(db);
 
 	db.run(`INSERT OR REPLACE INTO index_meta(key, value) VALUES ('schema_version', ?)`, [
 		String(SCHEMA_VERSION)
@@ -712,7 +782,7 @@ function migrateSchemaIfNeeded(db) {
 }
 
 /**
- * @param {import('sql.js').Database} db
+ * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  */
 function seedInitialIndexMeta(db) {
 	db.run(`INSERT OR IGNORE INTO index_meta(key, value) VALUES ('next_file_id', '0')`);
@@ -723,16 +793,31 @@ function seedInitialIndexMeta(db) {
 
 /**
  * Create or upgrade `index.drip` to {@link SCHEMA_VERSION}.
- * @param {import('sql.js').Database} db
+ * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  */
 function ensureDripIndexSchema(db) {
-	db.exec(SCHEMA_SQL);
+	const hasExistingSchema = tableExists(db, 'index_meta');
+	if (!hasExistingSchema) {
+		db.exec(SCHEMA_SQL);
+		seedInitialIndexMeta(db);
+		ensureHeadingEmbeddingStorage(db);
+		ensureFolderEmbeddingStorage(db);
+		ensureTagEmbeddingStorage(db);
+		return;
+	}
+
+	// Existing databases must migrate before SCHEMA_SQL creates indexes that
+	// reference v10 columns (metadata_type_id / relation_type_id).
 	migrateSchemaIfNeeded(db);
 	// Idempotent repairs for DBs that already report a version but still have old columns.
 	migrateHeadingReferencesFileOnly(db);
 	migrateMetadataAndRelationTypeIds(db);
 	migrateTypedMetadataV10(db);
+	db.exec(SCHEMA_SQL);
 	seedInitialIndexMeta(db);
+	ensureHeadingEmbeddingStorage(db);
+	ensureFolderEmbeddingStorage(db);
+	ensureTagEmbeddingStorage(db);
 }
 
 module.exports = {

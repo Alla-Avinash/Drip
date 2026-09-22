@@ -8,6 +8,7 @@ const {
 	applyParsedNoteToIndex,
 	collectKnownTagNamesLower
 } = require('../dripIndexDb');
+const { enqueueHeadingEmbeddingUpserts } = require('../embeddings/headingEmbeddingSync');
 const { computeIndexPersistenceSignature } = require('./dripnoteDocumentWatch');
 const { forEachKnowledgeBaseNote } = require('../../document/kbNoteOps');
 const { fileNameMatchesKbNote } = require('../../document/model/noteFileTypes');
@@ -161,13 +162,21 @@ async function updateNoteInDripIndex(kbRootUri, noteUri, context, options) {
 	}
 
 	const handle = await openDripIndexDb(kbRootUri);
+	/** @type {{ fileId: number, headingId: number }[]} */
+	const embeddingUpserts = [];
 	try {
 		handle.db.run('BEGIN');
 		const fileId = applyParsedNoteToIndex(handle.db, relPath, parsed, context, {
-			incremental: !options?.force
+			incremental: !options?.force,
+			embeddingUpserts
 		});
 		handle.db.run('COMMIT');
 		await handle.save();
+		enqueueHeadingEmbeddingUpserts(kbRootUri, embeddingUpserts);
+		if (relPath) {
+			const { enqueueFolderEmbeddingsForNotePath } = require('../embeddings/folderEmbeddingSync');
+			enqueueFolderEmbeddingsForNotePath(kbRootUri, relPath);
+		}
 		return { updated: true, signature, fileId, parsed };
 	} catch (err) {
 		try {

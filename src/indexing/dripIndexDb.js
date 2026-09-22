@@ -2,7 +2,6 @@
 
 const path = require('path');
 const vscode = require('vscode');
-const initSqlJs = require('sql.js');
 const { INDEX_FILE, getDripIndexRootUri } = require('../startup/initializeDripIndex');
 const {
 	SCHEMA_VERSION,
@@ -10,15 +9,22 @@ const {
 	REMAINING_METADATA_TABLE,
 	ensureDripIndexSchema
 } = require('./dbSchema/dripIndexSchema');
+const { openDripSqlite } = require('./db/dripSqlite');
+const {
+	deleteFileEmbeddings,
+	deleteHeadingEmbedding,
+	clearAllHeadingEmbeddings
+} = require('./embeddings/headingEmbeddingStore');
+const {
+	planHeadingEmbeddingRewrite,
+	collectAllHeadingEmbeddingTargets
+} = require('./embeddings/headingEmbeddingSync');
 const { forEachKnowledgeBaseNote } = require('../document/kbNoteOps');
 const { parseNoteForIndex, splitHeaderAndBody, parseFileIdFromHeader } = require('./dripIndexParse');
 const { formatFileEntityId } = require('./dripnoteEntityIds');
 const { findDirtyHeadingIdsByHash } = require('./sync/dripnoteDocumentWatch');
 const { normalizeMetadataTypeForIndex } = require('./parse/dripIndexMetadataType');
 const tagGraphStore = require('../graph/tagGraphStore');
-
-/** @type {Promise<import('sql.js').SqlJsStatic> | null} */
-let sqlJsPromise = null;
 
 /** Serialize file-id allocation per KB so concurrent creates cannot both read the same counter. */
 /** @type {Map<string, Promise<unknown>>} */
@@ -44,22 +50,8 @@ function withFileIdAllocationLock(kbRootUri, fn) {
 	return run;
 }
 
-function getExtensionRootDir() {
-	return path.join(__dirname, '..', '..');
-}
-
-async function loadSqlJs() {
-	if (!sqlJsPromise) {
-		const extRoot = getExtensionRootDir();
-		sqlJsPromise = initSqlJs({
-			locateFile: file => path.join(extRoot, 'node_modules', 'sql.js', 'dist', file)
-		});
-	}
-	return sqlJsPromise;
-}
-
 /**
- * @param {import('sql.js').Database} db
+ * @param {import('./db/dripSqlite').DripSqliteDatabase} db
  */
 function ensureSchema(db) {
 	ensureDripIndexSchema(db);
@@ -67,16 +59,15 @@ function ensureSchema(db) {
 
 /**
  * Remove all heading-scoped rows for a file (typed metadata + tags + refs).
- * @param {import('sql.js').Database} db
+ * @param {import('./db/dripSqlite').DripSqliteDatabase} db
  * @param {number} fileId
  */
 function deleteFileHeadingScopedRows(db, fileId) {
+	deleteFileEmbeddings(db, fileId);
 	db.run('DELETE FROM searchtags WHERE file_id = ?', [fileId]);
 	db.run('DELETE FROM relations WHERE from_file_id = ?', [fileId]);
-	db.run('DELETE FROM heading_references WHERE source_file_id = ? OR target_file_id = ?', [
-		fileId,
-		fileId
-	]);
+	// Keep references from other files to this file during a reindex/update.
+	db.run('DELETE FROM heading_references WHERE source_file_id = ?', [fileId]);
 	for (const table of TYPED_METADATA_TABLES) {
 		db.run(`DELETE FROM ${table} WHERE file_id = ?`, [fileId]);
 	}
@@ -86,11 +77,15 @@ function deleteFileHeadingScopedRows(db, fileId) {
 
 /**
  * Remove one heading's scoped rows (incremental update).
- * @param {import('sql.js').Database} db
+ * @param {import('./db/dripSqlite').DripSqliteDatabase} db
  * @param {number} fileId
  * @param {number} headingId
+ * @param {{ keepEmbedding?: boolean }} [options] — when true, leave sqlite-vec row (title/tags unchanged)
  */
-function deleteHeadingScopedRows(db, fileId, headingId) {
+function deleteHeadingScopedRows(db, fileId, headingId, options) {
+	if (!(options && options.keepEmbedding)) {
+		deleteHeadingEmbedding(db, fileId, headingId);
+	}
 	db.run('DELETE FROM searchtags WHERE file_id = ? AND heading_id = ?', [fileId, headingId]);
 	db.run('DELETE FROM relations WHERE from_file_id = ? AND from_heading_id = ?', [
 		fileId,
@@ -111,7 +106,7 @@ function deleteHeadingScopedRows(db, fileId, headingId) {
 }
 
 /**
- * @param {import('sql.js').Database} db
+ * @param {import('./db/dripSqlite').DripSqliteDatabase} db
  * @param {string} sql
  * @param {unknown[]} params
  * @returns {unknown[] | undefined}
@@ -144,7 +139,7 @@ function normalizeRelPath(kbRootFsPath, noteFsPath) {
 }
 
 /**
- * @param {import('sql.js').Database} db
+ * @param {import('./db/dripSqlite').DripSqliteDatabase} db
  * @param {number} sourceFileId
  * @param {{ source_heading_id: number, target_file_id: number }[]} references
  */
@@ -188,7 +183,7 @@ function collectKnownTagNamesLower(context) {
 /**
  * Sync `tags` table from tag graph node labels. Returns lowercase name → tag_id map.
  *
- * @param {import('sql.js').Database} db
+ * @param {import('./db/dripSqlite').DripSqliteDatabase} db
  * @param {import('vscode').ExtensionContext | null | undefined} context
  * @param {{ replaceAll?: boolean }} [options]
  * @returns {Map<string, number>}
@@ -239,7 +234,7 @@ function syncTagsTableFromGraph(db, context, options) {
 
 /**
  * Load or create a row in a (id, name) lookup table. Names are stored lowercased.
- * @param {import('sql.js').Database} db
+ * @param {import('./db/dripSqlite').DripSqliteDatabase} db
  * @param {'metadata_types' | 'relation_types'} table
  * @param {string} idColumn
  * @param {string} nameColumn
@@ -273,7 +268,7 @@ function ensureLookupTypeId(db, table, idColumn, nameColumn, rawName, idByLower)
 }
 
 /**
- * @param {import('sql.js').Database} db
+ * @param {import('./db/dripSqlite').DripSqliteDatabase} db
  * @returns {{ metadataTypeIdByLower: Map<string, number>, relationTypeIdByLower: Map<string, number> }}
  */
 function loadTypeLookupMaps(db) {
@@ -297,7 +292,7 @@ function loadTypeLookupMaps(db) {
 }
 
 /**
- * @param {import('sql.js').Database} db
+ * @param {import('./db/dripSqlite').DripSqliteDatabase} db
  * @param {number} fileId
  * @param {{ heading_id: number, table: string | null, fields: Record<string, string | number | null>, remaining?: { key: string, value: string | null }[], metadata_type?: string }[]} typedMetadata
  * @param {Map<string, number>} metadataTypeIdByLower
@@ -416,7 +411,7 @@ function filterParsedByHeadingIds(parsed, headingIds) {
 }
 
 /**
- * @param {import('sql.js').Database} db
+ * @param {import('./db/dripSqlite').DripSqliteDatabase} db
  * @param {number} sourceFileId
  * @param {{ searchtags?: { source_heading_id: number, tag_name: string }[], relations?: object[] }} parsed
  * @param {Map<string, number>} tagIdByLower
@@ -460,7 +455,7 @@ function insertSearchTagsAndRelations(db, sourceFileId, parsed, tagIdByLower, re
 }
 
 /**
- * @param {import('sql.js').Database} db
+ * @param {import('./db/dripSqlite').DripSqliteDatabase} db
  * @param {number} fileId
  * @param {{ headings: object[], references: object[], searchtags?: object[], relations?: object[] }} parsed
  * @param {Map<string, number>} tagIdByLower
@@ -511,30 +506,19 @@ function insertParsedHeadingsAndReferences(
  * @param {import('vscode').Uri} kbRootUri
  */
 async function openDripIndexDb(kbRootUri) {
-	const SQL = await loadSqlJs();
 	const indexUri = getIndexDbUri(kbRootUri);
-
-	/** @type {import('sql.js').Database} */
-	let db;
-	try {
-		const buf = await vscode.workspace.fs.readFile(indexUri);
-		if (buf && buf.length > 0) {
-			db = new SQL.Database(new Uint8Array(buf));
-		} else {
-			db = new SQL.Database();
-		}
-	} catch {
-		db = new SQL.Database();
-	}
-
+	const db = openDripSqlite(indexUri.fsPath);
 	ensureSchema(db);
 
 	return {
 		db,
 		indexUri,
+		/**
+		 * File-backed DB writes immediately; keep save() for call-site compatibility
+		 * (callers still close after save).
+		 */
 		async save() {
-			const data = db.export();
-			await vscode.workspace.fs.writeFile(indexUri, Buffer.from(data));
+			// no-op: better-sqlite3 persists on each write
 		},
 		close() {
 			db.close();
@@ -636,7 +620,7 @@ async function allocateNextFileEntityNumber(kbRootUri) {
 
 /**
  * Keep `next_file_id` ahead of any id that was just written into `files`.
- * @param {import('sql.js').Database} db
+ * @param {import('./db/dripSqlite').DripSqliteDatabase} db
  * @param {number} usedFileId
  */
 function bumpNextFileIdCounter(db, usedFileId) {
@@ -975,6 +959,17 @@ async function rebuildDripIndex(kbRootUri, context) {
 
 	try {
 		handle.db.run('BEGIN');
+		clearAllHeadingEmbeddings(handle.db);
+		try {
+			require('./embeddings/folderEmbeddingStore').clearAllFolderEmbeddings(handle.db);
+		} catch (err) {
+			console.warn('[DRIP] folder embedding clear on rebuild failed', err && err.message);
+		}
+		try {
+			require('./embeddings/headingEmbeddingFaiss').deleteFaissArtifacts(kbRootUri);
+		} catch (err) {
+			console.warn('[DRIP] FAISS cleanup on rebuild failed', err && err.message);
+		}
 		handle.db.run('DELETE FROM searchtags');
 		handle.db.run('DELETE FROM relations');
 		handle.db.run('DELETE FROM heading_references');
@@ -1066,16 +1061,18 @@ async function rebuildDripIndex(kbRootUri, context) {
 
 /**
  * Write parsed note rows into an open transaction (caller owns BEGIN/COMMIT).
- * @param {import('sql.js').Database} db
+ * @param {import('./db/dripSqlite').DripSqliteDatabase} db
  * @param {string} relPath
  * @param {ReturnType<typeof parseNoteForIndex>} parsed
  * @param {import('vscode').ExtensionContext | null | undefined} [context]
- * @param {{ incremental?: boolean }} [options]
+ * @param {{ incremental?: boolean, embeddingUpserts?: { fileId: number, headingId: number }[] }} [options]
  * @returns {number} resolved file id
  */
 function applyParsedNoteToIndex(db, relPath, parsed, context, options) {
 	const normalizedPath = String(relPath || '').replace(/\\/g, '/');
 	const incremental = !(options && options.incremental === false);
+	const embeddingUpserts =
+		options && Array.isArray(options.embeddingUpserts) ? options.embeddingUpserts : null;
 	const tagIdByLower = syncTagsTableFromGraph(db, context);
 	const { metadataTypeIdByLower, relationTypeIdByLower } = loadTypeLookupMaps(db);
 
@@ -1089,12 +1086,29 @@ function applyParsedNoteToIndex(db, relPath, parsed, context, options) {
 			fileId
 		]);
 
-		if (incremental) {
-			const dirtyIds = findDirtyHeadingIdsByHash(db, fileId, parsed.headings || []);
+		if (incremental && parsed._parseMode === 'incremental-subtree') {
+			const dirtyIds = Array.isArray(parsed._dirtyHeadingIds)
+				? [...new Set(parsed._dirtyHeadingIds.map(Number).filter(Number.isFinite))]
+				: findDirtyHeadingIdsByHash(db, fileId, parsed.headings || []);
 			if (dirtyIds.length) {
 				const dirtySet = new Set(dirtyIds);
+				/** @type {Set<number>} */
+				const upsertSet = new Set();
 				for (const headingId of dirtyIds) {
-					deleteHeadingScopedRows(db, fileId, headingId);
+					const stillPresent = (parsed.headings || []).some(
+						h => Number(h.heading_id) === Number(headingId)
+					);
+					if (!stillPresent) {
+						deleteHeadingScopedRows(db, fileId, headingId);
+						continue;
+					}
+					const plan = planHeadingEmbeddingRewrite(db, fileId, headingId, parsed);
+					if (plan.needUpsert) {
+						upsertSet.add(headingId);
+					}
+					deleteHeadingScopedRows(db, fileId, headingId, {
+						keepEmbedding: plan.keepEmbedding
+					});
 				}
 				const slice = filterParsedByHeadingIds(parsed, dirtySet);
 				insertParsedHeadingsAndReferences(
@@ -1105,8 +1119,15 @@ function applyParsedNoteToIndex(db, relPath, parsed, context, options) {
 					metadataTypeIdByLower,
 					relationTypeIdByLower
 				);
+				if (embeddingUpserts) {
+					for (const headingId of upsertSet) {
+						embeddingUpserts.push({ fileId, headingId });
+					}
+				}
 			}
 		} else {
+			// A full parse (including reconcile-update) replaces this file's derived rows.
+			// This guarantees metadata-only changes cannot be hidden by a stale identity hash.
 			deleteFileHeadingScopedRows(db, fileId);
 			insertParsedHeadingsAndReferences(
 				db,
@@ -1116,6 +1137,9 @@ function applyParsedNoteToIndex(db, relPath, parsed, context, options) {
 				metadataTypeIdByLower,
 				relationTypeIdByLower
 			);
+			if (embeddingUpserts) {
+				embeddingUpserts.push(...collectAllHeadingEmbeddingTargets(fileId, parsed));
+			}
 		}
 	} else {
 		if (fileId == null || !Number.isFinite(fileId) || fileId < 0) {
@@ -1148,6 +1172,9 @@ function applyParsedNoteToIndex(db, relPath, parsed, context, options) {
 			metadataTypeIdByLower,
 			relationTypeIdByLower
 		);
+		if (embeddingUpserts) {
+			embeddingUpserts.push(...collectAllHeadingEmbeddingTargets(fileId, parsed));
+		}
 	}
 
 	bumpNextFileIdCounter(db, fileId);
@@ -1169,6 +1196,7 @@ async function removeFileFromDripIndex(kbRootUri, relPath) {
 		const fileId = Number(row[0]);
 		handle.db.run('BEGIN');
 		deleteFileHeadingScopedRows(handle.db, fileId);
+		handle.db.run('DELETE FROM heading_references WHERE target_file_id = ?', [fileId]);
 		handle.db.run('DELETE FROM files WHERE id = ?', [fileId]);
 		handle.db.run('COMMIT');
 		await handle.save();
@@ -1215,15 +1243,18 @@ async function lookupFileRowById(kbRootUri, fileId) {
  * Bind `fileId` to this parsed note path and replace all heading-scoped rows.
  * Used by unwired `reconcileUpdate` (reclaim / first insert / new id).
  *
- * @param {import('sql.js').Database} db
+ * @param {import('./db/dripSqlite').DripSqliteDatabase} db
  * @param {number} fileId
  * @param {ReturnType<typeof parseNoteForIndex>} parsed
  * @param {import('vscode').ExtensionContext | null | undefined} [context]
+ * @param {{ embeddingUpserts?: { fileId: number, headingId: number }[] }} [options]
  * @returns {number}
  */
-function replaceParsedNoteAtFileId(db, fileId, parsed, context) {
+function replaceParsedNoteAtFileId(db, fileId, parsed, context, options) {
 	const id = Math.floor(Number(fileId));
 	const normalizedPath = String((parsed && parsed.file && parsed.file.path) || '').replace(/\\/g, '/');
+	const embeddingUpserts =
+		options && Array.isArray(options.embeddingUpserts) ? options.embeddingUpserts : null;
 	const tagIdByLower = syncTagsTableFromGraph(db, context);
 	const { metadataTypeIdByLower, relationTypeIdByLower } = loadTypeLookupMaps(db);
 
@@ -1232,6 +1263,7 @@ function replaceParsedNoteAtFileId(db, fileId, parsed, context) {
 		const ownerId = Number(pathOwner[0]);
 		if (Number.isFinite(ownerId) && ownerId !== id) {
 			deleteFileHeadingScopedRows(db, ownerId);
+			db.run('DELETE FROM heading_references WHERE target_file_id = ?', [ownerId]);
 			db.run('DELETE FROM files WHERE id = ?', [ownerId]);
 		}
 	}
@@ -1266,6 +1298,9 @@ function replaceParsedNoteAtFileId(db, fileId, parsed, context) {
 		metadataTypeIdByLower,
 		relationTypeIdByLower
 	);
+	if (embeddingUpserts) {
+		embeddingUpserts.push(...collectAllHeadingEmbeddingTargets(id, parsed));
+	}
 	bumpNextFileIdCounter(db, id);
 	return id;
 }
@@ -1293,6 +1328,12 @@ async function resetDripIndexDatabase(kbRootUri) {
 		await vscode.workspace.fs.delete(indexUri, { useTrash: false });
 	} catch {
 		// missing is fine
+	}
+	try {
+		const { clearHeadingEmbeddingSearchLock } = require('./embeddings/headingEmbeddingSearchMethod');
+		clearHeadingEmbeddingSearchLock(kbRootUri);
+	} catch {
+		/* optional */
 	}
 	await initEmptyDripIndexFile(kbRootUri);
 }

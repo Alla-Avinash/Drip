@@ -209,7 +209,7 @@ function shouldPersistIndexUpdate(previous, next) {
  * Compare parsed heading hashes with rows already in index.drip.
  * Returns heading ids whose hash differs or are new/missing in DB.
  *
- * @param {import('sql.js').Database} db
+ * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  * @param {number} fileId
  * @param {{ heading_id: number, hash: string }[]} parsedHeadings
  * @returns {number[]}

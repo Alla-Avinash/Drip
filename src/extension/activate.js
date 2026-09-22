@@ -107,6 +107,9 @@ async function postDripSettingsValuesToWebview(webview, dripState) {
 }
 
 async function activate(context) {
+	const { configureEmbeddingModelCache } = require('../retrieval/embeddings');
+	configureEmbeddingModelCache(context.extensionPath);
+
 	await initializeMultiGraphStorage(context);
 	registerDripnoteTagCompletion(context);
 	registerDripnoteSemanticTokens(context);
@@ -271,6 +274,36 @@ async function activate(context) {
 					case 'updateSetting':
 						{
 							const kbRoot = state.getKnowledgeBaseRoot();
+							if (message.key === 'embeddingModel') {
+								const {
+									confirmAndApplyEmbeddingModelChange
+								} = require('../indexing/embeddings/embeddingModelChange');
+								const previous = vscode.workspace
+									.getConfiguration('drip')
+									.get('embeddingModel', 'Xenova/all-MiniLM-L6-v2');
+								const result = await confirmAndApplyEmbeddingModelChange(
+									kbRoot,
+									message.value,
+									{
+										previousModelId: previous,
+										persistSetting: async model => {
+											const target = kbRoot
+												? vscode.ConfigurationTarget.Workspace
+												: vscode.ConfigurationTarget.Global;
+											await vscode.workspace
+												.getConfiguration('drip')
+												.update('embeddingModel', model, target);
+											if (kbRoot) {
+												await saveSettingsToDripIndex(kbRoot);
+											}
+										}
+									}
+								);
+								if (result.cancelled) {
+									await postDripSettingsValuesToWebview(webview, state);
+								}
+								break;
+							}
 							const target = kbRoot
 								? vscode.ConfigurationTarget.Workspace
 								: vscode.ConfigurationTarget.Global;
@@ -570,6 +603,19 @@ async function activate(context) {
 					e.affectsConfiguration('drip.dripnoteCustomTypeMarkers');
 				if (retrieverStale) {
 					scheduleRetrieverCatalogRebuildIfShown();
+				}
+				if (e.affectsConfiguration('drip.embeddingModel')) {
+					const {
+						reconcileEmbeddingModelSettingWithIndex,
+						isEmbeddingModelConfigWatchSuppressed
+					} = require('../indexing/embeddings/embeddingModelChange');
+					if (!isEmbeddingModelConfigWatchSuppressed()) {
+						void reconcileEmbeddingModelSettingWithIndex(state.getKnowledgeBaseRoot()).catch(
+							err => {
+								console.error('[DRIP] embedding model reconcile failed', err);
+							}
+						);
+					}
 				}
 			}
 		})

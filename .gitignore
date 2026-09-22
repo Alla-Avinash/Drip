@@ -2,7 +2,11 @@
 # deps / build
 node_modules/
 
+# Transformers.js / ONNX embedding weights (extension-local HF cache)
+.cache/
 
+# Benchmark JSON outputs (keep folder via .gitkeep)
+benchmarks/results/*.json
 
 # local scratch (keep project-specific)
 temp-data/

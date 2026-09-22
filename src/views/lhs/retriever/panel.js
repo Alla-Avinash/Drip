@@ -1,15 +1,13 @@
 'use strict';
 
+const fs = require('fs');
 const path = require('path');
 const vscode = require('vscode');
 const { DRIP_RETRIEVER_PANEL_ID } = require('../../../shared/constants');
 const { getNonce } = require('../../../shared/utils');
 const {
-	buildRetrieverIndex,
 	buildRetrieverCatalogShell,
-	queryRetrieverCatalog,
-	isIndexerNotePath,
-	peekRetrieverSuggestions
+	isIndexerNotePath
 } = require('../../../retrieval/dripnoteRetrieverQuery');
 const { readTextFile } = require('../../../indexing/kbFilesystem');
 const { extractFileIdFromHeader } = require('../../../graph/dripnoteReferenceSync');
@@ -30,20 +28,6 @@ function retrieverLiveKbRootKey(state) {
 			: { uri: state?.getKnowledgeBaseRoot?.() };
 	const u = rk && rk.uri;
 	return u && u.fsPath ? u.fsPath.replace(/\\/g, '/').toLowerCase() : '';
-}
-
-/**
- * Full heading scan is deferred until the search box has text or the client pages results (`offset` > 0).
- * Type/tag/scope UI does not trigger scanning by itself.
- * @param {unknown} payload
- */
-function retrieverPayloadRequiresHeadingScan(payload) {
-	const p = payload && typeof payload === 'object' ? payload : {};
-	const q = typeof p.q === 'string' ? p.q.trim() : '';
-	if (q.length > 0) return true;
-	const off = Number(p.offset);
-	if (Number.isFinite(off) && off > 0) return true;
-	return false;
 }
 
 /** Close the secondary (right) side bar where Chat often lives — best-effort, command may be absent. */
@@ -85,18 +69,48 @@ function getRetrieverPanelHtml(webview, extensionUri) {
 		</header>
 		<div class="rz-scope-strip" aria-label="Retrieval scope">
 			<span class="rz-scope-strip-label">Scope</span>
-			<div class="rz-scope-checks" role="group" aria-label="Files and headings">
-				<label class="rz-scope-check-label"><input type="checkbox" id="rz-scope-files" checked /> Files</label>
-				<label class="rz-scope-check-label"><input type="checkbox" id="rz-scope-headings" checked /> Headings</label>
+			<div class="rz-scope-checks" role="radiogroup" aria-label="Search files or headings">
+				<label class="rz-scope-check-label"><input type="radio" name="rz-scope" id="rz-scope-headings" value="headings" checked /> Headings</label>
+				<label class="rz-scope-check-label"><input type="radio" name="rz-scope" id="rz-scope-files" value="files" /> Files</label>
+			</div>
+			<div class="aside-field rz-corpus-field" style="margin:0 0 0 12px;max-width:260px;">
+				<label for="rz-corpus">Corpus</label>
+				<div class="rz-corpus-row">
+					<select id="rz-corpus" class="rz-select" aria-label="Search corpus">
+						<option value="working" selected>Working set (.dripignore)</option>
+						<option value="entire">Entire KB</option>
+						<option value="custom">Custom paths…</option>
+					</select>
+					<button type="button" class="rz-btn secondary rz-corpus-edit-btn hidden" id="rz-corpus-edit" title="Change custom paths">Edit</button>
+				</div>
+			</div>
+		</div>
+		<div id="rz-custom-corpus" class="rz-custom-corpus hidden" hidden>
+			<div class="rz-custom-corpus-inner">
+				<h2 class="rz-custom-corpus-title">Custom paths</h2>
+				<p class="rz-custom-corpus-sub">Drop or add files/folders from inside the .driplock knowledge base only. Paths outside the KB are rejected. Not saved after this session.</p>
+				<div id="rz-custom-drop" class="rz-custom-drop" tabindex="0" role="button" aria-label="Drop files or folders here">
+					<span class="rz-custom-drop-label">Drag &amp; drop files or folders here</span>
+				</div>
+				<div class="rz-custom-toolbar">
+					<button type="button" class="rz-btn secondary" id="rz-custom-add">Add files or folders…</button>
+				</div>
+				<ul id="rz-custom-entries" class="rz-custom-entries" aria-live="polite"></ul>
+				<p id="rz-custom-empty" class="rz-custom-empty">No paths yet — drop or add at least one file or folder.</p>
+				<div class="rz-custom-footer">
+					<span class="rz-custom-footer-spacer"></span>
+					<button type="button" class="rz-btn secondary" id="rz-custom-cancel">Cancel</button>
+					<button type="button" class="rz-btn" id="rz-custom-done">Done</button>
+				</div>
 			</div>
 		</div>
 		<div class="toolbar">
 			<div class="search-wrap rz-search-slot">
-				<input id="rz-heading-search" class="search-input" type="text" placeholder="Search all headings…" autocomplete="off" spellcheck="false" aria-expanded="false" aria-controls="rz-suggest-panel" aria-autocomplete="list" />
-				<div id="rz-suggest-panel" class="rz-suggest-panel hidden" role="listbox" aria-label="Heading matches"></div>
+				<input id="rz-heading-search" class="search-input" type="text" placeholder="Search headings by meaning…" autocomplete="off" spellcheck="false" aria-expanded="false" aria-controls="rz-suggest-panel" aria-autocomplete="list" />
+				<div id="rz-suggest-panel" class="rz-suggest-panel hidden" role="listbox" aria-label="Top embedding matches — click to open"></div>
 			</div>
-			<button type="button" class="rz-btn secondary" id="rz-clear-filters" title="Clear search, scope (Files/Headings), metadata types, and tags">Clear filters</button>
-			<button type="button" class="rz-btn secondary" id="rz-refresh" title="Rebuild catalog from disk">Refresh</button>
+			<button type="button" class="rz-btn secondary" id="rz-clear-filters" title="Clear search, scope, corpus (back to Working set), metadata types, and tags">Clear filters</button>
+			<button type="button" class="rz-btn secondary" id="rz-refresh" title="Flush pending index updates, reload from index.drip, and re-run your query">Refresh</button>
 			<button type="button" class="rz-btn secondary" id="rz-copy-md" title="Copy visible results as Markdown" disabled>Copy list</button>
 		</div>
 		<div id="rz-kb-banner" class="rz-banner" hidden>
@@ -105,17 +119,38 @@ function getRetrieverPanelHtml(webview, extensionUri) {
 		<div class="filter-bar">
 			<div class="filter-block">
 				<span class="filter-label">Metadata types</span>
-				<p id="rz-types-empty-hint" class="rz-inline-hint hidden">No types configured. Add templates in <strong>DRIP Settings</strong> (Metadata types).</p>
-				<p class="rz-inline-hint">Tap types to keep only headings that use <strong>any</strong> of the selected markers (OR). Tap again to turn a type off. With none selected, all types show.</p>
+				<p id="rz-types-empty-hint" class="rz-inline-hint hidden">No types in DRIP Settings — add templates, then Refresh.</p>
 				<div id="rz-type-chips" class="chip-row" role="toolbar" aria-label="Filter by metadata type"></div>
 			</div>
-			<div class="filter-block">
-				<span class="filter-label">Tags (must have all)</span>
-				<div class="tag-input-row">
-					<input id="rz-tag-input" class="rz-tag-entry" list="rz-tag-list" placeholder="Pick or type tag, Enter to add…" autocomplete="off" spellcheck="false" />
-					<datalist id="rz-tag-list"></datalist>
+			<div class="filter-row-tags-rel">
+				<div class="filter-block filter-block--half">
+					<span class="filter-label">Tags</span>
+					<div class="aside-field filter-select-field">
+						<label for="rz-tag-graph">Tag graph</label>
+						<select id="rz-tag-graph" class="rz-select" aria-label="Apply tags from a saved tag graph">
+							<option value="">None</option>
+						</select>
+					</div>
+					<div class="tag-input-row rz-tag-picker">
+						<input id="rz-tag-input" class="rz-tag-entry" placeholder="Search tags, Enter to add…" autocomplete="off" spellcheck="false" aria-autocomplete="list" aria-controls="rz-tag-suggest" aria-expanded="false" />
+						<div id="rz-tag-suggest" class="rz-tag-suggest hidden" role="listbox" aria-label="Matching tags"></div>
+					</div>
+					<div id="rz-tag-chips" class="chip-row" aria-live="polite"></div>
 				</div>
-				<div id="rz-tag-chips" class="chip-row" aria-live="polite"></div>
+				<div class="filter-block filter-block--half">
+					<span class="filter-label">Relations</span>
+					<div class="aside-field filter-select-field">
+						<label for="rz-relation-type">Relation type</label>
+						<select id="rz-relation-type" class="rz-select" aria-label="Relation type to add tags for (you can add several types)">
+							<option value="">Choose type…</option>
+						</select>
+					</div>
+					<div class="tag-input-row rz-tag-picker">
+						<input id="rz-rel-tag-input" class="rz-tag-entry" placeholder="Add tags for this type, then switch type to add more…" autocomplete="off" spellcheck="false" aria-autocomplete="list" aria-controls="rz-rel-tag-suggest" aria-expanded="false" disabled />
+						<div id="rz-rel-tag-suggest" class="rz-tag-suggest hidden" role="listbox" aria-label="Matching relation tags"></div>
+					</div>
+					<div id="rz-rel-tag-chips" class="chip-row" aria-live="polite"></div>
+				</div>
 			</div>
 		</div>
 		<div class="viewport">
@@ -151,22 +186,31 @@ function getRetrieverPanelHtml(webview, extensionUri) {
 			<select id="rz-group-by" class="rz-select">
 				<option value="none" selected>None</option>
 				<option value="folder">Folder</option>
+				<option value="file">File</option>
 				<option value="type">Type</option>
 			</select>
+			<p id="rz-group-files-hint" class="aside-muted hidden">Group is disabled when Scope is Files (results are already file buckets).</p>
 		</div>
 		<div class="aside-field">
-			<label for="rz-sort-by">Sort</label>
-			<select id="rz-sort-by" class="rz-select">
-				<option value="recent" selected>Recently modified</option>
-				<option value="title">Title A–Z</option>
-				<option value="path">Path</option>
+			<label for="rz-search-engine">Search engine</label>
+			<select id="rz-search-engine" class="rz-select" aria-label="How results are ranked">
+				<option value="recommended" selected>Recommended</option>
+				<option value="semantic">Only semantic search</option>
+				<option value="word">Only word search</option>
 			</select>
 		</div>
 		<p class="aside-sub">Shown in results</p>
-		<label class="aside-check"><input type="checkbox" id="rz-show-bc" checked /> <span>Breadcrumbs</span></label>
-		<label class="aside-check"><input type="checkbox" id="rz-show-path" checked /> <span>Path &amp; line</span></label>
-		<label class="aside-check"><input type="checkbox" id="rz-show-type" checked /> <span>Type marker</span></label>
-		<label class="aside-check"><input type="checkbox" id="rz-show-tags" /> <span>Tags on row</span></label>
+		<label class="aside-check"><input type="checkbox" id="rz-show-type" checked /> <span>Metadata type marker</span></label>
+		<label class="aside-check"><input type="checkbox" id="rz-show-bc" checked /> <span>Metadata key-values</span></label>
+		<label class="aside-check"><input type="checkbox" id="rz-show-tags" checked /> <span>Search tags</span></label>
+		<label class="aside-check"><input type="checkbox" id="rz-show-relations" checked /> <span>Relations</span></label>
+		<label class="aside-check"><input type="checkbox" id="rz-show-path" checked /> <span>Filepath</span></label>
+		<button type="button" class="rz-btn secondary rz-clear-attr-filters" id="rz-clear-attr-filters" title="Clear all metadata key filters">Clear metadata filters</button>
+		<div id="rz-attr-filter-panel" class="rz-attr-filter-panel hidden" hidden>
+			<p class="aside-sub">Metadata filters</p>
+			<p class="rz-attr-filter-empty hidden" id="rz-attr-filter-empty">Select a metadata type above to filter by its keys.</p>
+			<div id="rz-attr-filter-body" class="rz-attr-filter-body"></div>
+		</div>
 	</aside>
 	<script nonce="${nonce}" src="${jsUri}"></script>
 </body>
@@ -246,8 +290,30 @@ class DripRetrieverPanel {
 		this._headingIndexReady = false;
 		/** @type {ReturnType<typeof setTimeout> | undefined} */
 		this._sgTimer = undefined;
+		/** @type {ReturnType<typeof setTimeout> | undefined} */
+		this._tagSugTimer = undefined;
 		/** Serialize rebuild/query/suggest so concurrent webview messages cannot overlap `rebuildAndPushInit`. */
 		this._retrieverCatalogChain = Promise.resolve();
+		this._metaColorCfgSub = vscode.workspace.onDidChangeConfiguration(ev => {
+			if (
+				ev.affectsConfiguration('drip.metadataUseCustomColors') ||
+				ev.affectsConfiguration('drip.metadataKeyColor') ||
+				ev.affectsConfiguration('drip.metadataValueColor') ||
+				ev.affectsConfiguration('drip.metadataTypeColors') ||
+				ev.affectsConfiguration('drip.metadataTypes') ||
+				ev.affectsConfiguration('drip.dripnoteCustomColors') ||
+				ev.affectsConfiguration('drip.tagsRelationsConfig')
+			) {
+				void this.pushMetadataUiColors().catch(() => {});
+			}
+		});
+		panel.onDidDispose(() => {
+			try {
+				this._metaColorCfgSub.dispose();
+			} catch {
+				/* ignore */
+			}
+		});
 		panel.webview.onDidReceiveMessage(async message => {
 			try {
 				if (message?.type === 'retrieverPanelReady') {
@@ -256,7 +322,7 @@ class DripRetrieverPanel {
 					return;
 				}
 				if (message?.type === 'retrieverRebuild') {
-					void this.queueRetrieverCatalogOp(() => this.rebuildAndPushInit()).catch(e => {
+					void this.queueRetrieverCatalogOp(() => this.rebuildFromIndexAfterFlush()).catch(e => {
 						const msg = e instanceof Error ? e.message : String(e);
 						void vscode.window.showErrorMessage(`Retriever: ${msg}`);
 					});
@@ -285,8 +351,25 @@ class DripRetrieverPanel {
 					}, 110);
 					return;
 				}
+				if (message?.type === 'retrieverTagSuggest') {
+					clearTimeout(this._tagSugTimer);
+					const pl = message.payload || {};
+					this._tagSugTimer = setTimeout(() => {
+						void this.pushTagSuggestResults(pl).catch(e => {
+							console.error('[DRIP] tag suggest failed', e);
+						});
+					}, 90);
+					return;
+				}
+				if (message?.type === 'retrieverApplyTagGraph') {
+					await this.applyTagGraphToWebview(message.payload || {});
+					return;
+				}
 				if (message?.type === 'retrieverOpen') {
-					await openRetrieverTarget(message.uri, message.line);
+					await openRetrieverTarget(message.uri, message.line, {
+						title: typeof message.title === 'string' ? message.title : '',
+						headingId: Number(message.headingId) || 0
+					});
 					return;
 				}
 				if (message?.type === 'retrieverSaveUi') {
@@ -321,11 +404,160 @@ class DripRetrieverPanel {
 					void vscode.window.setStatusBarMessage('Retriever list copied to clipboard', 2600);
 					return;
 				}
+				if (message?.type === 'retrieverPickCustomPaths') {
+					await this.pickCustomCorpusPaths(message.payload || {});
+					return;
+				}
+				if (message?.type === 'retrieverResolveDroppedPaths') {
+					await this.resolveDroppedCustomPaths(message.payload || {});
+					return;
+				}
 			} catch (e) {
 				const msg = e instanceof Error ? e.message : String(e);
 				await vscode.window.showErrorMessage(`Retriever: ${msg}`);
 			}
 		});
+	}
+
+	/**
+	 * Map absolute URIs to KB-relative corpus entries (reject anything outside the .driplock root).
+	 * @param {import('vscode').Uri[]} uris
+	 * @returns {Promise<{ path: string, kind: 'file'|'folder', name: string }[]>}
+	 */
+	async resolveUrisToCustomCorpusEntries(uris) {
+		const kbRoot =
+			typeof this.state?.getRetrieverKnowledgeBaseRoot === 'function'
+				? this.state.getRetrieverKnowledgeBaseRoot().uri
+				: this.state?.getKnowledgeBaseRoot?.();
+		if (!kbRoot || kbRoot.scheme !== 'file') {
+			void vscode.window.showWarningMessage('Pick a knowledge base (.driplock) folder first.');
+			return [];
+		}
+
+		let rootResolved = kbRoot.fsPath;
+		try {
+			rootResolved = await fs.promises.realpath(kbRoot.fsPath);
+		} catch {
+			rootResolved = kbRoot.fsPath;
+		}
+		const rootNative = path.resolve(rootResolved);
+
+		/** @type {{ path: string, kind: 'file'|'folder', name: string }[]} */
+		const out = [];
+		const seen = new Set();
+		/** @type {string[]} */
+		const skippedOutside = [];
+
+		for (const uri of uris || []) {
+			if (!uri || uri.scheme !== 'file') continue;
+
+			let absResolved = uri.fsPath;
+			try {
+				absResolved = await fs.promises.realpath(uri.fsPath);
+			} catch {
+				absResolved = uri.fsPath;
+			}
+			const absNative = path.resolve(absResolved);
+
+			// Strict containment under the .driplock KB root (realpath + relative; blocks escapes).
+			const relCheck = path.relative(rootNative, absNative);
+			const inside =
+				relCheck === '' ||
+				(!relCheck.startsWith('..') && !path.isAbsolute(relCheck));
+			if (!inside) {
+				skippedOutside.push(path.basename(uri.fsPath) || uri.fsPath);
+				continue;
+			}
+
+			let kind = /** @type {'file'|'folder'} */ ('file');
+			try {
+				const st = await vscode.workspace.fs.stat(uri);
+				kind = st.type & vscode.FileType.Directory ? 'folder' : 'file';
+			} catch {
+				continue;
+			}
+
+			const rel = relCheck.replace(/\\/g, '/').replace(/\/+$/, '');
+			if (!rel) {
+				void vscode.window.showWarningMessage(
+					'Cannot add the KB (.driplock) root itself — pick a file or subfolder inside it.'
+				);
+				continue;
+			}
+			const key = rel.toLowerCase();
+			if (seen.has(key)) continue;
+			seen.add(key);
+			out.push({
+				path: rel,
+				kind,
+				name: path.basename(rel) || rel
+			});
+		}
+
+		if (skippedOutside.length) {
+			const sample = skippedOutside.slice(0, 3).join(', ');
+			const more = skippedOutside.length > 3 ? ` (+${skippedOutside.length - 3} more)` : '';
+			void vscode.window.showWarningMessage(
+				`Skipped outside the .driplock KB: ${sample}${more}`
+			);
+		}
+		return out;
+	}
+
+	/**
+	 * @param {{ mode?: string }} payload
+	 */
+	async pickCustomCorpusPaths(_payload) {
+		const kbRoot =
+			typeof this.state?.getRetrieverKnowledgeBaseRoot === 'function'
+				? this.state.getRetrieverKnowledgeBaseRoot().uri
+				: this.state?.getKnowledgeBaseRoot?.();
+		if (!kbRoot) {
+			void vscode.window.showWarningMessage('Pick a knowledge base (.driplock) folder first.');
+			return;
+		}
+		const uris = await vscode.window.showOpenDialog({
+			canSelectFiles: true,
+			canSelectFolders: true,
+			canSelectMany: true,
+			openLabel: 'Add from KB',
+			title: 'Add files or folders from the .driplock knowledge base',
+			defaultUri: kbRoot
+		});
+		if (!uris || !uris.length) return;
+		const entries = await this.resolveUrisToCustomCorpusEntries(uris);
+		if (!entries.length) return;
+		await this.panel.webview.postMessage({
+			type: 'retrieverCustomPathsPicked',
+			payload: { entries }
+		});
+	}
+
+	/**
+	 * @param {{ uris?: string[] }} payload
+	 */
+	async resolveDroppedCustomPaths(payload) {
+		const raw = Array.isArray(payload && payload.uris) ? payload.uris : [];
+		/** @type {import('vscode').Uri[]} */
+		const uris = [];
+		for (const u of raw) {
+			try {
+				uris.push(vscode.Uri.parse(String(u || '')));
+			} catch {
+				// skip
+			}
+		}
+		const entries = await this.resolveUrisToCustomCorpusEntries(uris);
+		if (entries.length) {
+			await this.panel.webview.postMessage({
+				type: 'retrieverCustomPathsPicked',
+				payload: { entries }
+			});
+		} else if (raw.length) {
+			void vscode.window.showWarningMessage(
+				'Nothing added — drop files or folders from inside the .driplock knowledge base only.'
+			);
+		}
 	}
 
 	/**
@@ -339,28 +571,44 @@ class DripRetrieverPanel {
 	}
 
 	/**
-	 * @param {{ q?: string, limit?: number, _seq?: number }} payload
+	 * @param {{ q?: string, limit?: number, _seq?: number, selectedTypeIds?: string[], selectedTags?: string[], scopeFiles?: boolean, scopeHeadings?: boolean }} payload
 	 */
-	pushSuggestResults(payload) {
-		const rows = Array.isArray(this.catalog?.rows) ? this.catalog.rows : [];
+	async pushSuggestResults(payload) {
+		const kbRoot =
+			typeof this.state?.getRetrieverKnowledgeBaseRoot === 'function'
+				? this.state.getRetrieverKnowledgeBaseRoot().uri
+				: this.state?.getKnowledgeBaseRoot?.();
+		const seq = typeof payload._seq === 'number' ? payload._seq : 0;
+		const limRaw = Number(payload && payload.limit);
+		const lim =
+			Number.isFinite(limRaw) && limRaw > 0 ? Math.min(Math.floor(limRaw), 48) : 26;
+
 		/** @type {unknown[]} */
 		let items = [];
-		try {
-			const limRaw = Number(payload && payload.limit);
-			const lim =
-				Number.isFinite(limRaw) && limRaw > 0 ? Math.min(Math.floor(limRaw), 48) : 26;
-			items = peekRetrieverSuggestions(rows, {
-				q: typeof payload.q === 'string' ? payload.q : '',
-				limit: lim
-			});
-		} catch {
-			items = [];
+		let searchMethod = 'index';
+		if (kbRoot && String((payload && payload.q) || '').trim()) {
+			try {
+				const { queryRetrieverFromIndex } = require('../../../indexing/embeddings/headingEmbeddingSearch');
+				const result = await queryRetrieverFromIndex(kbRoot, {
+					...payload,
+					offset: 0,
+					limit: lim
+				});
+				searchMethod = result.searchMethod;
+				items = result.rows;
+			} catch (err) {
+				console.error('[DRIP] embedding suggest failed', err);
+				items = [];
+				searchMethod = 'error';
+			}
 		}
-		void this.panel.webview.postMessage({
+
+		await this.panel.webview.postMessage({
 			type: 'retrieverSuggestResult',
 			payload: {
 				items: Array.isArray(items) ? items : [],
-				_seq: typeof payload._seq === 'number' ? payload._seq : 0
+				_seq: seq,
+				searchMethod
 			}
 		});
 	}
@@ -391,7 +639,7 @@ class DripRetrieverPanel {
 	}
 
 	/**
-	 * Re-scan if the user changed the KB folder (sidebar) since the last catalog build.
+	 * Keep shell in sync with KB folder; never walks `.d.txt` files for search.
 	 * @param {unknown} payload
 	 */
 	async ensureCatalogMatchesKbThenQuery(payload) {
@@ -399,10 +647,7 @@ class DripRetrieverPanel {
 		if (live !== this._catalogKbKey) {
 			await this.pushLightCatalogInit();
 		}
-		if (retrieverPayloadRequiresHeadingScan(payload) && !this._headingIndexReady) {
-			await this.rebuildAndPushInit();
-		}
-		this.pushQueryResult(payload);
+		await this.pushQueryResult(payload);
 	}
 
 	/**
@@ -413,13 +658,10 @@ class DripRetrieverPanel {
 		if (live !== this._catalogKbKey) {
 			await this.pushLightCatalogInit();
 		}
-		if (retrieverPayloadRequiresHeadingScan(pl || {}) && !this._headingIndexReady) {
-			await this.rebuildAndPushInit();
-		}
-		this.pushSuggestResults(pl);
+		await this.pushSuggestResults(pl);
 	}
 
-	/** KB metadata shell only (no heading scan). Clears in-memory heading rows until search text or paging. */
+	/** Shell from settings + tags from `index.drip` (no note file walk). */
 	async pushLightCatalogInit() {
 		const rk =
 			typeof this.state?.getRetrieverKnowledgeBaseRoot === 'function'
@@ -428,20 +670,48 @@ class DripRetrieverPanel {
 		const kbRoot = rk && rk.uri;
 		const usedWorkspaceFallback = Boolean(rk && rk.usedWorkspaceFallback);
 		this._catalogKbKey = kbRoot ? kbRoot.fsPath.replace(/\\/g, '/').toLowerCase() : '';
-		this._headingIndexReady = false;
+		this._headingIndexReady = Boolean(kbRoot);
 		this.catalog = kbRoot
 			? buildRetrieverCatalogShell(kbRoot, { usedWorkspaceFallback })
-			: /** @type {Awaited<ReturnType<typeof buildRetrieverIndex>>} */ ({
+			: {
 					rows: [],
 					metadataTypes: [],
 					allTags: [],
 					tagCounts: [],
+					relationTypes: [],
 					kbMissing: true,
 					noteFilesVisited: 0,
 					kbRootPath: '',
 					usedWorkspaceFallback: false
-			  });
+			  };
+		if (kbRoot) {
+			try {
+				const {
+					listTagsFromIndex,
+					listRelationTypesFromIndex
+				} = require('../../../indexing/embeddings/headingEmbeddingSearch');
+				const tagInfo = await listTagsFromIndex(kbRoot);
+				this.catalog.allTags = tagInfo.allTags;
+				this.catalog.tagCounts = tagInfo.tagCounts;
+				this.catalog.relationTypes = await listRelationTypesFromIndex(kbRoot);
+			} catch (err) {
+				console.error('[DRIP] listTagsFromIndex failed', err);
+			}
+			// Type chips always come from Settings (plus webview adds “None”).
+			try {
+				const shell = buildRetrieverCatalogShell(kbRoot, { usedWorkspaceFallback });
+				this.catalog.metadataTypes = shell.metadataTypes || [];
+			} catch (err) {
+				console.error('[DRIP] settings metadata types failed', err);
+			}
+			// Background: ensure sqlite-vec tag embeddings exist (exact only).
+			void require('../../../indexing/embeddings/tagEmbeddingSync')
+				.syncMissingTagEmbeddings(kbRoot)
+				.catch(err => console.warn('[DRIP] tag embedding sync', err && err.message));
+		}
+		const tagGraphs = this.listTagGraphOptions();
 		const c = this.catalog;
+		const metadataColors = this.syncCatalogMetadataColorsForWebview();
 		const persistedUi =
 			typeof this.state?.getRetrieverPersistedUi === 'function' ? this.state.getRetrieverPersistedUi() : null;
 		await this.panel.webview.postMessage({
@@ -452,106 +722,389 @@ class DripRetrieverPanel {
 				metadataTypes: c.metadataTypes || [],
 				allTags: c.allTags || [],
 				tagCounts: Array.isArray(c.tagCounts) ? c.tagCounts.slice(0, 500) : [],
+				relationTypes: Array.isArray(c.relationTypes) ? c.relationTypes : [],
+				tagGraphs,
 				headingsIndexed: 0,
 				kbRootPath: typeof c.kbRootPath === 'string' ? c.kbRootPath : kbRoot ? kbRoot.fsPath : '',
 				noteFilesVisited: 0,
 				usedWorkspaceFallback: Boolean(c.usedWorkspaceFallback),
-				persistedUi
+				persistedUi,
+				catalogSource: 'index.drip',
+				metadataColors
 			}
 		});
 	}
 
-	async rebuildAndPushInit() {
-		const rk =
-			typeof this.state?.getRetrieverKnowledgeBaseRoot === 'function'
-				? this.state.getRetrieverKnowledgeBaseRoot()
-				: { uri: this.state?.getKnowledgeBaseRoot?.(), usedWorkspaceFallback: false };
-		const kbRoot = rk && rk.uri;
-		const usedWorkspaceFallback = Boolean(rk && rk.usedWorkspaceFallback);
-		this._catalogKbKey = kbRoot ? kbRoot.fsPath.replace(/\\/g, '/').toLowerCase() : '';
+	/** Resolve Settings type colors onto catalog chips + metadataColors payload (same sources as editor). */
+	syncCatalogMetadataColorsForWebview() {
+		const colors = this.getRetrieverMetadataUiColors();
+		const types = this.catalog.metadataTypes || [];
+		for (const t of types) {
+			const id = String((t && t.id) || '')
+				.trim()
+				.toLowerCase();
+			if (!id) continue;
+			const resolved =
+				String((colors.typeColors && colors.typeColors[id]) || '').trim() ||
+				String((t && t.color) || '').trim();
+			if (!resolved) continue;
+			t.color = resolved;
+			colors.typeColors[id] = resolved;
+			const marker = String((t && t.marker) || '')
+				.trim()
+				.toLowerCase();
+			const bare = marker.replace(/^\./, '');
+			if (marker) colors.typeColors[marker] = resolved;
+			if (bare) colors.typeColors[bare] = resolved;
+		}
+		return colors;
+	}
+
+	/** @returns {{
+	 *   useCustom: boolean,
+	 *   keyColor: string,
+	 *   valueColor: string,
+	 *   tagsColor: string,
+	 *   typeColors: Record<string, string>,
+	 *   markerColors: Record<string, string>
+	 * }} */
+	getRetrieverMetadataUiColors() {
 		try {
-			this.catalog = kbRoot
-				? await buildRetrieverIndex(kbRoot, { usedWorkspaceFallback })
-				: /** @type {Awaited<ReturnType<typeof buildRetrieverIndex>>} */ ({
-						rows: [],
-						metadataTypes: [],
-						allTags: [],
-						tagCounts: [],
-						kbMissing: true,
-						noteFilesVisited: 0,
-						kbRootPath: '',
-						usedWorkspaceFallback: false
-				  });
-			this._headingIndexReady = Boolean(kbRoot && !this.catalog.kbMissing);
-		} catch (e) {
-			const msg = e instanceof Error ? e.message : String(e);
-			await vscode.window.showErrorMessage(`Retriever catalog build failed: ${msg}`);
-			this._headingIndexReady = false;
-			this.catalog = {
-				rows: [],
-				metadataTypes: [],
-				allTags: [],
-				tagCounts: [],
-				kbMissing: true,
-				noteFilesVisited: 0,
-				kbRootPath: kbRoot ? kbRoot.fsPath : '',
-				usedWorkspaceFallback
+			const {
+				getMetadataColorSettings,
+				getRelationsKeywordColors,
+				getCustomColorMap
+			} = require('../../editor/dripnoteCustomDecorations');
+			const { getMetadataSettings } = require('../../../document/model/dripnoteMetadataTemplates');
+			const meta = getMetadataColorSettings();
+			const rel = getRelationsKeywordColors();
+			/** @type {Record<string, string>} */
+			const typeColors = {};
+			if (meta.typeColors && typeof meta.typeColors.forEach === 'function') {
+				meta.typeColors.forEach((color, id) => {
+					if (id && color) typeColors[String(id).toLowerCase()] = String(color);
+				});
+			}
+			const settings = getMetadataSettings();
+			for (const t of settings.types || []) {
+				const id = String((t && t.id) || '')
+					.trim()
+					.toLowerCase();
+				const color = String((t && t.color) || '').trim();
+				if (id && color) {
+					// Type Color field on the metadata type wins over the colors map when both exist.
+					typeColors[id] = color;
+				} else if (id && typeColors[id]) {
+					// keep map color
+				}
+				const marker = String((t && t.marker) || '')
+					.trim()
+					.toLowerCase();
+				const resolved = (id && typeColors[id]) || '';
+				if (resolved && marker) {
+					typeColors[marker] = resolved;
+					typeColors[marker.replace(/^\./, '')] = resolved;
+				}
+			}
+			/** @type {Record<string, string>} */
+			const markerColors = {};
+			const customMap = getCustomColorMap();
+			if (customMap && typeof customMap.forEach === 'function') {
+				customMap.forEach((color, key) => {
+					if (key && color) markerColors[String(key).toLowerCase()] = String(color);
+				});
+			}
+			const keyColor = String(meta.keyColor || '').trim();
+			const tagsColor =
+				String(rel.tagsKeywordColor || '').trim() || keyColor;
+			return {
+				useCustom: Boolean(meta.useCustom),
+				keyColor,
+				valueColor: String(meta.valueColor || '').trim(),
+				tagsColor,
+				typeColors,
+				markerColors
+			};
+		} catch {
+			return {
+				useCustom: false,
+				keyColor: '',
+				valueColor: '',
+				tagsColor: '',
+				typeColors: {},
+				markerColors: {}
 			};
 		}
-		const c = this.catalog;
-		const persistedUi =
-			typeof this.state?.getRetrieverPersistedUi === 'function' ? this.state.getRetrieverPersistedUi() : null;
+	}
+
+	async pushMetadataUiColors() {
 		await this.panel.webview.postMessage({
-			type: 'retrieverCatalogInit',
+			type: 'retrieverMetadataColors',
+			payload: this.getRetrieverMetadataUiColors()
+		});
+	}
+
+	/** @returns {{ id: string, name: string }[]} */
+	listTagGraphOptions() {
+		try {
+			const ctx = this.state && this.state.context;
+			if (!ctx) return [];
+			const { listStoredTagGraphs } = require('../../../graph/tagGraphStore');
+			return listStoredTagGraphs(ctx).map(g => ({
+				id: String(g.id),
+				name: String(g.name || g.id)
+			}));
+		} catch {
+			return [];
+		}
+	}
+
+	/**
+	 * Hybrid tag suggest: 3 letter matches + 5 embedding neighbors (sqlite-vec).
+	 * @param {{ q?: string, exclude?: string[], _seq?: number }} payload
+	 */
+	async pushTagSuggestResults(payload) {
+		const kbRoot =
+			typeof this.state?.getRetrieverKnowledgeBaseRoot === 'function'
+				? this.state.getRetrieverKnowledgeBaseRoot().uri
+				: this.state?.getKnowledgeBaseRoot?.();
+		const q = typeof payload.q === 'string' ? payload.q : '';
+		const seq = typeof payload._seq === 'number' ? payload._seq : 0;
+		const exclude = Array.isArray(payload.exclude) ? payload.exclude : [];
+		/** @type {{ prefix: string[], semantic: string[] }} */
+		let result = { prefix: [], semantic: [] };
+		if (kbRoot && String(q || '').trim()) {
+			try {
+				const { suggestTagsHybrid } = require('../../../indexing/embeddings/tagEmbeddingSearch');
+				result = await suggestTagsHybrid(kbRoot, q, {
+					prefixLimit: 3,
+					semanticLimit: 5,
+					exclude
+				});
+			} catch (err) {
+				console.error('[DRIP] suggestTagsHybrid failed', err);
+			}
+		} else if (kbRoot && !String(q || '').trim()) {
+			// Empty query: show first tags from catalog as prefix only.
+			result.prefix = (this.catalog.allTags || [])
+				.filter(t => !exclude.map(x => String(x).toLowerCase()).includes(String(t).toLowerCase()))
+				.slice(0, 3);
+		}
+		await this.panel.webview.postMessage({
+			type: 'retrieverTagSuggestResult',
 			payload: {
-				shellOnly: false,
-				kbMissing: Boolean(c.kbMissing),
-				metadataTypes: c.metadataTypes || [],
-				allTags: c.allTags || [],
-				tagCounts: Array.isArray(c.tagCounts) ? c.tagCounts.slice(0, 500) : [],
-				headingsIndexed: Array.isArray(c.rows) ? c.rows.length : 0,
-				kbRootPath: typeof c.kbRootPath === 'string' ? c.kbRootPath : kbRoot ? kbRoot.fsPath : '',
-				noteFilesVisited: Number(c.noteFilesVisited) || 0,
-				usedWorkspaceFallback: Boolean(c.usedWorkspaceFallback),
-				persistedUi
+				prefix: result.prefix,
+				semantic: result.semantic,
+				_seq: seq
 			}
 		});
 	}
 
-	pushQueryResult(payload) {
-		const rows = Array.isArray(this.catalog?.rows) ? this.catalog.rows : [];
-		const sortBy =
-			payload && typeof payload.sortBy === 'string' && payload.sortBy.trim()
-				? payload.sortBy.trim()
-				: 'recent';
-		const groupBy =
-			payload && typeof payload.groupBy === 'string' && payload.groupBy.trim()
-				? payload.groupBy.trim()
-				: 'none';
-		const q = payload && typeof payload.q === 'string' ? payload.q : '';
+	/**
+	 * Load all labels from a saved tag graph → tag chips (soft-rank).
+	 * @param {{ graphId?: string }} payload
+	 */
+	async applyTagGraphToWebview(payload) {
+		const graphId = String((payload && payload.graphId) || '').trim();
+		const ctx = this.state && this.state.context;
+		/** @type {string[]} */
+		let tags = [];
+		if (graphId && ctx) {
+			try {
+				const { loadStoredTagGraphById } = require('../../../graph/tagGraphStore');
+				const graph = loadStoredTagGraphById(ctx, graphId);
+				const nodes = graph && Array.isArray(graph.nodes) ? graph.nodes : [];
+				const seen = new Set();
+				for (const n of nodes) {
+					const label = String((n && n.label) || '')
+						.trim()
+						.toLowerCase();
+					if (!label || seen.has(label)) continue;
+					seen.add(label);
+					tags.push(label);
+				}
+			} catch (err) {
+				console.error('[DRIP] applyTagGraph failed', err);
+			}
+		}
+		await this.panel.webview.postMessage({
+			type: 'retrieverApplyTagGraphResult',
+			payload: {
+				graphId,
+				tags,
+				tagMode: 'relevant'
+			}
+		});
+	}
+
+	/** Flush pending index writes, then reload catalog + re-query from index.drip. */
+	async rebuildFromIndexAfterFlush() {
+		try {
+			const { flushPendingDripIndexUpdates } = require('../../../indexing/dripnoteIndexSync');
+			await flushPendingDripIndexUpdates();
+		} catch (err) {
+			console.warn('[DRIP] Retriever refresh: index flush skipped', err && err.message);
+		}
+		await this.rebuildAndPushInit();
+	}
+
+	/** Refresh metadata/tags from index.drip — never walks the KB tree. */
+	async rebuildAndPushInit() {
+		await this.pushLightCatalogInit();
+		const kbRoot =
+			typeof this.state?.getRetrieverKnowledgeBaseRoot === 'function'
+				? this.state.getRetrieverKnowledgeBaseRoot().uri
+				: this.state?.getKnowledgeBaseRoot?.();
+		if (!kbRoot) {
+			return;
+		}
+		try {
+			const { listHeadingsFromIndex } = require('../../../indexing/embeddings/headingEmbeddingSearch');
+			const listed = await listHeadingsFromIndex(kbRoot, { limit: 1, offset: 0 });
+			const c = this.catalog;
+			const metadataColors = this.syncCatalogMetadataColorsForWebview();
+			await this.panel.webview.postMessage({
+				type: 'retrieverCatalogInit',
+				payload: {
+					shellOnly: false,
+					kbMissing: Boolean(c.kbMissing),
+					metadataTypes: c.metadataTypes || [],
+					allTags: c.allTags || [],
+					tagCounts: Array.isArray(c.tagCounts) ? c.tagCounts.slice(0, 500) : [],
+					relationTypes: Array.isArray(c.relationTypes) ? c.relationTypes : [],
+					tagGraphs: this.listTagGraphOptions(),
+					headingsIndexed: listed.total,
+					kbRootPath: typeof c.kbRootPath === 'string' ? c.kbRootPath : kbRoot.fsPath,
+					noteFilesVisited: 0,
+					usedWorkspaceFallback: Boolean(c.usedWorkspaceFallback),
+					persistedUi:
+						typeof this.state?.getRetrieverPersistedUi === 'function'
+							? this.state.getRetrieverPersistedUi()
+							: null,
+					catalogSource: 'index.drip',
+					metadataColors
+				}
+			});
+		} catch (err) {
+			console.error('[DRIP] rebuild from index.drip failed', err);
+		}
+	}
+
+	async pushQueryResult(payload) {
 		const offsetRaw = Number(payload?.offset);
 		const offset = Number.isFinite(offsetRaw) && offsetRaw > 0 ? Math.floor(offsetRaw) : 0;
-		const limitRaw = Number(payload?.limit);
-		const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.floor(limitRaw) : undefined;
-		const result = queryRetrieverCatalog(rows, {
-			q,
-			sortBy,
-			groupBy,
-			offset,
-			limit
-		});
-		void this.panel.webview.postMessage({
-			type: 'retrieverCatalogResult',
-			payload: result
-		});
+
+		const kbRoot =
+			typeof this.state?.getRetrieverKnowledgeBaseRoot === 'function'
+				? this.state.getRetrieverKnowledgeBaseRoot().uri
+				: this.state?.getKnowledgeBaseRoot?.();
+
+		if (!kbRoot) {
+			await this.panel.webview.postMessage({
+				type: 'retrieverCatalogResult',
+				payload: {
+					rows: [],
+					truncated: false,
+					totalMatched: 0,
+					offset: 0,
+					loadedThrough: 0,
+					pageSize: 0,
+					searchMethod: 'none'
+				}
+			});
+			return;
+		}
+
+		try {
+			const { queryRetrieverFromIndex } = require('../../../indexing/embeddings/headingEmbeddingSearch');
+			const result = await queryRetrieverFromIndex(kbRoot, {
+				...(payload && typeof payload === 'object' ? payload : {}),
+				offset
+			});
+			console.log(
+				`[DRIP] Retriever searchMethod=${result.searchMethod} rows=${result.rows.length}/${result.totalMatched} (index.drip only)`
+			);
+			await this.panel.webview.postMessage({
+				type: 'retrieverCatalogResult',
+				payload: result
+			});
+		} catch (err) {
+			console.error('[DRIP] Retriever index search failed', err);
+			await this.panel.webview.postMessage({
+				type: 'retrieverCatalogResult',
+				payload: {
+					rows: [],
+					truncated: false,
+					totalMatched: 0,
+					offset,
+					loadedThrough: offset,
+					pageSize: 0,
+					searchMethod: 'error',
+					error: err && err.message ? String(err.message) : String(err)
+				}
+			});
+		}
 	}
 }
 
 /**
- * @param {string} uriStr
- * @param {number} line 1-based
+ * Normalize heading title for fuzzy compare (strip type marker suffixes).
+ * @param {string} s
  */
-async function openRetrieverTarget(uriStr, line) {
+function normalizeRetrieverHeadingTitle(s) {
+	return String(s || '')
+		.trim()
+		.toLowerCase()
+		.replace(/\s+\.[\w.-]+\s*$/, '')
+		.replace(/\s+/g, ' ');
+}
+
+/**
+ * Find 1-based line of a heading in an open document by identity (`@fN:hM`) then title.
+ * @param {import('vscode').TextDocument} doc
+ * @param {{ title?: string, headingId?: number }} opts
+ * @returns {number} 1-based line, or 0 if not found
+ */
+function findRetrieverHeadingLine(doc, opts) {
+	const headingId = Number(opts && opts.headingId) || 0;
+	const wantTitle = normalizeRetrieverHeadingTitle((opts && opts.title) || '');
+	const lineCount = doc.lineCount;
+
+	if (headingId > 0) {
+		const idRe = new RegExp(`^\\s*@+\\s*f\\d+\\s*:\\s*h${headingId}\\b`, 'i');
+		for (let i = 0; i < lineCount; i++) {
+			const text = doc.lineAt(i).text;
+			if (!idRe.test(text)) continue;
+			// Prefer the `#` heading that this identity owns (usually next few lines).
+			for (let j = i; j < Math.min(i + 6, lineCount); j++) {
+				if (/^\s*#{1,6}\s+\S/.test(doc.lineAt(j).text)) return j + 1;
+			}
+			return i + 1;
+		}
+	}
+
+	if (wantTitle) {
+		let softMatch = 0;
+		for (let i = 0; i < lineCount; i++) {
+			const m = /^(\s*)(#{1,6})\s+(.*)$/.exec(doc.lineAt(i).text);
+			if (!m) continue;
+			const got = normalizeRetrieverHeadingTitle(m[3]);
+			if (!got) continue;
+			if (got === wantTitle) return i + 1;
+			if (!softMatch && (got.includes(wantTitle) || wantTitle.includes(got))) softMatch = i + 1;
+		}
+		if (softMatch) return softMatch;
+	}
+
+	return 0;
+}
+
+/**
+ * @param {string} uriStr
+ * @param {number} line 1-based fallback
+ * @param {{ title?: string, headingId?: number }} [opts]
+ */
+async function openRetrieverTarget(uriStr, line, opts) {
 	if (!uriStr || typeof uriStr !== 'string') return;
 	const uri = vscode.Uri.parse(uriStr);
 	const doc = await vscode.workspace.openTextDocument(uri);
@@ -560,7 +1113,12 @@ async function openRetrieverTarget(uriStr, line) {
 		// Same editor group / tab strip as the active column — not a forced split (Beside).
 		viewColumn: vscode.ViewColumn.Active
 	});
-	const lineIndex = Math.max(0, (Number(line) || 1) - 1);
+
+	const found = findRetrieverHeadingLine(doc, {
+		title: opts && opts.title,
+		headingId: opts && opts.headingId
+	});
+	const lineIndex = Math.max(0, (found || Number(line) || 1) - 1);
 	const pos = new vscode.Position(lineIndex, 0);
 	ed.selection = new vscode.Selection(pos, pos);
 	ed.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenterIfOutsideViewport);

@@ -46,7 +46,7 @@ Grep/read only files relevant to your task.
 | Storage (RHS) | `src/views/rhs/storage/` — `storageHtml.js` (host shell), `webview/storage.js` (UI logic), `storage.css`, `storageBody.html` |
 | Settings HTML | `src/views/settingsWebview.js` |
 | Tags UI | `src/graph/tagsWebview.js` |
-| Retriever | `src/views/lhs/retriever/panel.js`, `webview/retrieverPanel.js` |
+| Retriever | `src/views/lhs/retriever/panel.js`, `webview/retrieverPanel.js` — multi-relation filters; search engine modes; session custom paths; Files scope; attribute filters |
 | Canvas | `src/views/lhs/canvas/panel.js`, `webview/canvas.js`, `src/document/parse/dripnoteCanvasParse.js`, `src/document/workflow/dripnoteWorkflowParse.js`, `src/document/graph/dripnoteNodeGraphParse.js` (file-local node graph) |
 | Capture | `src/views/capturePreprocess.js` |
 
@@ -67,6 +67,23 @@ Grep/read only files relevant to your task.
 | Concern | Files |
 |---------|-------|
 | `index.drip` SQLite | `src/indexing/dripIndexDb.js`, `dripIndexParse.js` |
+| SQLite runtime (better-sqlite3) | `src/indexing/db/dripSqlite.js` — file-backed open; sql.js-compat `run`/`exec`/`prepare`; loads sqlite-vec |
+| Heading embedding storage (v11) | `src/indexing/embeddings/headingEmbeddingStore.js` — records + vec0 |
+| Heading embedding input text | `src/indexing/embeddings/headingEmbeddingText.js` — title + semantic tags only |
+| Heading embedding encode | `src/indexing/embeddings/headingEmbeddingEncode.js` — wraps `retrieval/embeddings.js` |
+| Heading embedding queue | `src/indexing/embeddings/headingEmbeddingQueue.js` — per-KB jobs |
+| Heading embedding sync | `src/indexing/embeddings/headingEmbeddingSync.js` — plan upserts, drain, missing repair |
+| Heading embedding search method | `src/indexing/embeddings/headingEmbeddingSearchMethod.js` — lock exact/faiss once per KB load |
+| Heading embedding search | `src/indexing/embeddings/headingEmbeddingSearch.js` — query → sqlite-vec / FAISS → DB cards |
+| Heading embedding FAISS | `src/indexing/embeddings/headingEmbeddingFaiss.js` — lazy HNSW under `.dripindex/heading-embeddings.faiss` |
+| Folder embedding text | `src/indexing/embeddings/folderEmbeddingText.js` — path + folder h0 title |
+| Folder embedding storage | `src/indexing/embeddings/folderEmbeddingStore.js` — records + vec0 (exact only) |
+| Folder embedding queue/sync | `src/indexing/embeddings/folderEmbeddingQueue.js`, `folderEmbeddingSync.js` |
+| Folder embedding search | `src/indexing/embeddings/folderEmbeddingSearch.js` — exact sqlite-vec |
+| Tag embedding storage | `src/indexing/embeddings/tagEmbeddingStore.js` — records + vec0 (exact only, no FAISS) |
+| Tag embedding sync | `src/indexing/embeddings/tagEmbeddingSync.js` — encode missing tags from `tags` |
+| Tag embedding search | `src/indexing/embeddings/tagEmbeddingSearch.js` — hybrid suggest: 3 prefix + 5 sqlite-vec |
+| Embedding model change | `src/indexing/embeddings/embeddingModelChange.js` — confirm → clear vectors/FAISS → rebuild (keep note IDs) |
 | `index.drip` schema (runtime) | `src/indexing/dbSchema/dripIndexSchema.js` |
 | `index.drip` schema (docs mirror) | `cursor/new/index.drip.schema.sql` |
 | Typed metadata parse | `src/indexing/parse/dripIndexTypedMetadata.js` |
@@ -78,7 +95,7 @@ Grep/read only files relevant to your task.
 | Document edit surveillance | `src/indexing/sync/dripnoteDocumentWatch.js` (`DOCUMENT_WATCH_MANIFEST`) |
 | VS Code event wiring | `src/indexing/dripnoteIndexSync.js` |
 | KB reindex (settings + toolbar) | `src/indexing/sync/dripnoteKbReindex.js` — workspace (`.dripignore`) vs full driplock reset (`index.drip` wipe). Commands: `drip.reindexCurrentKbWorkspace`, `drip.resetReindexEntireKb` |
-| Tables (v4) | `files`, `headings`, `heading_references`, `tags`, `searchtags`, `relations`, `issue_metadata`, `project_metadata`, `concept_metadata` |
+| Tables (v11) | Core: `files`, `headings`, `heading_references`, `tags`, `searchtags`, `relations`; lookups: `metadata_types`, `relation_types`; hot metadata: `concept_metadata`, `project_metadata`, `task_metadata`, `issue_metadata`, `decision_metadata`; sparse EAV: `metadata_remaining_keys`; embeddings: `heading_embedding_records` + vec0 `heading_embedding_vectors`; folder embeddings: `folder_embedding_records` + vec0 `folder_embedding_vectors`; tag embeddings: `tag_embedding_records` + vec0 `tag_embedding_vectors` |
 | `searchtags` | heading → searchable tag (`tags:` / `[…]`) |
 | `relations` | heading → related tag via relation key (`pre-req: [react, …]`) |
 | `heading_references` | `ref: [@f32 (topic), @f3]` file-level links (no heading target) |
@@ -131,7 +148,9 @@ Grep/read only files relevant to your task.
 | Retriever query / embeddings | `src/retrieval/dripnoteRetrieverQuery.js`, `embeddings.js`, `retrieverQuickOpen.js` |
 | Query | `src/retrieval/dripnoteRetrieverQuery.js` |
 | Quick open | `src/retrieval/retrieverQuickOpen.js` |
-| Embeddings | `src/retrieval/embeddings.js` |
+| Embeddings | `src/retrieval/embeddings.js` — Transformers.js; weights in `<extension>/.cache/transformers` |
+| Embedding benchmarks | `benchmarks/` — field recipes + exact vs FAISS (`npm run bench:embeddings`) |
+| Embedding benchmarks | `benchmarks/` — field recipes + exact vs FAISS (`node benchmarks/run.js`) |
 
 ## Spec cross-reference
 

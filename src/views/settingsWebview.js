@@ -222,7 +222,7 @@ function getSettingsWebviewHtml(webview) {
 						<span>Model id (Xenova ONNX sentence-transformer)</span>
 						<input type="text" id="embedding-model-id" placeholder="Xenova/all-MiniLM-L6-v2" autocomplete="off" spellcheck="false" />
 					</label>
-					<p class="meta">First use downloads model weights to the Hugging Face cache (~90MB for the default model). Change the model id only if you know a compatible Xenova ONNX build.</p>
+					<p class="meta">First use downloads model weights (~90MB for the default) into the DRIP extension folder (<code>.cache/transformers</code>), not the system Hugging Face cache — so the same VS Code + DRIP install reuses them. Changing the model id deletes and rebuilds heading and folder embeddings only — note IDs, metadata, and tags stay. You will be asked to confirm.</p>
 					<div class="actions">
 						<button id="btn-save-embedding">Save embedding settings</button>
 						<button id="btn-embedding-benchmark" class="secondary" type="button">Run embedding benchmark</button>

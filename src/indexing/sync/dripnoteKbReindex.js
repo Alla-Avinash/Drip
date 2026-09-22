@@ -4,6 +4,8 @@
  * KB-wide reindex using unwind `reconcileUpdate`.
  * Option 1: wipe `index.drip` then reconcile every note in the driplock folder (including dripignored).
  * Option 2: keep `index.drip` and reconcile only the current workspace notes (respects `.dripignore`).
+ *
+ * Reset (option 1) keeps the progress spinner up until heading + folder embeddings are fully encoded.
  */
 
 const vscode = require('vscode');
@@ -38,15 +40,19 @@ async function listNotesForReindex(kbRootUri, options) {
  *   resetDatabase: boolean,
  *   respectDripignore: boolean,
  *   title: string,
- *   token?: import('vscode').CancellationToken
+ *   token?: import('vscode').CancellationToken,
+ *   progress?: import('vscode').Progress<{ message?: string, increment?: number }>
  * }} options
  */
 async function runKbReconcileReindex(kbRootUri, context, options) {
+	const progress = options.progress;
 	if (options.resetDatabase) {
+		progress?.report({ message: 'Resetting index.drip…' });
 		clearHeadingAllocCache();
 		await resetDripIndexDatabase(kbRootUri);
 	}
 
+	progress?.report({ message: 'Listing notes…' });
 	const notes = await listNotesForReindex(kbRootUri, {
 		respectDripignore: options.respectDripignore
 	});
@@ -62,6 +68,9 @@ async function runKbReconcileReindex(kbRootUri, context, options) {
 			break;
 		}
 		const note = notes[i];
+		progress?.report({
+			message: `Reconciling notes… ${i + 1}/${notes.length}`
+		});
 		try {
 			const result = await reconcileUpdate(kbRootUri, note.uri, {
 				context,
@@ -84,13 +93,67 @@ async function runKbReconcileReindex(kbRootUri, context, options) {
 		}
 	}
 
+	const cancelled = !!(options.token && options.token.isCancellationRequested);
+
+	// Full reset: block until every heading + folder vector is written, then clear search lock.
+	/** @type {{ headingsEncoded?: number, foldersEncoded?: number }} */
+	const embedStats = {};
+	if (options.resetDatabase && !cancelled) {
+		try {
+			const { clearHeadingEmbeddingSearchLock } = require('../embeddings/headingEmbeddingSearchMethod');
+			clearHeadingEmbeddingSearchLock(kbRootUri);
+		} catch {
+			/* optional */
+		}
+		try {
+			const { awaitHeadingEmbeddingsReady } = require('../embeddings/headingEmbeddingSync');
+			const h = await awaitHeadingEmbeddingsReady(kbRootUri, {
+				progress,
+				token: options.token
+			});
+			embedStats.headingsEncoded = h.processed;
+		} catch (err) {
+			console.error('[DRIP] heading embedding await after reset failed', err);
+			errors.push({
+				path: '(embeddings/headings)',
+				message: err && err.message ? String(err.message) : String(err)
+			});
+			failed += 1;
+		}
+		if (!(options.token && options.token.isCancellationRequested)) {
+			try {
+				const { awaitFolderEmbeddingsReady } = require('../embeddings/folderEmbeddingSync');
+				const f = await awaitFolderEmbeddingsReady(kbRootUri, {
+					progress,
+					token: options.token
+				});
+				embedStats.foldersEncoded = f.processed;
+			} catch (err) {
+				console.error('[DRIP] folder embedding await after reset failed', err);
+				errors.push({
+					path: '(embeddings/folders)',
+					message: err && err.message ? String(err.message) : String(err)
+				});
+				failed += 1;
+			}
+		}
+		try {
+			const { clearHeadingEmbeddingSearchLock } = require('../embeddings/headingEmbeddingSearchMethod');
+			clearHeadingEmbeddingSearchLock(kbRootUri);
+		} catch {
+			/* optional */
+		}
+		progress?.report({ message: 'Embeddings complete' });
+	}
+
 	return {
 		total: notes.length,
 		updated,
 		unchanged,
 		failed,
 		cancelled: !!(options.token && options.token.isCancellationRequested),
-		errors
+		errors,
+		...embedStats
 	};
 }
 
@@ -99,35 +162,38 @@ async function runKbReconcileReindex(kbRootUri, context, options) {
  * @param {import('vscode').Uri} kbRootUri
  * @param {import('vscode').ExtensionContext | null | undefined} context
  * @param {import('vscode').CancellationToken} [token]
+ * @param {import('vscode').Progress<{ message?: string, increment?: number }>} [progress]
  */
-async function reindexCurrentKbWorkspace(kbRootUri, context, token) {
+async function reindexCurrentKbWorkspace(kbRootUri, context, token, progress) {
 	return runKbReconcileReindex(kbRootUri, context, {
 		resetDatabase: false,
 		respectDripignore: true,
 		title: 'Update/reindex the current KB working space',
-		token
+		token,
+		progress
 	});
 }
 
 /**
- * Option 1 — delete `index.drip`, recreate schema, reconcile every note in the driplock folder.
- * Colliding `@fN` values get new ids because the DB is empty and files are processed in path order.
+ * Option 1 — delete `index.drip`, recreate schema, reconcile every note, then encode all embeddings.
  * @param {import('vscode').Uri} kbRootUri
  * @param {import('vscode').ExtensionContext | null | undefined} context
  * @param {import('vscode').CancellationToken} [token]
+ * @param {import('vscode').Progress<{ message?: string, increment?: number }>} [progress]
  */
-async function resetReindexEntireDriplockFolder(kbRootUri, context, token) {
+async function resetReindexEntireDriplockFolder(kbRootUri, context, token, progress) {
 	return runKbReconcileReindex(kbRootUri, context, {
 		resetDatabase: true,
 		respectDripignore: false,
 		title: 'Reset/reindex the entire KB driplock folder',
-		token
+		token,
+		progress
 	});
 }
 
 /**
  * @param {string} title
- * @param {(token: import('vscode').CancellationToken, progress: import('vscode').Progress<{ message?: string, increment?: number }>) => Promise<{ total: number, updated: number, unchanged: number, failed: number, cancelled: boolean, errors: { path: string, message: string }[] }>} runner
+ * @param {(token: import('vscode').CancellationToken, progress: import('vscode').Progress<{ message?: string, increment?: number }>) => Promise<{ total: number, updated: number, unchanged: number, failed: number, cancelled: boolean, errors: { path: string, message: string }[], headingsEncoded?: number, foldersEncoded?: number }>} runner
  */
 async function runReindexWithProgress(title, runner) {
 	return vscode.window.withProgress(
@@ -145,12 +211,15 @@ async function runReindexWithProgress(title, runner) {
 }
 
 /**
- * @param {{ total: number, updated: number, unchanged: number, failed: number, cancelled?: boolean, errors?: { path: string, message: string }[] }} result
+ * @param {{ total: number, updated: number, unchanged: number, failed: number, cancelled?: boolean, errors?: { path: string, message: string }[], headingsEncoded?: number, foldersEncoded?: number }} result
  * @param {string} label
  */
 function showReindexResult(result, label) {
 	const cancelled = result.cancelled ? ' (cancelled)' : '';
-	const summary = `${label}: ${result.updated} note(s) rewritten, ${result.unchanged} unchanged, ${result.failed} failed, ${result.total} in scope${cancelled}.`;
+	let summary = `${label}: ${result.updated} note(s) rewritten, ${result.unchanged} unchanged, ${result.failed} failed, ${result.total} in scope${cancelled}.`;
+	if (typeof result.headingsEncoded === 'number' || typeof result.foldersEncoded === 'number') {
+		summary += ` Embeddings: ${result.headingsEncoded || 0} heading(s), ${result.foldersEncoded || 0} folder(s).`;
+	}
 	const errors = result.errors || [];
 	if (result.failed > 0) {
 		const extra = errors
@@ -171,7 +240,7 @@ function showReindexResult(result, label) {
 async function promptAndRunKbReindex(kind, kbRootUri, context) {
 	if (kind === 'reset') {
 		const pick = await vscode.window.showWarningMessage(
-			'Reset/reindex the entire KB driplock folder? This deletes index.drip and rewrites note file/heading ids where needed, including files hidden by .dripignore.',
+			'Reset/reindex the entire KB driplock folder? This deletes index.drip, rewrites note ids, and waits until all heading and folder embeddings are encoded.',
 			{ modal: true },
 			'Reset and reindex',
 			'Cancel'
@@ -181,7 +250,7 @@ async function promptAndRunKbReindex(kind, kbRootUri, context) {
 		}
 		const result = await runReindexWithProgress(
 			'Reset/reindex the entire KB driplock folder',
-			token => resetReindexEntireDriplockFolder(kbRootUri, context, token)
+			(token, progress) => resetReindexEntireDriplockFolder(kbRootUri, context, token, progress)
 		);
 		showReindexResult(result, 'Reset/reindex');
 		return;
@@ -198,7 +267,7 @@ async function promptAndRunKbReindex(kind, kbRootUri, context) {
 	}
 	const result = await runReindexWithProgress(
 		'Update/reindex the current KB working space',
-		token => reindexCurrentKbWorkspace(kbRootUri, context, token)
+		(token, progress) => reindexCurrentKbWorkspace(kbRootUri, context, token, progress)
 	);
 	showReindexResult(result, 'Update/reindex');
 }

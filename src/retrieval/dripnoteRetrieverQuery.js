@@ -10,6 +10,44 @@ const { extractFileIdFromHeader } = require('../graph/dripnoteReferenceSync');
 const INDEX_STEM = '_index';
 
 /**
+ * @param {any} t
+ * @param {Record<string, string>} typeColorById
+ */
+function catalogTypeFromSettings(t, typeColorById) {
+	const id = String((t && t.id) || '')
+		.trim()
+		.toLowerCase();
+	const fromType = String((t && t.color) || '').trim();
+	const attrsRaw = t && t.attributes && typeof t.attributes === 'object' ? t.attributes : {};
+	/** @type {{ key: string, kind: string, values: string[] }[]} */
+	const attributes = [];
+	for (const [rawKey, rawAttr] of Object.entries(attrsRaw)) {
+		const key = String(rawKey || '')
+			.trim()
+			.toLowerCase();
+		if (!key) continue;
+		const kind = String((rawAttr && rawAttr.kind) || 'enum')
+			.trim()
+			.toLowerCase();
+		const values = Array.isArray(rawAttr && rawAttr.values)
+			? rawAttr.values.map(v => String(v || '').trim()).filter(Boolean)
+			: [];
+		attributes.push({
+			key,
+			kind: kind === 'datetime' || kind === 'duration' ? kind : 'enum',
+			values
+		});
+	}
+	return {
+		id,
+		label: String((t && t.id) || '').trim(),
+		marker: String((t && t.marker) || '').trim(),
+		color: fromType || (id && typeColorById[id]) || '',
+		attributes
+	};
+}
+
+/**
  * @typedef {object} RetrieverRow Serializable heading row for the Retriever UI.
  * @property {string} id
  * @property {string} uri
@@ -127,13 +165,28 @@ function buildRetrieverCatalogShell(kbRootUri, opts) {
 		o.kbMissing = true;
 		return o;
 	}
-	const settingsTypes = getMetadataSettings().types || [];
+	const settings = getMetadataSettings();
+	const settingsTypes = settings.types || [];
+	/** Overlay `metadataTypeColors` the same way Settings UI does (`types[].color || colors[id]`). */
+	/** @type {Record<string, string>} */
+	const typeColorById = {};
+	try {
+		const cfg = vscode.workspace.getConfiguration('drip');
+		const rawTypeColors = cfg.get('metadataTypeColors', {});
+		if (rawTypeColors && typeof rawTypeColors === 'object') {
+			for (const [k, v] of Object.entries(rawTypeColors)) {
+				const id = String(k || '')
+					.trim()
+					.toLowerCase();
+				const color = String(v || '').trim();
+				if (id && color) typeColorById[id] = color;
+			}
+		}
+	} catch {
+		// ignore
+	}
 	const metadataTypes = settingsTypes
-		.map(t => ({
-			id: String(t.id || '').trim().toLowerCase(),
-			label: String(t.id || '').trim(),
-			marker: String(t.marker || '').trim()
-		}))
+		.map(t => catalogTypeFromSettings(t, typeColorById))
 		.filter(t => t.id);
 	const out = empty();
 	out.metadataTypes = metadataTypes;
@@ -167,11 +220,26 @@ async function buildRetrieverIndex(kbRootUri, opts) {
 
 	const markerMap = markerToTypeIdMap();
 	const settingsTypes = getMetadataSettings().types || [];
-	const metadataTypes = settingsTypes.map(t => ({
-		id: String(t.id || '').trim().toLowerCase(),
-		label: String(t.id || '').trim(),
-		marker: String(t.marker || '').trim()
-	}));
+	/** @type {Record<string, string>} */
+	const typeColorById = {};
+	try {
+		const cfg = vscode.workspace.getConfiguration('drip');
+		const rawTypeColors = cfg.get('metadataTypeColors', {});
+		if (rawTypeColors && typeof rawTypeColors === 'object') {
+			for (const [k, v] of Object.entries(rawTypeColors)) {
+				const id = String(k || '')
+					.trim()
+					.toLowerCase();
+				const color = String(v || '').trim();
+				if (id && color) typeColorById[id] = color;
+			}
+		}
+	} catch {
+		// ignore
+	}
+	const metadataTypes = settingsTypes
+		.map(t => catalogTypeFromSettings(t, typeColorById))
+		.filter(t => t.id);
 
 	/** @type {typeof empty extends () => infer R ? R : never} */
 	const out = empty();
@@ -264,7 +332,7 @@ async function buildRetrieverIndex(kbRootUri, opts) {
  * @param {RetrieverRow[]} rows indexed corpus
  */
 function mergeRetrieverMetadataTypes(settingTypes, rows) {
-	const byId = /** @type {Map<string, RetrieverTypeInfo>} */ (new Map());
+	const byId = /** @type {Map<string, any>} */ (new Map());
 	for (const t of settingTypes || []) {
 		const id = String((t && t.id) || '')
 			.trim()
@@ -273,7 +341,9 @@ function mergeRetrieverMetadataTypes(settingTypes, rows) {
 		byId.set(id, {
 			id,
 			label: String((t && t.label) || id).trim() || id,
-			marker: String((t && t.marker) || '').trim()
+			marker: String((t && t.marker) || '').trim(),
+			color: String((t && t.color) || '').trim(),
+			attributes: Array.isArray(t && t.attributes) ? t.attributes : []
 		});
 	}
 	for (const r of rows || []) {
@@ -286,7 +356,7 @@ function mergeRetrieverMetadataTypes(settingTypes, rows) {
 			.trim()
 			.toLowerCase();
 		const display = mk || id;
-		byId.set(id, { id, label: display, marker: mk });
+		byId.set(id, { id, label: display, marker: mk, color: '', attributes: [] });
 	}
 	return [...byId.values()].sort((a, b) =>
 		String(a.label || a.id).localeCompare(String(b.label || b.id))

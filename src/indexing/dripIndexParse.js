@@ -4,7 +4,8 @@ const crypto = require('crypto');
 const { collectHeadingSequenceValidated } = require('../document/parse/dripnoteCanvasParse');
 const { getMetadataSettings } = require('../document/model/dripnoteMetadataTemplates');
 const {
-	classifyPersistentHeadingTitle
+	classifyPersistentHeadingTitle,
+	stripHeadingTitleTypePrefix
 } = require('../document/model/dripnotePersistentHeading');
 const { parseFileEntityIdNumber, parseHeadingEntityIdNumber } = require('./dripnoteEntityIds');
 const { parseTypedMetadataForHeading } = require('./parse/dripIndexTypedMetadata');
@@ -373,7 +374,8 @@ function parseHeadingNodeForIndex(lines, node, knownTagsLower, nextAutoHeadingId
 
 	const heading = {
 		heading_id: headingId,
-		title: node.title,
+		// File keeps `# .c Title`; index stores clean words only (type lives in metadata_type_id).
+		title: stripHeadingTitleTypePrefix(node.title),
 		tab_depth: node.tabDepth,
 		metadata_type: metadataType,
 		hash
@@ -385,7 +387,7 @@ function parseHeadingNodeForIndex(lines, node, knownTagsLower, nextAutoHeadingId
 	const searchtags = [];
 	/** @type {{ source_heading_id: number, relation_type: string, tag_name: string }[]} */
 	const relations = [];
-	/** @type {{ heading_id: number, metadata_type: string, table: string, fields: Record<string, string | number | null> }[]} */
+	/** @type {{ heading_id: number, metadata_type: string, table: string | null, fields: Record<string, string | number | null>, remaining: { key: string, value: string | null }[] }[]} */
 	const typedMetadata = [];
 
 	if (includeDetails) {
@@ -545,7 +547,8 @@ function parseNoteForIndex(text, relPath, fileName, times, options) {
 				return {
 					...fileEnvelope,
 					...mergeParsedNoteWithCache(previousParse, partial, reparsedHeadingIds),
-					_parseMode: 'incremental-subtree'
+					_parseMode: 'incremental-subtree',
+					_dirtyHeadingIds: [...reparsedHeadingIds]
 				};
 			}
 		}
@@ -555,7 +558,8 @@ function parseNoteForIndex(text, relPath, fileName, times, options) {
 	return {
 		...fileEnvelope,
 		...full,
-		_parseMode: 'full'
+		_parseMode: 'full',
+		_dirtyHeadingIds: []
 	};
 }
 

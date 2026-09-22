@@ -126,8 +126,8 @@ function resolveValidatedAttributeValue(rule, rawValue, now) {
 }
 
 /**
- * Validated metadata key values for index typed tables.
- * Empty note values use settings default or null; invalid values are omitted.
+ * Validated metadata key values explicitly present in a heading metadata block.
+ * Blank present keys may use a settings default; missing, null, and invalid keys are omitted.
  *
  * @param {string | null | undefined} metadataType
  * @param {string[]} metaLines
@@ -146,11 +146,15 @@ function collectValidatedMetadataKeyValues(metadataType, metaLines) {
 	const raw = collectRawMetadataKeyValues(metaLines);
 	const now = new Date();
 
-	for (const [key, rule] of Object.entries(typeDef.attributes || {})) {
-		const normKey = normalizeMetadataKey(key);
+	// Only index keys explicitly present in this heading's metadata block.
+	// A settings default may fill an explicitly written blank key, but a missing
+	// key never creates a typed column value or an EAV row.
+	for (const [rawKey, rawValue] of raw.entries()) {
+		const normKey = normalizeMetadataKey(rawKey);
+		const rule = typeDef.attributes && typeDef.attributes[normKey];
 		if (!normKey || !rule) continue;
-		const resolved = resolveValidatedAttributeValue(rule, raw.get(normKey) || '', now);
-		if (resolved === undefined) continue;
+		const resolved = resolveValidatedAttributeValue(rule, rawValue, now);
+		if (resolved === undefined || resolved === null) continue;
 		out.set(normKey, resolved);
 	}
 

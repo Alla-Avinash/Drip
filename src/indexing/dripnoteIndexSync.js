@@ -38,6 +38,17 @@ const {
 	parseHeadingsCountFromLines
 } = require('./dripnoteHeadingIdPool');
 
+/** @type {ReturnType<typeof createDripnoteIndexUpdateQueue> | null} */
+let activeIndexQueue = null;
+
+/** Flush debounced note updates so Retriever / queries see saved edits in index.drip. */
+async function flushPendingDripIndexUpdates() {
+	if (!activeIndexQueue) {
+		return;
+	}
+	await activeIndexQueue.flushAllPending();
+}
+
 /**
  * Lightweight index sync on note saves → index.drip SQLite.
  */
@@ -46,6 +57,7 @@ function registerDripnoteIndexSync(context, state) {
 		context,
 		getKnowledgeBaseRoot: () => state.getKnowledgeBaseRoot()
 	});
+	activeIndexQueue = indexQueue;
 	context.subscriptions.push({
 		dispose: () => {
 			void indexQueue.flushAllPending().catch(err => {
@@ -1060,7 +1072,8 @@ function registerDripnoteIndexSync(context, state) {
 		vscode.workspace.onDidSaveTextDocument(doc => {
 			if (!isKbNoteDocument(doc)) return;
 			flushPendingHeadingIdAllocation(doc);
-			scheduleBufferedIndexUpdate(doc);
+			// Persist index.drip on save so Retriever (index-only reads) matches the file immediately.
+			indexQueue.scheduleNoteUpdate(doc.uri, { immediate: true });
 		})
 	);
 
@@ -1316,5 +1329,6 @@ function registerDripnoteIndexSync(context, state) {
 
 module.exports = {
 	registerDripnoteIndexSync,
+	flushPendingDripIndexUpdates,
 	DOCUMENT_WATCH_MANIFEST
 };
