@@ -84,6 +84,7 @@ function registerDripnoteIndexSync(context, state) {
 	/** @type {Map<string, import('./dripnoteHeadingIdPool').HeadingIdPool>} */
 	const headingIdPoolByUri = new Map();
 	let reconcileEditDepth = 0;
+	const { runGuardedDocumentEdit, isGuardedDocumentEditActive } = require('../shared/documentEditGuard');
 
 	/** Debounce before auto-inserting heading ids while typing. */
 	const HEADING_ID_ALLOCATION_DEBOUNCE_MS = 500;
@@ -611,64 +612,66 @@ function registerDripnoteIndexSync(context, state) {
 
 		reconcileEditDepth += 1;
 		try {
-			if (editor && patches) {
-				const ok = await editor.edit(
-					editBuilder => {
-						for (const rep of [...patches.replacements].sort((a, b) => b.line - a.line)) {
-							const lineText = String(doc.lineAt(rep.line).text || '');
-							editBuilder.replace(
-								new vscode.Range(rep.line, 0, rep.line, lineText.length),
-								rep.text
-							);
-						}
-						for (const ins of [...patches.inserts].sort((a, b) => b.line - a.line)) {
-							editBuilder.insert(new vscode.Position(ins.line, 0), `${ins.text}\n`);
-						}
-					},
-					{ undoStopBefore: false, undoStopAfter: false }
-				);
-				if (ok) {
-					if (cursorBefore) {
-						let lineOffset = 0;
-						for (const ins of patches.inserts) {
-							if (ins.line <= cursorBefore.line) {
-								lineOffset += 1;
+			return await runGuardedDocumentEdit(async () => {
+				if (editor && patches) {
+					const ok = await editor.edit(
+						editBuilder => {
+							for (const rep of [...patches.replacements].sort((a, b) => b.line - a.line)) {
+								const lineText = String(doc.lineAt(rep.line).text || '');
+								editBuilder.replace(
+									new vscode.Range(rep.line, 0, rep.line, lineText.length),
+									rep.text
+								);
 							}
+							for (const ins of [...patches.inserts].sort((a, b) => b.line - a.line)) {
+								editBuilder.insert(new vscode.Position(ins.line, 0), `${ins.text}\n`);
+							}
+						},
+						{ undoStopBefore: false, undoStopAfter: false }
+					);
+					if (ok) {
+						if (cursorBefore) {
+							let lineOffset = 0;
+							for (const ins of patches.inserts) {
+								if (ins.line <= cursorBefore.line) {
+									lineOffset += 1;
+								}
+							}
+							const pos = new vscode.Position(
+								cursorBefore.line + lineOffset,
+								cursorBefore.character
+							);
+							editor.selection = new vscode.Selection(pos, pos);
 						}
-						const pos = new vscode.Position(
-							cursorBefore.line + lineOffset,
-							cursorBefore.character
-						);
-						editor.selection = new vscode.Selection(pos, pos);
+						return true;
+					}
+				}
+
+				const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length));
+				if (editor) {
+					const ok = await editor.edit(
+						editBuilder => {
+							editBuilder.replace(fullRange, reconciled);
+						},
+						{ undoStopBefore: false, undoStopAfter: false }
+					);
+					if (ok) {
+						restoreCursorAfterReconcile(editor, normalized, reconciled, cursorBefore);
+						return true;
+					}
+				}
+				const we = new vscode.WorkspaceEdit();
+				we.replace(doc.uri, fullRange, reconciled);
+				const applied = await vscode.workspace.applyEdit(we);
+				if (applied) {
+					if (editor) {
+						restoreCursorAfterReconcile(editor, normalized, reconciled, cursorBefore);
 					}
 					return true;
 				}
-			}
-
-			const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length));
-			if (editor) {
-				const ok = await editor.edit(
-					editBuilder => {
-						editBuilder.replace(fullRange, reconciled);
-					},
-					{ undoStopBefore: false, undoStopAfter: false }
-				);
-				if (ok) {
-					restoreCursorAfterReconcile(editor, normalized, reconciled, cursorBefore);
-					return true;
-				}
-			}
-			const applied = await vscode.workspace.applyEdit(
-				new vscode.WorkspaceEdit().replace(doc.uri, fullRange, reconciled)
-			);
-			if (applied) {
-				if (editor) {
-					restoreCursorAfterReconcile(editor, normalized, reconciled, cursorBefore);
-				}
-				return true;
-			}
-			console.warn('[DRIP] could not apply heading identity edit to document');
-			return false;
+				console.warn('[DRIP] could not apply heading identity edit to document');
+				return false;
+			});
 		} finally {
 			reconcileEditDepth -= 1;
 		}
@@ -1028,7 +1031,7 @@ function registerDripnoteIndexSync(context, state) {
 
 	context.subscriptions.push(
 		vscode.window.onDidChangeTextEditorSelection(e => {
-			if (reconcileEditDepth > 0) return;
+			if (reconcileEditDepth > 0 || isGuardedDocumentEditActive()) return;
 			if (!isKbNoteDocument(e.textEditor.document)) return;
 			flushPendingHeadingIdAllocation(e.textEditor.document);
 		})
@@ -1036,7 +1039,7 @@ function registerDripnoteIndexSync(context, state) {
 
 	context.subscriptions.push(
 		vscode.workspace.onDidChangeTextDocument(ev => {
-			if (reconcileEditDepth > 0) return;
+			if (reconcileEditDepth > 0 || isGuardedDocumentEditActive()) return;
 			const doc = ev.document;
 			if (!isKbNoteDocument(doc)) return;
 

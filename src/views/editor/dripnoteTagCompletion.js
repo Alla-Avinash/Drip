@@ -314,6 +314,40 @@ function allKnownLabelsLower(context) {
 }
 
 /**
+ * Same label pool the in-editor tag completion uses (tag graphs + optional file tokens).
+ * @param {import('vscode').ExtensionContext} context
+ * @param {string} [fileText]
+ * @returns {string[]}
+ */
+function listKnownTagLabelsForCompletion(context, fileText) {
+	/** @type {Map<string, string>} */
+	const byLower = new Map();
+	if (context) {
+		for (const { label } of aggregateLabelsByGraph(context).values()) {
+			const t = String(label || '').trim();
+			if (!t) continue;
+			const low = t.toLowerCase();
+			if (!byLower.has(low)) byLower.set(low, t);
+		}
+		for (const meta of tagGraphStore.listStoredTagGraphs(context)) {
+			const gname = String(meta.name || '').trim();
+			if (!gname) continue;
+			const low = gname.toLowerCase();
+			if (!byLower.has(low)) byLower.set(low, gname);
+		}
+	}
+	for (const t of extractAllTagTokensFromText(fileText || '')) {
+		const label = String(t || '').trim();
+		if (!label) continue;
+		const low = label.toLowerCase();
+		if (!byLower.has(low)) byLower.set(low, label);
+	}
+	return [...byLower.values()].sort((a, b) =>
+		a.localeCompare(b, undefined, { sensitivity: 'base' })
+	);
+}
+
+/**
  * @param {import('vscode').ExtensionContext} context
  * @param {string} wantedDisplayName
  * @returns {string | null}
@@ -514,5 +548,6 @@ module.exports = {
 	registerDripnoteTagCompletion,
 	tagsBracketOpenIndex,
 	currentTagEditInfo,
-	extractAllTagTokensFromText
+	extractAllTagTokensFromText,
+	listKnownTagLabelsForCompletion
 };

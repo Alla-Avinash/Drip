@@ -42,13 +42,16 @@ Grep/read only files relevant to your task.
 | Concern | Files |
 |---------|-------|
 | Composer, Tags, Storage | `src/views/views.js` |
-| Webview helpers | `src/views/webviews.js` |
+| Composer | `src/views/composer/` — title + metadata + body; `composerHtml.js`, `webview/*` |
+| Capture | `src/views/capturePreprocess.js` — strip `@f…` ids + blank noise; split title / metadata / body |
+| Webview helpers | `src/views/webviews.js` (sidebar; Composer re-exported from `composer/`) |
 | Storage (RHS) | `src/views/rhs/storage/` — `storageHtml.js` (host shell), `webview/storage.js` (UI logic), `storage.css`, `storageBody.html` |
+| Heading form (RHS) | `src/views/rhs/headingForm/` — `panel.js` (webview host), `headingFormSession.js` (open/close/bind), `headingFormApply.js` (surgical buffer write via `document/model/headingBlockPatch.js`), `webview/*`. Soft-lock: `src/views/editor/persistentHeadingSoftLock.js`. Zones: `document/model/persistentHeadingZones.js`. Modes: `headingEditModes.js` |
+| RHS Storage reveal | `src/views/rhs/revealStorageOnly.js` — mutually exclusive Heading ↔ Storage via `drip.rhsHideHeading` / `drip.rhsHideStorage` |
 | Settings HTML | `src/views/settingsWebview.js` |
 | Tags UI | `src/graph/tagsWebview.js` |
 | Retriever | `src/views/lhs/retriever/panel.js`, `webview/retrieverPanel.js` — multi-relation filters; search engine modes; session custom paths; Files scope; attribute filters |
 | Canvas | `src/views/lhs/canvas/panel.js`, `webview/canvas.js`, `src/document/parse/dripnoteCanvasParse.js`, `src/document/workflow/dripnoteWorkflowParse.js`, `src/document/graph/dripnoteNodeGraphParse.js` (file-local node graph) |
-| Capture | `src/views/capturePreprocess.js` |
 
 ## File identity (→ spec: `@f`, heading `@h`)
 

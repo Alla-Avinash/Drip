@@ -28,6 +28,140 @@ const vscode = acquireVsCodeApi();
 	const sharedCreateFileBtn = document.getElementById('shared-create-file');
 	const headingTreeResizeGripEl = document.getElementById('heading-tree-resize-grip');
 	const pickerHeadingTreeResizeGripEl = document.getElementById('picker-heading-tree-resize-grip');
+	const corpusSel = /** @type {HTMLSelectElement | null} */ (document.getElementById('st-corpus'));
+	const corpusEditBtn = document.getElementById('st-corpus-edit');
+	const customCorpusPanel = document.getElementById('st-custom-corpus');
+	const customEntriesEl = document.getElementById('st-custom-entries');
+	const customEmptyEl = document.getElementById('st-custom-empty');
+	const customAddBtn = document.getElementById('st-custom-add');
+	const customDoneBtn = document.getElementById('st-custom-done');
+	const customCancelBtn = document.getElementById('st-custom-cancel');
+
+	/** @type {'working'|'entire'|'custom'} */
+	let storageCorpus = 'working';
+	/** @type {{ path: string, kind: 'file'|'folder', name: string }[]} */
+	let customCorpusPaths = [];
+	/** @type {{ path: string, kind: 'file'|'folder', name: string }[] | null} */
+	let customCorpusDraft = null;
+	let customCorpusEditorOpen = false;
+	/** @type {'working'|'entire'|'custom'} */
+	let corpusBeforeCustomEdit = 'working';
+
+	function corpusPayload() {
+		return {
+			corpus: storageCorpus,
+			customCorpusPaths: storageCorpus === 'custom' ? customCorpusPaths.slice() : []
+		};
+	}
+
+	function syncCorpusEditBtn() {
+		if (!corpusEditBtn || !corpusSel) return;
+		const show = storageCorpus === 'custom' && customCorpusPaths.length > 0 && !customCorpusEditorOpen;
+		corpusEditBtn.hidden = !show;
+		corpusEditBtn.classList.toggle('hidden', !show);
+	}
+
+	function renderCustomCorpusEntries() {
+		if (!customEntriesEl || !customEmptyEl) return;
+		const entries = Array.isArray(customCorpusDraft) ? customCorpusDraft : [];
+		customEntriesEl.innerHTML = entries
+			.map(
+				(e, i) =>
+					`<li class="storage-custom-entry" data-idx="${i}">` +
+					`<span class="storage-custom-entry-kind">${e.kind === 'folder' ? 'folder' : 'file'}</span>` +
+					`<span class="storage-custom-entry-body">` +
+					`<div class="storage-custom-entry-name">${escHtml(e.name || e.path)}</div>` +
+					`<div class="storage-custom-entry-path">${escHtml(e.path)}</div>` +
+					`</span>` +
+					`<button type="button" class="storage-custom-entry-remove" data-idx="${i}" aria-label="Remove">×</button>` +
+					`</li>`
+			)
+			.join('');
+		customEmptyEl.hidden = entries.length > 0;
+		customEntriesEl.querySelectorAll('.storage-custom-entry-remove').forEach(btn => {
+			btn.addEventListener('click', () => {
+				const idx = Number(btn.getAttribute('data-idx'));
+				if (!Array.isArray(customCorpusDraft) || !Number.isFinite(idx)) return;
+				customCorpusDraft.splice(idx, 1);
+				renderCustomCorpusEntries();
+			});
+		});
+	}
+
+	function setCustomCorpusEditorOpen(open) {
+		customCorpusEditorOpen = !!open;
+		if (customCorpusPanel) customCorpusPanel.hidden = !open;
+		syncCorpusEditBtn();
+	}
+
+	function openCustomCorpusEditor(fromCorpus) {
+		const from = String(fromCorpus || storageCorpus || 'working');
+		corpusBeforeCustomEdit =
+			from === 'custom' && customCorpusPaths.length
+				? 'custom'
+				: from === 'entire'
+					? 'entire'
+					: 'working';
+		customCorpusDraft = customCorpusPaths.map(e => ({ ...e }));
+		renderCustomCorpusEntries();
+		setCustomCorpusEditorOpen(true);
+		if (corpusSel) corpusSel.value = 'custom';
+		storageCorpus = 'custom';
+	}
+
+	function finishCustomCorpusDone() {
+		const entries = Array.isArray(customCorpusDraft) ? customCorpusDraft : [];
+		if (!entries.length) {
+			cancelCustomCorpusEditor();
+			return;
+		}
+		customCorpusPaths = entries.map(e => ({ ...e }));
+		customCorpusDraft = null;
+		storageCorpus = 'custom';
+		if (corpusSel) corpusSel.value = 'custom';
+		setCustomCorpusEditorOpen(false);
+		syncCorpusEditBtn();
+	}
+
+	function cancelCustomCorpusEditor() {
+		customCorpusDraft = null;
+		setCustomCorpusEditorOpen(false);
+		if (corpusBeforeCustomEdit === 'custom' && customCorpusPaths.length) {
+			storageCorpus = 'custom';
+			if (corpusSel) corpusSel.value = 'custom';
+		} else if (corpusBeforeCustomEdit === 'entire') {
+			storageCorpus = 'entire';
+			if (corpusSel) corpusSel.value = 'entire';
+		} else {
+			storageCorpus = 'working';
+			if (corpusSel) corpusSel.value = 'working';
+		}
+		syncCorpusEditBtn();
+	}
+
+	function mergePickedCustomEntries(entries) {
+		if (!Array.isArray(customCorpusDraft)) customCorpusDraft = [];
+		const seen = new Set(customCorpusDraft.map(e => String(e.path || '').toLowerCase()));
+		for (const e of entries || []) {
+			const p = String(e.path || '').replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+			if (!p || seen.has(p.toLowerCase())) continue;
+			seen.add(p.toLowerCase());
+			customCorpusDraft.push({
+				path: p,
+				kind: e.kind === 'folder' ? 'folder' : 'file',
+				name: String(e.name || p)
+			});
+		}
+		renderCustomCorpusEntries();
+	}
+
+	function escHtml(s) {
+		return String(s || '')
+			.replace(/&/g, '&amp;')
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;')
+			.replace(/"/g, '&quot;');
+	}
 
 	const HT_TREE_HEIGHT_KEY_FLOW = 'drip.storageWebview.headingTreeHeight.flow';
 	const HT_TREE_HEIGHT_KEY_PICKER = 'drip.storageWebview.headingTreeHeight.picker';
@@ -829,13 +963,14 @@ const vscode = acquireVsCodeApi();
 		postSelection();
 		if (browsePickerOpen()) {
 			storageFlowStage = 'browse';
-			vscode.postMessage({ type: 'browseKbList', folderUri });
+			vscode.postMessage({ type: 'browseKbList', folderUri, ...corpusPayload() });
 		} else {
 			storageFlowStage = 'files';
 			vscode.postMessage({
 				type: 'previewFolderFiles',
 				note: notePayload(),
-				folderUri
+				folderUri,
+				...corpusPayload()
 			});
 		}
 	}
@@ -881,7 +1016,7 @@ const vscode = acquireVsCodeApi();
 				clearHeadingTreeDynamic(pickerHeadingTreeEl);
 			}
 			postSelection();
-			vscode.postMessage({ type: 'browseKbList', folderUri: '' });
+			vscode.postMessage({ type: 'browseKbList', folderUri: '' , ...corpusPayload() });
 		} else {
 			goBackToFolderSelection();
 		}
@@ -1100,7 +1235,8 @@ const vscode = acquireVsCodeApi();
 			vscode.postMessage({
 				type: 'previewFolderFiles',
 				note: notePayload(),
-				folderUri: pickedFlowFolder.uri
+				folderUri: pickedFlowFolder.uri,
+				...corpusPayload()
 			});
 		}
 		renderStoragePathBar();
@@ -1195,7 +1331,8 @@ const vscode = acquireVsCodeApi();
 				vscode.postMessage({
 					type: 'previewFolderFiles',
 					note: notePayload(),
-					folderUri: pickedFlowFolder.uri
+					folderUri: pickedFlowFolder.uri,
+					...corpusPayload()
 				});
 			});
 		}
@@ -1253,7 +1390,8 @@ const vscode = acquireVsCodeApi();
 					vscode.postMessage({
 						type: 'previewFolderFiles',
 						note: notePayload(),
-						folderUri: item.uri
+						folderUri: item.uri,
+						...corpusPayload()
 					});
 				} else {
 				storageFlowStage = 'heading';
@@ -1632,7 +1770,7 @@ const vscode = acquireVsCodeApi();
 			storageStageBeforeBrowse = storageFlowStage;
 			customPickerEl.hidden = false;
 			storageFlowStage = 'browse';
-			vscode.postMessage({ type: 'browseKbList', folderUri: '' });
+			vscode.postMessage({ type: 'browseKbList', folderUri: '' , ...corpusPayload() });
 			renderStoragePathBar();
 		});
 		pickerFilterEl.addEventListener('input', function () {
@@ -1657,7 +1795,7 @@ const vscode = acquireVsCodeApi();
 			div.className = 'picker-item';
 			div.innerHTML = '<span class="sym">📁</span><span>' + escapeHtml(f.name) + '</span>';
 			div.addEventListener('click', function () {
-				vscode.postMessage({ type: 'browseKbList', folderUri: f.uri });
+				vscode.postMessage({ type: 'browseKbList', folderUri: f.uri, ...corpusPayload() });
 			});
 			pickerListEl.appendChild(div);
 		});
@@ -1687,7 +1825,8 @@ const vscode = acquireVsCodeApi();
 				vscode.postMessage({
 					type: 'createSubfolderFromPicker',
 					parentUri: pickerCurrentFolderUri,
-					name
+					name,
+					...corpusPayload()
 				});
 				if (sharedNewFolderNameEl) {
 					sharedNewFolderNameEl.value = '';
@@ -1703,7 +1842,8 @@ const vscode = acquireVsCodeApi();
 				vscode.postMessage({
 					type: 'createNoteInFolderFromPicker',
 					folderUri: pickerCurrentFolderUri,
-					title
+					title,
+					...corpusPayload()
 				});
 				if (sharedNewFileNameEl) {
 					sharedNewFileNameEl.value = '';
@@ -1884,7 +2024,7 @@ const vscode = acquireVsCodeApi();
 		if (aiPathsPanelEl) {
 			aiPathsPanelEl.hidden = true;
 		}
-		vscode.postMessage({ type: 'previewTargets', note: notePayload() });
+		vscode.postMessage({ type: 'previewTargets', note: notePayload(), ...corpusPayload() });
 	});
 
 	document.getElementById('ai-paths-btn').addEventListener('click', () => {
@@ -1923,7 +2063,7 @@ const vscode = acquireVsCodeApi();
 		}
 		renderStoragePathBar();
 		postSelection();
-		vscode.postMessage({ type: 'deepAiSuggestions', note: notePayload() });
+		vscode.postMessage({ type: 'deepAiSuggestions', note: notePayload(), ...corpusPayload() });
 	});
 
 	document.getElementById('save-draft-storage').addEventListener('click', () => {
@@ -1946,6 +2086,13 @@ const vscode = acquireVsCodeApi();
 
 	window.addEventListener('message', event => {
 		const message = event.data;
+
+		if (message.type === 'storageCustomPathsPicked') {
+			const entries = (message.payload && message.payload.entries) || [];
+			if (!customCorpusEditorOpen) openCustomCorpusEditor();
+			mergePickedCustomEntries(entries);
+			return;
+		}
 
 		if (message.type === 'kbNoteSettings' && sharedNewFileNameEl) {
 			const ext = message.defaultNewNoteExtension || '.d.txt';
@@ -2091,7 +2238,8 @@ const vscode = acquireVsCodeApi();
 				vscode.postMessage({
 					type: 'previewFolderFiles',
 					note: notePayload(),
-					folderUri: pickedFlowFolder.uri
+					folderUri: pickedFlowFolder.uri,
+					...corpusPayload()
 				});
 			}
 			if (navigateToFileUri) {
@@ -2445,6 +2593,34 @@ const vscode = acquireVsCodeApi();
 
 	selectionControlsEl.addEventListener('change', postSelection);
 	selectionControlsEl.addEventListener('input', postSelection);
+
+	if (corpusSel) {
+		corpusSel.addEventListener('change', () => {
+			const v = String(corpusSel.value || 'working');
+			if (v === 'custom') {
+				openCustomCorpusEditor(storageCorpus);
+				return;
+			}
+			storageCorpus = v === 'entire' ? 'entire' : 'working';
+			setCustomCorpusEditorOpen(false);
+			syncCorpusEditBtn();
+		});
+	}
+	if (corpusEditBtn) {
+		corpusEditBtn.addEventListener('click', () => openCustomCorpusEditor('custom'));
+	}
+	if (customAddBtn) {
+		customAddBtn.addEventListener('click', () => {
+			vscode.postMessage({ type: 'storagePickCustomPaths' });
+		});
+	}
+	if (customDoneBtn) {
+		customDoneBtn.addEventListener('click', finishCustomCorpusDone);
+	}
+	if (customCancelBtn) {
+		customCancelBtn.addEventListener('click', cancelCustomCorpusEditor);
+	}
+	syncCorpusEditBtn();
 
 	vscode.postMessage({ type: 'requestState' });
 

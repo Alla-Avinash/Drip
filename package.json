@@ -31,6 +31,7 @@
 		"onView:drip.recents",
 		"onView:drip.dailyNotes",
 		"onView:drip.storage",
+		"onView:drip.headingForm",
 		"onCommand:drip.copyPath",
 		"onCommand:drip.renameItem",
 		"onCommand:drip.createFolder",
@@ -99,10 +100,18 @@
 			],
 			"drip-storage-panel": [
 				{
+					"id": "drip.headingForm",
+					"name": "Heading",
+					"type": "webview",
+					"icon": "$(edit)",
+					"when": "!drip.rhsHideHeading"
+				},
+				{
 					"id": "drip.storage",
 					"name": "Storage",
 					"type": "webview",
-					"icon": "$(folder)"
+					"icon": "$(folder)",
+					"when": "!drip.rhsHideStorage"
 				}
 			]
 		},
@@ -228,7 +237,8 @@
 			},
 			{
 				"command": "drip.deleteItem",
-				"title": "Delete"
+				"title": "Delete",
+				"icon": "$(trash)"
 			},
 			{
 				"command": "drip.testEmbeddings",
@@ -324,6 +334,16 @@
 					"type": "string",
 					"default": ".d.txt",
 					"description": "Extension for newly created notes from the KB and Storage flows. Must be one of the values in drip.knowledgeBaseFileExtensions."
+				},
+				"drip.editHeadingsInFile": {
+					"type": "boolean",
+					"default": false,
+					"description": "Edit persistent headings (# .…) directly in the .d.txt file. Mutually exclusive with drip.editHeadingsViaRhs (Settings → Editor radios)."
+				},
+				"drip.editHeadingsViaRhs": {
+					"type": "boolean",
+					"default": true,
+					"description": "Edit persistent headings via the RHS Heading form (recommended). Opens after a space following . / type shortcut; soft-locks title/metadata in the editor."
 				},
 				"drip.experimentalEmbeddings": {
 					"type": "boolean",
@@ -903,6 +923,11 @@
 					"command": "drip.removeIndexHere",
 					"when": "view == drip.knowledgeBase && viewItem == dripFolderWithIndex",
 					"group": "dripIndex@2"
+				},
+				{
+					"command": "drip.deleteItem",
+					"when": "view == drip.drafts && viewItem == dripDraft",
+					"group": "inline@1"
 				},
 				{
 					"command": "drip.deleteItem",

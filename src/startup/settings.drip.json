@@ -9,6 +9,8 @@
       ".md"
     ],
     "defaultNewNoteExtension": ".d.txt",
+    "editHeadingsInFile": false,
+    "editHeadingsViaRhs": true,
     "experimentalEmbeddings": true,
     "embeddingModel": "Xenova/all-MiniLM-L6-v2",
     "dripnoteAllowedMetadataKeys": [],

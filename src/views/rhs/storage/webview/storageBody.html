@@ -1,8 +1,31 @@
 <body>
 	<div class="storage-root">
+			<div class="storage-corpus-strip" aria-label="Storage corpus">
+				<label for="st-corpus">Corpus</label>
+				<div class="storage-corpus-row">
+					<select id="st-corpus" aria-label="Suggestion corpus">
+						<option value="working" selected>Working set (.dripignore)</option>
+						<option value="entire">Entire KB</option>
+						<option value="custom">Custom paths…</option>
+					</select>
+					<button type="button" class="secondary storage-corpus-edit hidden" id="st-corpus-edit" title="Change custom paths" hidden>Edit</button>
+				</div>
+			</div>
+			<div id="st-custom-corpus" class="storage-custom-corpus" hidden>
+				<p class="meta storage-custom-sub">Add files/folders from inside the .driplock KB only. Session-only (not saved).</p>
+				<div class="storage-custom-toolbar">
+					<button type="button" class="secondary" id="st-custom-add">Add files or folders…</button>
+				</div>
+				<ul id="st-custom-entries" class="storage-custom-entries"></ul>
+				<p id="st-custom-empty" class="meta">No paths yet.</p>
+				<div class="storage-custom-footer">
+					<button type="button" class="secondary" id="st-custom-cancel">Cancel</button>
+					<button type="button" id="st-custom-done">Done</button>
+				</div>
+			</div>
 			<div class="storage-toolbar-actions">
 				<button id="suggestions-btn" type="button">Suggestions</button>
-				<button type="button" class="secondary" id="ai-paths-btn" title="Deep match: top 3 paths across the whole knowledge base">AI</button>
+				<button type="button" class="secondary" id="ai-paths-btn" title="Deep match: top 3 paths across the selected corpus">AI</button>
 				<button type="button" class="secondary" id="btn-custom-select">Browse</button>
 			</div>
 			<div id="error" class="error"></div>

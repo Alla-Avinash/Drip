@@ -1,7 +1,13 @@
 'use strict';
 
+const { parseHeadingForValidation } = require('../document/parse/dripnoteCanvasParse');
+const {
+	findMetadataBlockEndExclusive,
+	isStructuredMetadataLine
+} = require('../document/model/persistentHeadingZones');
+const { isHeadingIdentityLine } = require('../indexing/dripnoteHeadingIdentity');
+
 /**
- * Normalize line endings to \n.
  * @param {string} s
  * @returns {string}
  */
@@ -10,7 +16,6 @@ function normalizeLineEndings(s) {
 }
 
 /**
- * Length of leading ASCII tabs and spaces only (stable for dedent; avoids full \s quirks).
  * @param {string} line
  * @returns {number}
  */
@@ -20,91 +25,158 @@ function leadingIndentLen(line) {
 }
 
 /**
- * Remove the smallest leading indent shared by all non-empty body lines.
- * Blank and whitespace-only lines do not affect the minimum and become empty lines.
+ * Dedent by the minimum shared leading indent on non-empty lines.
  * @param {string} bodyText
  * @returns {string}
  */
 function dedentBodyLines(bodyText) {
-	const lines = bodyText.split('\n');
+	const lines = String(bodyText || '').split('\n');
 	let min = Infinity;
 	for (const line of lines) {
-		if (!line.trim()) {
-			continue;
-		}
+		if (!line.trim()) continue;
 		const len = leadingIndentLen(line);
-		if (len < min) {
-			min = len;
-		}
+		if (len < min) min = len;
 	}
 	if (min === Infinity || min === 0) {
-		return bodyText;
+		return lines.join('\n');
 	}
 	return lines
 		.map(line => {
-			if (!line.trim()) {
-				return '';
-			}
+			if (!line.trim()) return '';
 			return line.slice(min);
 		})
 		.join('\n');
 }
 
 /**
- * Prepare editor selection for capture / ingest-from-selection:
- * - Drop leading blank lines.
- * - Trim trailing blank lines.
- * - First line: trim (heading has no leading/trailing whitespace).
- * - Body: dedent by minimum shared leading tabs/spaces; relative hierarchy unchanged.
- *
- * @param {string} rawText
- * @returns {string} Single line or "title\nbody"
+ * Drop trailing `@fN:hM` and 8-char heading hashes from a line.
+ * @param {string} line
+ * @returns {string}
  */
-function preprocessSelectionForCapture(rawText) {
-	const text = normalizeLineEndings(rawText);
-	let lines = text.split('\n');
-	while (lines.length && lines[0].trim() === '') {
-		lines.shift();
-	}
-	while (lines.length && lines[lines.length - 1].trim() === '') {
-		lines.pop();
-	}
-	if (lines.length === 0) {
-		return '';
-	}
-	const titleLine = lines[0].trim();
-	const bodyLines = lines.slice(1);
-	while (bodyLines.length && bodyLines[bodyLines.length - 1].trim() === '') {
-		bodyLines.pop();
-	}
-	if (bodyLines.length === 0) {
-		return titleLine;
-	}
-	const body = dedentBodyLines(bodyLines.join('\n'));
-	return body ? `${titleLine}\n${body}` : titleLine;
+function stripTrailingIdentityRefs(line) {
+	return String(line || '')
+		.replace(/\s+@+f\d+\s*:\s*h\d+\b/gi, '')
+		.replace(/\s+#\s*[A-Za-z0-9]{8}\b/g, '')
+		.replace(/[ \t]+$/g, '');
 }
 
 /**
- * First line → note title, rest → draft body (after preprocessing).
+ * Remove identity-only lines and strip trailing `@f…` refs.
+ * @param {string[]} lines
+ * @returns {string[]}
+ */
+function cleanCaptureLines(lines) {
+	/** @type {string[]} */
+	const out = [];
+	for (const raw of lines) {
+		if (isHeadingIdentityLine(raw)) continue;
+		const cleaned = stripTrailingIdentityRefs(raw);
+		if (!cleaned.trim() && String(raw || '').trim()) continue;
+		out.push(cleaned);
+	}
+	return out;
+}
+
+/**
+ * Trim outer blanks and collapse runs of blank lines to a single blank.
+ * @param {string[]} lines
+ * @returns {string[]}
+ */
+function normalizeBlankLines(lines) {
+	/** @type {string[]} */
+	const out = [];
+	let pendingBlank = false;
+	for (const line of lines) {
+		if (!String(line || '').trim()) {
+			if (out.length === 0) continue;
+			pendingBlank = true;
+			continue;
+		}
+		if (pendingBlank) {
+			out.push('');
+			pendingBlank = false;
+		}
+		out.push(line);
+	}
+	return out;
+}
+
+/**
+ * @returns {{ title: string, metadata: string, content: string }}
+ */
+function emptyCapture() {
+	return { title: '', metadata: '', content: '' };
+}
+
+/**
+ * Capture for Composer: strip `@f…` / heading ids and excess blank lines.
+ * Split into heading title, freeform metadata block, and body — no type parsing.
+ *
+ * @param {string} rawText
+ * @returns {{ title: string, metadata: string, content: string }}
+ */
+function parseSelectionForComposer(rawText) {
+	const text = normalizeLineEndings(rawText);
+	let lines = text.split('\n');
+	lines = cleanCaptureLines(lines);
+	lines = normalizeBlankLines(lines);
+	if (!lines.length) return emptyCapture();
+
+	let headingIdx = -1;
+	for (let i = 0; i < lines.length; i++) {
+		if (parseHeadingForValidation(lines[i])) {
+			headingIdx = i;
+			break;
+		}
+	}
+
+	if (headingIdx < 0) {
+		return {
+			title: String(lines[0] || '').trim(),
+			metadata: '',
+			content: dedentBodyLines(lines.slice(1).join('\n')).trim()
+		};
+	}
+
+	const title = String(lines[headingIdx] || '').trim();
+	const metaEnd = findMetadataBlockEndExclusive(lines, headingIdx);
+	const metaLines = lines.slice(headingIdx + 1, metaEnd).filter(l => {
+		const t = String(l || '').trim();
+		return t && isStructuredMetadataLine(l);
+	});
+	const metadata = dedentBodyLines(metaLines.join('\n')).trim();
+	const content = dedentBodyLines(lines.slice(metaEnd).join('\n')).trim();
+
+	return { title, metadata, content };
+}
+
+/**
+ * Legacy helper: title + combined metadata/body.
  * @param {string} rawText
  * @returns {{ title: string, content: string }}
  */
 function splitSelectionForCapture(rawText) {
-	const processed = preprocessSelectionForCapture(rawText);
-	if (!processed) {
-		return { title: '', content: '' };
-	}
-	const idx = processed.indexOf('\n');
-	if (idx === -1) {
-		return { title: processed, content: '' };
-	}
-	return {
-		title: processed.slice(0, idx),
-		content: processed.slice(idx + 1)
-	};
+	const parsed = parseSelectionForComposer(rawText);
+	const parts = [parsed.metadata, parsed.content].filter(Boolean);
+	return { title: parsed.title, content: parts.join('\n\n') };
+}
+
+/**
+ * @param {string} rawText
+ * @returns {string}
+ */
+function preprocessSelectionForCapture(rawText) {
+	const { title, content } = splitSelectionForCapture(rawText);
+	if (!title) return content || '';
+	if (!content) return title;
+	return `${title}\n${content}`;
 }
 
 module.exports = {
 	preprocessSelectionForCapture,
-	splitSelectionForCapture
+	splitSelectionForCapture,
+	parseSelectionForComposer,
+	stripTrailingIdentityRefs,
+	dedentBodyLines,
+	normalizeBlankLines
 };

@@ -141,7 +141,12 @@ class DripTreeDataProvider {
 			const item = new vscode.TreeItem(draft.title || 'Untitled Draft', vscode.TreeItemCollapsibleState.None);
 			item.kind = 'draft';
 			item.draftId = draft.id;
-			item.description = `${draft.priority} | ${draft.status}`;
+			const snippet = String(draft.metadata || draft.content || '')
+				.replace(/\s+/g, ' ')
+				.trim()
+				.slice(0, 48);
+			item.description = snippet || draft.status || 'draft';
+			item.tooltip = [draft.title || 'Untitled Draft', snippet].filter(Boolean).join('\n');
 			item.iconPath = new vscode.ThemeIcon('note');
 			item.command = {
 				command: 'drip.openComposer',

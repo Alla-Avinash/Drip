@@ -71,6 +71,7 @@ function getSettingsWebviewHtml(webview) {
 				<p class="meta">All settings in one place.</p>
 			</div>
 			<button class="navBtn active" data-panel="kb">Knowledge Base</button>
+			<button class="navBtn" data-panel="editor">Editor</button>
 			<button class="navBtn" data-panel="update">Update</button>
 			<button class="navBtn" data-panel="types">Metadata Types</button>
 			<button class="navBtn" data-panel="relations">Tags & Relations</button>
@@ -110,6 +111,22 @@ function getSettingsWebviewHtml(webview) {
 					<div class="actions">
 						<button id="btn-user-settings" class="secondary">Open User Settings (DRIP)</button>
 					</div>
+				</div>
+			</section>
+
+			<section id="panel-editor" class="panel">
+				<h3>Editor</h3>
+				<p class="meta">Choose <strong>one</strong> way to edit persistent headings (<code># .…</code>, <code># .c</code>, <code># .c#</code>, <code># .t1</code>, etc.). Plain headings without a leading <code>.</code> always edit in the file.</p>
+				<div class="card">
+					<label class="row">
+						<input type="radio" name="edit-headings-mode" id="opt-edit-headings-rhs" value="rhs" checked>
+						<span>Edit via RHS sidebar <strong>(recommended)</strong> — opens after you type a space after <code>.</code> / type shortcut; soft-locks title &amp; metadata in the file</span>
+					</label>
+					<label class="row">
+						<input type="radio" name="edit-headings-mode" id="opt-edit-headings-file" value="file">
+						<span>Edit directly in the <code>.d.txt</code> file</span>
+					</label>
+					<p class="meta">RHS mode: form fields come from the metadata type template (attributes, tags, relations). Changes save when focus returns to the editor or you switch tabs.</p>
 				</div>
 			</section>
 
@@ -268,6 +285,7 @@ function getSettingsWebviewHtml(webview) {
 		const navButtons = Array.prototype.slice.call(document.querySelectorAll('.navBtn'));
 		const panels = {
 			kb: document.getElementById('panel-kb'),
+			editor: document.getElementById('panel-editor'),
 			update: document.getElementById('panel-update'),
 			types: document.getElementById('panel-types'),
 			relations: document.getElementById('panel-relations'),
@@ -277,6 +295,8 @@ function getSettingsWebviewHtml(webview) {
 			'saved-settings': document.getElementById('panel-saved-settings'),
 			shortcuts: document.getElementById('panel-shortcuts')
 		};
+		const optEditHeadingsRhs = document.getElementById('opt-edit-headings-rhs');
+		const optEditHeadingsFile = document.getElementById('opt-edit-headings-file');
 		const optExperimentalEmbeddings = document.getElementById('opt-experimental-embeddings');
 		const embeddingModelIdEl = document.getElementById('embedding-model-id');
 		const autoOpenEl = document.getElementById('opt-auto-open');
@@ -781,6 +801,8 @@ function getSettingsWebviewHtml(webview) {
 			renderRelations();
 			renderMetadataMarks();
 			if (optExperimentalEmbeddings) optExperimentalEmbeddings.checked = !!message.experimentalEmbeddings;
+			if (optEditHeadingsRhs) optEditHeadingsRhs.checked = message.editHeadingsViaRhs !== false;
+			if (optEditHeadingsFile) optEditHeadingsFile.checked = !!message.editHeadingsInFile && message.editHeadingsViaRhs === false;
 			if (embeddingModelIdEl) embeddingModelIdEl.value = String(message.embeddingModel || '');
 			if (savedSettingsPathEl) {
 				var p = String(message.kbSettingsFilePath || '').trim();
@@ -1163,6 +1185,21 @@ function getSettingsWebviewHtml(webview) {
 		if (optExperimentalEmbeddings) {
 			optExperimentalEmbeddings.addEventListener('change', function () {
 				vscode.postMessage({ type: 'updateSetting', key: 'experimentalEmbeddings', value: !!optExperimentalEmbeddings.checked });
+			});
+		}
+		function pushHeadingEditMode(mode) {
+			var viaRhs = mode === 'rhs';
+			vscode.postMessage({ type: 'updateSetting', key: 'editHeadingsViaRhs', value: viaRhs });
+			vscode.postMessage({ type: 'updateSetting', key: 'editHeadingsInFile', value: !viaRhs });
+		}
+		if (optEditHeadingsRhs) {
+			optEditHeadingsRhs.addEventListener('change', function () {
+				if (optEditHeadingsRhs.checked) pushHeadingEditMode('rhs');
+			});
+		}
+		if (optEditHeadingsFile) {
+			optEditHeadingsFile.addEventListener('change', function () {
+				if (optEditHeadingsFile.checked) pushHeadingEditMode('file');
 			});
 		}
 		document.getElementById('btn-save-embedding').addEventListener('click', function () {

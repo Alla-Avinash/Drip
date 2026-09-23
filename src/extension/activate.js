@@ -21,7 +21,7 @@ const {
 } = require('../startup/dailyNotesDrip');
 const { DripState } = require('../state/state');
 const { DripTreeDataProvider } = require('../views/lhs/knowledgebase/tree');
-const {
+		const {
 	DripComposerPanel,
 	DripTagsPanel,
 	DripStorageWebviewProvider,
@@ -30,6 +30,13 @@ const {
 	postTagGraphStateToAll,
 	revealDripStorageView
 } = require('../views/views');
+const {
+	DripHeadingFormWebviewProvider,
+	DRIP_HEADING_FORM_VIEW_ID,
+	registerHeadingFormAutoFlush,
+	setHeadingFormExtensionContext
+} = require('../views/rhs/headingForm/panel');
+const { registerPersistentHeadingSoftLock } = require('../views/editor/persistentHeadingSoftLock');
 const { getSettingsWebviewHtml } = require('../views/settingsWebview');
 const { registerNoteImagePasteAndDrop } = require('../views/editor/noteImagePaste');
 const { registerDripnoteReferenceAssist } = require('../graph/dripnoteReferenceAssist');
@@ -38,7 +45,7 @@ const { registerDripnoteReferenceDefinitions } = require('../graph/dripnoteRefer
 const { registerDripnoteLinkDropInsert } = require('../graph/dripnoteLinkDropInsert');
 const { registerDripnoteDocumentSymbols } = require('../views/editor/dripnoteDocumentSymbols');
 const { runEmbeddingBenchmark } = require('../retrieval/embeddings');
-const { splitSelectionForCapture } = require('../views/capturePreprocess');
+const { parseSelectionForComposer } = require('../views/capturePreprocess');
 const { createKbTreeDragDropController } = require('../views/lhs/knowledgebase/kbTreeDragDrop');
 const { registerDripSidebarViewBehavior } = require('../views/lhs/knowledgebase/dripSidebarViews');
 const { showKbNewMenu } = require('../views/lhs/knowledgebase/kbCreateMenu');
@@ -102,6 +109,8 @@ async function postDripSettingsValuesToWebview(webview, dripState) {
 		dripMetadataMarks: c.get('dripMetadataMarks', defs.dripMetadataMarks),
 		experimentalEmbeddings: c.get('experimentalEmbeddings', defs.experimentalEmbeddings),
 		embeddingModel: c.get('embeddingModel', defs.embeddingModel),
+		editHeadingsInFile: c.get('editHeadingsInFile', defs.editHeadingsInFile === true),
+		editHeadingsViaRhs: c.get('editHeadingsViaRhs', defs.editHeadingsViaRhs !== false),
 		kbSettingsFilePath: kbRoot ? getSettingsDripFileUri(kbRoot).fsPath : ''
 	});
 }
@@ -109,6 +118,9 @@ async function postDripSettingsValuesToWebview(webview, dripState) {
 async function activate(context) {
 	const { configureEmbeddingModelCache } = require('../retrieval/embeddings');
 	configureEmbeddingModelCache(context.extensionPath);
+
+	const { initRhsStorageContexts } = require('../views/rhs/revealStorageOnly');
+	await initRhsStorageContexts();
 
 	await initializeMultiGraphStorage(context);
 	registerDripnoteTagCompletion(context);
@@ -120,6 +132,9 @@ async function activate(context) {
 	registerDripCanvasPanel(context);
 	const state = new DripState(context);
 	registerDripnoteIndexSync(context, state);
+	registerPersistentHeadingSoftLock(context);
+	setHeadingFormExtensionContext(context);
+	registerHeadingFormAutoFlush(context);
 	registerStartupCheck(context, state);
 	registerRetrieverAutoRefresh(context, state);
 	state.syncTagGraphCheckpointFromStorage();
@@ -393,6 +408,13 @@ async function activate(context) {
 
 	context.subscriptions.push(
 		vscode.window.registerWebviewViewProvider(
+			DRIP_HEADING_FORM_VIEW_ID,
+			new DripHeadingFormWebviewProvider(context.extensionUri)
+		)
+	);
+
+	context.subscriptions.push(
+		vscode.window.registerWebviewViewProvider(
 			DRIP_STORAGE_VIEW_ID,
 			new DripStorageWebviewProvider(context.extensionUri, state, sidebarRefreshHub)
 		)
@@ -448,8 +470,9 @@ async function activate(context) {
 				vscode.window.showInformationMessage('Select some text in the editor first.');
 				return;
 			}
-			const capture = splitSelectionForCapture(text);
+			const capture = parseSelectionForComposer(text);
 			await DripComposerPanel.createOrShow(context.extensionUri, state, sidebarRefreshHub, undefined, capture);
+			await revealDripStorageView();
 		}),
 		vscode.commands.registerCommand('drip.openDripSettingsView', async () => {
 			createOrShowSettingsPanel();

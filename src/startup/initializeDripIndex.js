@@ -18,6 +18,8 @@ const DRIP_SETTINGS_KEYS = [
 	'autoOpenComposerOnSidebarReveal',
 	'knowledgeBaseFileExtensions',
 	'defaultNewNoteExtension',
+	'editHeadingsInFile',
+	'editHeadingsViaRhs',
 	'experimentalEmbeddings',
 	'embeddingModel',
 	'dripnoteAllowedMetadataKeys',

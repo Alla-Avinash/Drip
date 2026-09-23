@@ -17,6 +17,8 @@ const DRIP_VIEW_ID = DRIP_KB_VIEW_ID;
 const DRIP_SIDEBAR_VIEW_ID = DRIP_KB_VIEW_ID;
 const DRIP_SETTINGS_VIEW_ID = 'drip.settings';
 const DRIP_STORAGE_VIEW_ID = 'drip.storage';
+/** RHS secondary-sidebar: persistent heading form editor */
+const DRIP_HEADING_FORM_VIEW_ID = 'drip.headingForm';
 const DRIP_COMMAND_ID = 'drip.openComposer';
 const DRIP_OPEN_KB_EDITOR_COMMAND_ID = 'drip.openKbEditor';
 const DRIP_CAPTURE_SELECTION_COMMAND_ID = 'drip.captureSelectionToComposer';
@@ -49,6 +51,7 @@ module.exports = {
 	DRIP_VIEW_ID,
 	DRIP_SETTINGS_VIEW_ID,
 	DRIP_STORAGE_VIEW_ID,
+	DRIP_HEADING_FORM_VIEW_ID,
 	DRIP_COMMAND_ID,
 	DRIP_OPEN_KB_EDITOR_COMMAND_ID,
 	DRIP_CAPTURE_SELECTION_COMMAND_ID,

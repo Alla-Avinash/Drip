@@ -19,7 +19,20 @@ const {
 	normalizeFolderPath,
 	parentFolderPathOfNote
 } = require('../indexing/embeddings/folderEmbeddingText');
-const { readTextFile, toRelativePath } = require('../indexing/kbFilesystem');
+const { readTextFile, toRelativePath, normalizeCorpusOptions, isPathVisibleForCorpus } = require('../indexing/kbFilesystem');
+
+/**
+ * @param {import('vscode').Uri} kbRoot
+ * @param {string} folderPathOrRel
+ * @param {{ corpus?: string, respectDripignore?: boolean, customCorpusPaths?: unknown }} corpusOpts
+ */
+async function filterRelVisible(kbRoot, folderPathOrRel, corpusOpts) {
+	const rel = String(folderPathOrRel || '')
+		.replace(/\\/g, '/')
+		.replace(/^\/+|\/+$/g, '');
+	if (!rel || rel === '.') return true;
+	return isPathVisibleForCorpus(kbRoot, rel, corpusOpts);
+}
 
 /**
  * @param {{ title?: string, headings?: string, content?: string }} noteInput
@@ -101,24 +114,36 @@ async function hydrateFilePlacementFields(kbRoot, fileUriStr, noteInput) {
  * @param {import('vscode').Uri} kbRoot
  * @param {{ title?: string, headings?: string, content?: string }} noteInput
  * @param {number} limit
- * @param {{ embeddingModelId?: string }} [options]
+ * @param {{ embeddingModelId?: string, corpus?: string, respectDripignore?: boolean, customCorpusPaths?: unknown }} [options]
  * @returns {Promise<Array<{ uri: import('vscode').Uri, label: string, score: string, action: string }> | null>}
  */
 async function rankFoldersFromIndex(kbRoot, noteInput, limit, options = {}) {
 	const q = noteQueryText(noteInput);
 	if (!q) return null;
+	const corpusOpts = normalizeCorpusOptions(options);
+	if (corpusOpts.corpus === 'custom' && !corpusOpts.customCorpusPaths.length) {
+		return [];
+	}
 	try {
 		const hits = await searchFoldersExact(kbRoot, q, {
-			limit: Math.max(limit * 4, 12),
+			limit: Math.max(limit * 12, 40),
 			modelId: options.embeddingModelId
 		});
 		if (!hits.length) return null;
-		return hits.slice(0, limit).map(h => ({
-			uri: vscode.Uri.parse(h.uri),
-			label: h.folderPath === '.' ? '(root)' : h.folderPath,
-			score: Number(h.score).toFixed(2),
-			action: 'folder'
-		}));
+		/** @type {Array<{ uri: import('vscode').Uri, label: string, score: string, action: string }>} */
+		const out = [];
+		for (const h of hits) {
+			const folderPath = h.folderPath === '.' ? '' : String(h.folderPath || '');
+			if (!(await filterRelVisible(kbRoot, folderPath || '.', corpusOpts))) continue;
+			out.push({
+				uri: vscode.Uri.parse(h.uri),
+				label: h.folderPath === '.' ? '(root)' : h.folderPath,
+				score: Number(h.score).toFixed(2),
+				action: 'folder'
+			});
+			if (out.length >= limit) break;
+		}
+		return out.length ? out : null;
 	} catch (err) {
 		console.error('[DRIP] storage folder index rank failed', err);
 		return null;
@@ -131,12 +156,16 @@ async function rankFoldersFromIndex(kbRoot, noteInput, limit, options = {}) {
  * @param {import('vscode').Uri} folderUri
  * @param {{ title?: string, headings?: string, content?: string }} noteInput
  * @param {number} limit
- * @param {{ embeddingModelId?: string }} [options]
+ * @param {{ embeddingModelId?: string, corpus?: string, respectDripignore?: boolean, customCorpusPaths?: unknown }} [options]
  * @returns {Promise<Array<Record<string, unknown>> | null>}
  */
 async function rankChildrenFromIndex(kbRoot, folderUri, noteInput, limit, options = {}) {
 	const q = noteQueryText(noteInput);
 	if (!q) return null;
+	const corpusOpts = normalizeCorpusOptions(options);
+	if (corpusOpts.corpus === 'custom' && !corpusOpts.customCorpusPaths.length) {
+		return [];
+	}
 
 	const folderRel = toRelativePath(kbRoot, folderUri).replace(/\\/g, '/');
 	const folderPath = normalizeFolderPath(folderRel && folderRel !== '.' ? folderRel : '.');
@@ -144,11 +173,11 @@ async function rankChildrenFromIndex(kbRoot, folderUri, noteInput, limit, option
 	try {
 		const [folderHits, headingResult] = await Promise.all([
 			searchFoldersExact(kbRoot, q, {
-				limit: Math.max(limit * 8, 24),
+				limit: Math.max(limit * 16, 48),
 				modelId: options.embeddingModelId
 			}),
 			searchHeadingsByEmbedding(kbRoot, q, {
-				limit: Math.max(limit * 10, 40),
+				limit: Math.max(limit * 20, 80),
 				modelId: options.embeddingModelId
 			})
 		]);
@@ -158,6 +187,7 @@ async function rankChildrenFromIndex(kbRoot, folderUri, noteInput, limit, option
 
 		for (const h of folderHits) {
 			if (!isDirectChildFolder(folderPath, h.folderPath)) continue;
+			if (!(await filterRelVisible(kbRoot, h.folderPath, corpusOpts))) continue;
 			mixed.push({
 				kind: 'folder',
 				uri: h.uri,
@@ -170,6 +200,7 @@ async function rankChildrenFromIndex(kbRoot, folderUri, noteInput, limit, option
 		const byFile = new Map();
 		for (const hit of headingResult.hits || []) {
 			if (!noteIsDirectlyInFolder(folderPath, hit.relPath)) continue;
+			if (!(await filterRelVisible(kbRoot, hit.relPath, corpusOpts))) continue;
 			const prev = byFile.get(hit.relPath);
 			const score = Number(hit.score) || 0;
 			if (prev && prev.scoreValue >= score) continue;

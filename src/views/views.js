@@ -1,5 +1,6 @@
 'use strict';
 
+const path = require('path');
 const vscode = require('vscode');
 const {
 	DRIP_COMMAND_ID,
@@ -13,18 +14,21 @@ const {
 	DRIP_DRAFTS_VIEW_ID,
 	DRIP_STORAGE_VIEW_ID
 } = require('../shared/constants');
-const { getComposerHtml } = require('./webviews');
+const { getComposerHtml } = require('./composer/composerHtml');
 const { getStorageWebviewHtml } = require('./rhs/storage/storageHtml');
 const { getTagsWebviewHtml, getSubGraphPanelHtml } = require('../graph/tagsWebview');
-const { createEmptyDraft } = require('../state/state');
+const { createEmptyDraft, combineComposerSections } = require('../state/state');
 const { exportActiveTagGraphToFile, runTagGraphNew, runTagGraphImport } = require('../graph/tagGraphCommands');
 const { DripRetrieverPanel } = require('./lhs/retriever/panel');
 
 /** @type {import('vscode').Webview | null} */
 let storageWebviewRef = null;
 
-/** @type {{ id: string, title: string, headings: string, content: string, metadataFilename: string } | null} */
+/** @type {{ id: string, title: string, headings: string, metadata: string, content: string, metadataFilename: string } | null} */
 let lastComposerNote = null;
+
+/** @type {{ title: string, metadata: string, content: string } | null} */
+let lastComposerCapture = null;
 
 /** @type {unknown} */
 let lastStorageSelection = undefined;
@@ -46,6 +50,12 @@ function postKbNoteSettingsToStorage() {
 
 /** Hides the secondary side bar where DRIP Storage lives (user-requested when using the tags graph). */
 async function closeSecondarySideBarIfVisible() {
+	try {
+		const { resetRhsViewVisibility } = require('./rhs/revealStorageOnly');
+		await resetRhsViewVisibility();
+	} catch {
+		/* ignore */
+	}
 	try {
 		await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar');
 	} catch {
@@ -1033,24 +1043,12 @@ async function handleTagGraphMessage(webview, message, state, extensionUri) {
 }
 
 /**
- * Opens the secondary (right) sidebar on the DRIP Storage view — not Chat / other panels.
- * Exported so commands can focus Storage before posting webview messages.
+ * Opens the secondary (right) sidebar on Storage with Heading hidden —
+ * used for Composer capture and Ingest.
  */
 async function revealDripStorageView() {
-	try {
-		await vscode.commands.executeCommand('workbench.view.extension.drip-storage-panel');
-	} catch {
-		// Older VS Code builds may use a different id; fall through to .focus.
-	}
-	try {
-		await vscode.commands.executeCommand(`${DRIP_STORAGE_VIEW_ID}.focus`);
-	} catch {
-		try {
-			await vscode.commands.executeCommand('workbench.action.focusAuxiliaryBar');
-		} catch {
-			// ignore
-		}
-	}
+	const { revealStorageOnly } = require('./rhs/revealStorageOnly');
+	await revealStorageOnly();
 }
 
 /** @param {*} sidebarProvider */
@@ -1063,10 +1061,17 @@ async function notifyDraftSaved(sidebarProvider, draft, statusMessage) {
 			id: draft.id || '',
 			title: draft.title || '',
 			headings: draft.headings || '',
+			metadata: draft.metadata || '',
 			content: draft.content || '',
 			metadataFilename: draft.metadataFilename || ''
 		};
-		postToStorage({ type: 'composerNote', note: lastComposerNote });
+		postToStorage({
+			type: 'composerNote',
+			note: {
+				...lastComposerNote,
+				content: combineComposerSections(lastComposerNote.metadata, lastComposerNote.content)
+			}
+		});
 	}
 	postToStorage({ type: 'storageActionStatus', message: statusMessage || '' });
 }
@@ -1088,6 +1093,7 @@ async function notifyAfterIngest(sidebarProvider, summary) {
 			id: empty.id || '',
 			title: empty.title || '',
 			headings: empty.headings || '',
+			metadata: empty.metadata || '',
 			content: empty.content || '',
 			metadataFilename: empty.metadataFilename || ''
 		};
@@ -1136,19 +1142,28 @@ class DripStorageWebviewProvider {
 						break;
 					case 'previewTargets': {
 						const note = message.note || lastComposerNote;
-						const preview = await this.state.previewTargets(note);
+						const preview = await this.state.previewTargets(note, {
+							corpus: message.corpus,
+							customCorpusPaths: message.customCorpusPaths
+						});
 						await w.postMessage({ type: 'previewTargetsResult', preview });
 						break;
 					}
 					case 'deepAiSuggestions': {
 						const note = message.note || lastComposerNote;
-						const result = await this.state.deepAiSuggestions(note);
+						const result = await this.state.deepAiSuggestions(note, {
+							corpus: message.corpus,
+							customCorpusPaths: message.customCorpusPaths
+						});
 						await w.postMessage({ type: 'deepAiSuggestionsResult', ...result });
 						break;
 					}
 					case 'previewFolderFiles': {
 						const note = message.note || lastComposerNote;
-						const result = await this.state.previewFolderFiles(note, message.folderUri);
+						const result = await this.state.previewFolderFiles(note, message.folderUri, {
+							corpus: message.corpus,
+							customCorpusPaths: message.customCorpusPaths
+						});
 						await w.postMessage({ type: 'previewFolderFilesResult', ...result });
 						break;
 					}
@@ -1159,14 +1174,20 @@ class DripStorageWebviewProvider {
 						break;
 					}
 					case 'browseKbList': {
-						const listing = await this.state.browseKbList(message.folderUri);
+						const listing = await this.state.browseKbList(message.folderUri, {
+							corpus: message.corpus,
+							customCorpusPaths: message.customCorpusPaths
+						});
 						await w.postMessage({ type: 'browseKbListResult', ...listing });
 						break;
 					}
 					case 'createNoteInFolderFromPicker': {
 						const fileUri = await this.state.createNoteInFolderFromPicker(message.folderUri, message.title);
 						await this.sidebarProvider.refresh();
-						const listing = await this.state.browseKbList(message.folderUri);
+						const listing = await this.state.browseKbList(message.folderUri, {
+							corpus: message.corpus,
+							customCorpusPaths: message.customCorpusPaths
+						});
 						await w.postMessage({
 							type: 'browseKbListResult',
 							...listing,
@@ -1177,8 +1198,60 @@ class DripStorageWebviewProvider {
 					case 'createSubfolderFromPicker': {
 						const newFolderUri = await this.state.createSubfolderFromPicker(message.parentUri, message.name);
 						await this.sidebarProvider.refresh();
-						const listing = await this.state.browseKbList(newFolderUri);
+						const listing = await this.state.browseKbList(newFolderUri, {
+							corpus: message.corpus,
+							customCorpusPaths: message.customCorpusPaths
+						});
 						await w.postMessage({ type: 'browseKbListResult', ...listing });
+						break;
+					}
+					case 'storagePickCustomPaths': {
+						const kbRoot = this.state.getKnowledgeBaseRoot();
+						if (!kbRoot) {
+							void vscode.window.showWarningMessage('Pick a knowledge base (.driplock) folder first.');
+							break;
+						}
+						const uris = await vscode.window.showOpenDialog({
+							canSelectFiles: true,
+							canSelectFolders: true,
+							canSelectMany: true,
+							openLabel: 'Add from KB',
+							title: 'Add files or folders from the .driplock knowledge base',
+							defaultUri: kbRoot
+						});
+						if (!uris || !uris.length) break;
+						const entries = [];
+						const seen = new Set();
+						for (const uri of uris) {
+							const rel = path.relative(kbRoot.fsPath, uri.fsPath).replace(/\\/g, '/');
+							if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
+								void vscode.window.showWarningMessage(
+									`Skipped path outside KB: ${uri.fsPath}`
+								);
+								continue;
+							}
+							const low = rel.toLowerCase();
+							if (seen.has(low)) continue;
+							seen.add(low);
+							let kind = 'file';
+							try {
+								const st = await vscode.workspace.fs.stat(uri);
+								if (st.type & vscode.FileType.Directory) kind = 'folder';
+							} catch {
+								/* keep file */
+							}
+							entries.push({
+								path: rel,
+								kind,
+								name: path.basename(uri.fsPath)
+							});
+						}
+						if (entries.length) {
+							await w.postMessage({
+								type: 'storageCustomPathsPicked',
+								payload: { entries }
+							});
+						}
 						break;
 					}
 					case 'selectionChanged':
@@ -1263,7 +1336,7 @@ class DripComposerPanel {
 			}
 		);
 
-		DripComposerPanel.currentPanel = new DripComposerPanel(panel, state, sidebarProvider);
+		DripComposerPanel.currentPanel = new DripComposerPanel(panel, state, sidebarProvider, extensionUri);
 		await DripComposerPanel.currentPanel.loadState(draftId, '', {
 			clearStorageSuggestions: !capture
 		});
@@ -1278,12 +1351,19 @@ class DripComposerPanel {
 		}
 	}
 
-	constructor(panel, state, sidebarProvider) {
+	/**
+	 * @param {import('vscode').WebviewPanel} panel
+	 * @param {*} state
+	 * @param {*} sidebarProvider
+	 * @param {import('vscode').Uri} extensionUri
+	 */
+	constructor(panel, state, sidebarProvider, extensionUri) {
 		this.panel = panel;
 		this.state = state;
 		this.sidebarProvider = sidebarProvider;
+		this.extensionUri = extensionUri;
 
-		this.panel.webview.html = getComposerHtml(this.panel.webview);
+		this.panel.webview.html = getComposerHtml(this.panel.webview, this.extensionUri);
 
 		this.panel.onDidDispose(() => {
 			DripComposerPanel.currentPanel = undefined;
@@ -1300,11 +1380,28 @@ class DripComposerPanel {
 						await this.loadState(message.draftId);
 						break;
 					case 'noteSnapshot':
-						lastComposerNote = message.note;
-						postToStorage({ type: 'composerNote', note: message.note });
+						lastComposerNote = {
+							id: message.note?.id || '',
+							title: message.note?.title || '',
+							headings: message.note?.headings || '',
+							metadata: message.note?.metadata || '',
+							content: message.note?.content || '',
+							metadataFilename: message.note?.metadataFilename || ''
+						};
+						postToStorage({
+							type: 'composerNote',
+							note: {
+								...lastComposerNote,
+								content: combineComposerSections(
+									lastComposerNote.metadata,
+									lastComposerNote.content
+								)
+							}
+						});
 						break;
 					case 'composerNewNote':
 						lastStorageSelection = undefined;
+						lastComposerCapture = null;
 						postToStorage({
 							type: 'storageReset',
 							summaryText: 'No target selected. Use Suggestions.'
@@ -1315,6 +1412,9 @@ class DripComposerPanel {
 						break;
 					case 'ingestNote':
 						await this.handleIngest(message.note);
+						break;
+					case 'deleteDraft':
+						await this.handleDeleteDraft(message.draftId);
 						break;
 					case 'selectKnowledgeBase':
 						await vscode.commands.executeCommand(DRIP_SELECT_KB_COMMAND_ID);
@@ -1330,6 +1430,33 @@ class DripComposerPanel {
 	async handleSaveDraft(note) {
 		const draft = await this.state.saveDraft(note);
 		await notifyDraftSaved(this.sidebarProvider, draft, 'Draft saved.');
+	}
+
+	async handleDeleteDraft(draftId) {
+		const id = String(draftId || '').trim();
+		if (!id) {
+			await vscode.window.showInformationMessage(
+				'This note is not a saved draft yet. Save Draft first, or use New Note to clear the form.'
+			);
+			return;
+		}
+		await this.state.deleteItem({
+			kind: 'draft',
+			contextValue: 'dripDraft',
+			draftId: id
+		});
+		if (this.state.getDraftById(id)) {
+			return;
+		}
+		lastComposerCapture = null;
+		lastComposerNote = null;
+		lastStorageSelection = undefined;
+		postToStorage({
+			type: 'storageReset',
+			summaryText: 'No target selected. Use Suggestions.'
+		});
+		await this.sidebarProvider.refresh();
+		await this.loadState(undefined, 'Draft deleted.');
 	}
 
 	async handleIngest(note) {
@@ -1348,18 +1475,34 @@ class DripComposerPanel {
 
 	async postCapture(capture) {
 		const title = capture.title != null ? capture.title : '';
+		const metadata = capture.metadata != null ? capture.metadata : '';
 		const content = capture.content != null ? capture.content : '';
+		lastComposerCapture = { title, metadata, content };
+		const ingestTitle = (() => {
+			const m = String(title || '').trim().match(/^#{1,6}\s+(.*)$/);
+			return m ? String(m[1] || '').trim() : String(title || '').trim();
+		})();
+		// Capture always starts a new unsaved draft — do not keep the previous draft id
+		// or Save Draft would overwrite the earlier draft (same title is common).
 		lastComposerNote = {
-			id: lastComposerNote?.id || '',
-			title,
-			headings: '',
+			id: '',
+			title: ingestTitle,
+			headings: ingestTitle,
+			metadata,
 			content,
-			metadataFilename: ''
+			metadataFilename: ingestTitle
 		};
-		postToStorage({ type: 'composerNote', note: lastComposerNote });
+		postToStorage({
+			type: 'composerNote',
+			note: {
+				...lastComposerNote,
+				content: combineComposerSections(metadata, content)
+			}
+		});
 		await this.panel.webview.postMessage({
 			type: 'capturedSelection',
 			title,
+			metadata,
 			content
 		});
 		postToStorage({
@@ -1369,6 +1512,9 @@ class DripComposerPanel {
 	}
 
 	async loadState(draftId, statusMessage, options = {}) {
+		if (options.clearStorageSuggestions) {
+			lastComposerCapture = null;
+		}
 		const hasExplicitDraftId =
 			draftId !== undefined && draftId !== null && String(draftId).trim().length > 0;
 		const resolvedId = hasExplicitDraftId ? draftId : lastComposerNote?.id;
@@ -1381,6 +1527,7 @@ class DripComposerPanel {
 			lastComposerNote &&
 			(lastComposerNote.title ||
 				lastComposerNote.headings ||
+				lastComposerNote.metadata ||
 				lastComposerNote.content ||
 				lastComposerNote.metadataFilename)
 		) {
@@ -1389,6 +1536,7 @@ class DripComposerPanel {
 				title: lastComposerNote.title || '',
 				priority: 'Medium',
 				headings: lastComposerNote.headings || '',
+				metadata: lastComposerNote.metadata || '',
 				content: lastComposerNote.content || '',
 				metadataFilename: lastComposerNote.metadataFilename || '',
 				status: 'draft'
@@ -1402,6 +1550,7 @@ class DripComposerPanel {
 			id: draft.id || '',
 			title: draft.title || '',
 			headings: draft.headings || '',
+			metadata: draft.metadata || '',
 			content: draft.content || '',
 			metadataFilename: draft.metadataFilename || ''
 		};
@@ -1412,11 +1561,18 @@ class DripComposerPanel {
 				kbRootPath: sidebarState.kbRootPath,
 				draft,
 				statusMessage: statusMessage || '',
-				clearStorageSuggestions: options.clearStorageSuggestions === true
+				clearStorageSuggestions: options.clearStorageSuggestions === true,
+				capture: lastComposerCapture
 			}
 		});
 
-		postToStorage({ type: 'composerNote', note: lastComposerNote });
+		postToStorage({
+			type: 'composerNote',
+			note: {
+				...lastComposerNote,
+				content: combineComposerSections(lastComposerNote.metadata, lastComposerNote.content)
+			}
+		});
 
 		if (options.clearStorageSuggestions) {
 			postToStorage({

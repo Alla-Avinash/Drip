@@ -624,11 +624,26 @@ function registerDripnoteMetadataDiagnostics(context) {
 				const at = hLine.indexOf(prefix);
 				const d = new vscode.Diagnostic(
 					new vscode.Range(i, Math.max(0, at), i, Math.max(0, at) + prefix.length),
-					`Invalid task shortcut "${prefix}" — use .t or .tN (digits only). It will be normalized to .tN on save/reconcile.`,
+					`Invalid metadata shortcut "${prefix}" — use a configured shortcut (e.g. .t or .tN).`,
 					vscode.DiagnosticSeverity.Error
 				);
 				d.code = 'drip.invalidTaskShortcut';
 				diagnostics.push(d);
+			} else if (!titleMatch.typeId) {
+				// Persistent `# .token` that is not in drip settings → still allowed (untyped), but flag it.
+				const titleOnly = hLine.replace(/^\s*#{1,6}\s+/, '').trim();
+				const unk = titleOnly.match(/^(\.([A-Za-z][A-Za-z0-9_-]*)(#|\d+)?)/);
+				if (unk && unk[1] !== '.') {
+					const prefix = unk[1];
+					const at = hLine.indexOf(prefix);
+					const d = new vscode.Diagnostic(
+						new vscode.Range(i, Math.max(0, at), i, Math.max(0, at) + prefix.length),
+						`Unknown metadata shortcut "${prefix}" — not in DRIP settings. Heading stays persistent with no metadata type.`,
+						vscode.DiagnosticSeverity.Error
+					);
+					d.code = 'drip.unknownMetadataShortcut';
+					diagnostics.push(d);
+				}
 			}
 			if (!started || end <= start) continue;
 			let blockType = headingType;

@@ -37,6 +37,7 @@ function normalizeDraftRecord(raw) {
 		title: String(raw.title || 'Untitled Draft').trim(),
 		priority: String(raw.priority || 'Medium'),
 		headings: String(raw.headings || ''),
+		metadata: String(raw.metadata || ''),
 		content: String(raw.content || ''),
 		metadataFilename: String(raw.metadataFilename || '').trim(),
 		updatedAt: String(raw.updatedAt || new Date().toISOString()),

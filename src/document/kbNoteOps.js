@@ -11,7 +11,9 @@ const {
 	forEachKnowledgeBaseNotePath,
 	getKnowledgeBaseTreeChildren,
 	isPathIgnored,
+	isPathVisibleForCorpus,
 	listImmediateFolderChildrenOfRoot,
+	normalizeCorpusOptions,
 	readTextFile,
 	toRelativePath,
 	walkKbNoteFiles,
@@ -133,13 +135,15 @@ async function chooseTargetFolder(rootUri, noteInput) {
  * @param {import('vscode').Uri} rootUri
  * @param {{ title?: string, headings?: string, content?: string }} noteInput
  * @param {number} limit
- * @param {{ useEmbeddings?: boolean, embeddingModelId?: string }} [options]
+ * @param {{ useEmbeddings?: boolean, embeddingModelId?: string, corpus?: string, respectDripignore?: boolean, customCorpusPaths?: unknown }} [options]
  */
 async function rankFolderCandidates(rootUri, noteInput, limit = 4, options = {}) {
+	const corpusOpts = normalizeCorpusOptions(options);
 	if (options.useEmbeddings === true) {
 		const { rankFoldersFromIndex } = require('../retrieval/storageIndexRank');
 		const fromIndex = await rankFoldersFromIndex(rootUri, noteInput, limit, {
-			embeddingModelId: options.embeddingModelId
+			embeddingModelId: options.embeddingModelId,
+			...corpusOpts
 		});
 		if (fromIndex && fromIndex.length) {
 			return fromIndex;
@@ -147,7 +151,7 @@ async function rankFolderCandidates(rootUri, noteInput, limit = 4, options = {})
 	}
 
 	const headingText = `${noteInput.title}\n${noteInput.headings}\n${noteInput.content || ''}`;
-	const folders = await listImmediateFolderChildrenOfRoot(rootUri);
+	const folders = await listImmediateFolderChildrenOfRoot(rootUri, corpusOpts);
 
 	/** @type {Array<{ uri: import('vscode').Uri, label: string, scoreValue: number, candidateText: string, action: string }>} */
 	let pool = folders.map(folder => {
@@ -504,9 +508,10 @@ async function rankFilesInFolder(kbRoot, folderUri, noteInput, limit = 3) {
  * @param {import('vscode').Uri} folderUri
  * @param {{ title?: string, headings?: string, content?: string }} noteInput
  * @param {number} limit Combined cap: best N items across subfolders and notes (single ranking, not N files + N folders).
- * @param {{ useEmbeddings?: boolean, embeddingModelId?: string }} [options]
+ * @param {{ useEmbeddings?: boolean, embeddingModelId?: string, corpus?: string, respectDripignore?: boolean, customCorpusPaths?: unknown }} [options]
  */
 async function rankSubfoldersAndFilesInFolder(kbRoot, folderUri, noteInput, limit = 3, options = {}) {
+	const corpusOpts = normalizeCorpusOptions(options);
 	const normalized = {
 		title: noteInput.title || '',
 		headings: noteInput.headings || '',
@@ -514,6 +519,17 @@ async function rankSubfoldersAndFilesInFolder(kbRoot, folderUri, noteInput, limi
 	};
 	const queryBundle = `${normalized.title}\n${normalized.headings}\n${normalized.content}`;
 	const useEmbeddings = options.useEmbeddings === true;
+
+	if (useEmbeddings) {
+		const { rankChildrenFromIndex } = require('../retrieval/storageIndexRank');
+		const fromIndex = await rankChildrenFromIndex(kbRoot, folderUri, noteInput, limit, {
+			embeddingModelId: options.embeddingModelId,
+			...corpusOpts
+		});
+		if (fromIndex && fromIndex.length) {
+			return fromIndex;
+		}
+	}
 
 	const entries = await vscode.workspace.fs.readDirectory(folderUri);
 	const mixed = [];
@@ -525,7 +541,7 @@ async function rankSubfoldersAndFilesInFolder(kbRoot, folderUri, noteInput, limi
 			}
 			const uri = vscode.Uri.joinPath(folderUri, name);
 			const relativePath = toRelativePath(kbRoot, uri);
-			if (await isPathIgnored(kbRoot, relativePath)) {
+			if (!(await isPathVisibleForCorpus(kbRoot, relativePath, corpusOpts))) {
 				continue;
 			}
 			const candidateText = `${relativePath}\n${name}`;
@@ -548,7 +564,7 @@ async function rankSubfoldersAndFilesInFolder(kbRoot, folderUri, noteInput, limi
 		const uri = vscode.Uri.joinPath(folderUri, name);
 		const relativePath = toRelativePath(kbRoot, uri);
 
-		if (await isPathIgnored(kbRoot, relativePath)) {
+		if (!(await isPathVisibleForCorpus(kbRoot, relativePath, corpusOpts))) {
 			continue;
 		}
 
@@ -1031,10 +1047,14 @@ function buildAppendedNote(existingContent, draft, headingPath, options = {}) {
  * @param {import('vscode').Uri} kbRoot
  * @param {{ title?: string, headings?: string, content?: string }} noteInput
  * @param {number} limit
- * @param {{ useEmbeddings?: boolean, embeddingModelId?: string }} [options] embeddingModelId passed to Transformers.js (e.g. Xenova/all-MiniLM-L6-v2)
+ * @param {{ useEmbeddings?: boolean, embeddingModelId?: string, corpus?: string, respectDripignore?: boolean, customCorpusPaths?: unknown }} [options] embeddingModelId passed to Transformers.js (e.g. Xenova/all-MiniLM-L6-v2)
  * @returns {Promise<Array<{ targetType: 'folder' | 'file', scoreValue: number } & Record<string, unknown>>>}
  */
 async function rankDeepStorageCandidates(kbRoot, noteInput, limit = 3, options = {}) {
+	const corpusOpts = normalizeCorpusOptions(options);
+	if (corpusOpts.corpus === 'custom' && !corpusOpts.customCorpusPaths.length) {
+		return [];
+	}
 	const normalized = {
 		title: noteInput.title || '',
 		headings: noteInput.headings || '',
@@ -1048,7 +1068,7 @@ async function rankDeepStorageCandidates(kbRoot, noteInput, limit = 3, options =
 
 	async function walk(folderUri) {
 		const rel = toRelativePath(kbRoot, folderUri);
-		if (rel && (await isPathIgnored(kbRoot, rel))) {
+		if (rel && !(await isPathVisibleForCorpus(kbRoot, rel, corpusOpts))) {
 			return;
 		}
 
@@ -1078,14 +1098,14 @@ async function rankDeepStorageCandidates(kbRoot, noteInput, limit = 3, options =
 				}
 				const sub = vscode.Uri.joinPath(folderUri, name);
 				const subRel = toRelativePath(kbRoot, sub);
-				if (await isPathIgnored(kbRoot, subRel)) {
+				if (!(await isPathVisibleForCorpus(kbRoot, subRel, corpusOpts))) {
 					continue;
 				}
 				await walk(sub);
 			} else if (type === vscode.FileType.File && fileNameMatchesKbNote(name)) {
 				const fileUri = vscode.Uri.joinPath(folderUri, name);
 				const fileRel = toRelativePath(kbRoot, fileUri);
-				if (await isPathIgnored(kbRoot, fileRel)) {
+				if (!(await isPathVisibleForCorpus(kbRoot, fileRel, corpusOpts))) {
 					continue;
 				}
 

@@ -1,0 +1,31 @@
+<body>
+	<div class="hf-root">
+		<div id="hf-empty" class="hf-empty" hidden></div>
+		<form id="hf-form" class="hf-form" hidden>
+			<div class="hf-top">
+				<input id="hf-title" type="text" class="hf-title-input" placeholder="Title" />
+				<button type="button" id="hf-copy-id" class="hf-icon-btn" title="Copy heading id" disabled aria-label="Copy heading id">⧉</button>
+			</div>
+			<div class="hf-row">
+				<span class="hf-key">Type</span>
+				<div class="hf-val">
+					<select id="hf-type"></select>
+				</div>
+			</div>
+			<div id="hf-attrs"></div>
+			<div class="hf-row">
+				<span class="hf-key">Tags</span>
+				<div class="hf-val">
+					<div id="hf-tags-picker" class="hf-tag-picker"></div>
+				</div>
+			</div>
+			<div class="hf-section">
+				<div class="hf-section-label">Relations</div>
+				<div id="hf-relations"></div>
+				<button type="button" id="hf-add-rel" class="hf-linkish">+ relation</button>
+			</div>
+			<div class="hf-actions">
+				<button type="button" id="hf-delete" class="hf-danger">Delete</button>
+			</div>
+		</form>
+	</div>

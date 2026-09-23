@@ -196,6 +196,7 @@ class DripState {
 			title: (input.title || 'Untitled Draft').trim(),
 			priority: input.priority || 'Medium',
 			headings: input.headings || '',
+			metadata: input.metadata != null ? String(input.metadata) : '',
 			content: input.content || '',
 			metadataFilename: (input.metadataFilename || '').trim(),
 			updatedAt: now,
@@ -365,7 +366,7 @@ class DripState {
 		}));
 	}
 
-	async previewTargets(noteInput) {
+	async previewTargets(noteInput, corpusRaw) {
 		const kbRoot = await this.ensureKnowledgeBaseRoot();
 		if (!kbRoot) {
 			return {
@@ -375,6 +376,9 @@ class DripState {
 				warning: 'Select a knowledge base folder first.'
 			};
 		}
+
+		const { normalizeCorpusOptions } = require('../indexing/kbFilesystem');
+		const corpusOpts = normalizeCorpusOptions(corpusRaw);
 
 		const normalizedNoteInput = {
 			...noteInput,
@@ -387,7 +391,8 @@ class DripState {
 
 		const topFolders = await rankFolderCandidates(kbRoot, normalizedNoteInput, 3, {
 			useEmbeddings,
-			embeddingModelId
+			embeddingModelId,
+			...corpusOpts
 		});
 
 		const suggestedDefault = topFolders[0]
@@ -411,11 +416,14 @@ class DripState {
 		};
 	}
 
-	async previewFolderFiles(noteInput, folderUriStr) {
+	async previewFolderFiles(noteInput, folderUriStr, corpusRaw) {
 		const kbRoot = await this.ensureKnowledgeBaseRoot();
 		if (!kbRoot) {
 			throw new Error('No knowledge base folder selected.');
 		}
+
+		const { normalizeCorpusOptions } = require('../indexing/kbFilesystem');
+		const corpusOpts = normalizeCorpusOptions(corpusRaw);
 
 		const folderUri = vscode.Uri.parse(folderUriStr);
 		const rel = path.relative(kbRoot.fsPath, folderUri.fsPath);
@@ -439,7 +447,7 @@ class DripState {
 			folderUri,
 			normalizedNoteInput,
 			3,
-			{ useEmbeddings, embeddingModelId }
+			{ useEmbeddings, embeddingModelId, ...corpusOpts }
 		);
 		const files = suggestions.filter(s => s.type === 'file');
 		return {
@@ -451,7 +459,7 @@ class DripState {
 		};
 	}
 
-	async deepAiSuggestions(noteInput) {
+	async deepAiSuggestions(noteInput, corpusRaw) {
 		const kbRoot = await this.ensureKnowledgeBaseRoot();
 		if (!kbRoot) {
 			return {
@@ -460,6 +468,9 @@ class DripState {
 				warning: 'Select a knowledge base folder first.'
 			};
 		}
+
+		const { normalizeCorpusOptions } = require('../indexing/kbFilesystem');
+		const corpusOpts = normalizeCorpusOptions(corpusRaw);
 
 		const normalizedNoteInput = {
 			...noteInput,
@@ -472,7 +483,8 @@ class DripState {
 
 		const raw = await rankDeepStorageCandidates(kbRoot, normalizedNoteInput, 3, {
 			useEmbeddings,
-			embeddingModelId
+			embeddingModelId,
+			...corpusOpts
 		});
 
 		const paths = raw.map(entry => {
@@ -573,11 +585,14 @@ class DripState {
 		await writeTextFile(uri, out);
 	}
 
-	async browseKbList(folderUriStr) {
+	async browseKbList(folderUriStr, corpusRaw) {
 		const kbRoot = await this.ensureKnowledgeBaseRoot();
 		if (!kbRoot) {
 			throw new Error('No knowledge base folder selected.');
 		}
+
+		const { normalizeCorpusOptions, isPathVisibleForCorpus } = require('../indexing/kbFilesystem');
+		const corpusOpts = normalizeCorpusOptions(corpusRaw);
 
 		const folderUri = folderUriStr ? vscode.Uri.parse(folderUriStr) : kbRoot;
 		const relFolder = path.relative(kbRoot.fsPath, folderUri.fsPath);
@@ -598,7 +613,7 @@ class DripState {
 			const child = vscode.Uri.joinPath(folderUri, name);
 			const rel = path.relative(kbRoot.fsPath, child.fsPath).replace(/\\/g, '/');
 
-			if (await isPathIgnored(kbRoot, rel)) {
+			if (!(await isPathVisibleForCorpus(kbRoot, rel, corpusOpts))) {
 				continue;
 			}
 
@@ -689,9 +704,13 @@ class DripState {
 	}
 
 	async ingestNote(noteInput, selection) {
+		const metadata = noteInput?.metadata != null ? String(noteInput.metadata) : '';
+		const bodyOnly = noteInput?.content != null ? String(noteInput.content) : '';
 		const normalizedNoteInput = {
 			...noteInput,
-			headings: noteInput?.headings || ''
+			headings: noteInput?.headings || '',
+			metadata,
+			content: bodyOnly
 		};
 
 		const kbRoot = await this.ensureKnowledgeBaseRoot();
@@ -700,6 +719,10 @@ class DripState {
 		}
 
 		const draft = await this.saveDraft(normalizedNoteInput);
+		const writeDraft = {
+			...draft,
+			content: combineComposerSections(draft.metadata, draft.content)
+		};
 
 		let targetUri;
 		let mode;
@@ -716,7 +739,7 @@ class DripState {
 			const useDripType1Indent = ingestExt !== '.md';
 			await writeTextFile(
 				targetUri,
-				buildAppendedNote(existingContent, draft, headingPathOverride, {
+				buildAppendedNote(existingContent, writeDraft, headingPathOverride, {
 					fileDisplayStem: fileStem,
 					ingestDropRefPath: selection.ingestDropRefPath || '',
 					ingestPosition: selection.ingestPosition || '',
@@ -737,7 +760,7 @@ class DripState {
 
 			targetUri = vscode.Uri.joinPath(targetFolder, buildNoteFileName(fileName));
 			const n = await allocateNextEntityNumber(kbRoot);
-			await writeTextFile(targetUri, buildNewNoteFile(draft, { fileEntityNumber: n }));
+			await writeTextFile(targetUri, buildNewNoteFile(writeDraft, { fileEntityNumber: n }));
 			await normalizeNoteIdentityFile(targetUri, { context: this.context });
 			try {
 				await indexNewNoteImmediately(kbRoot, targetUri, this.context);
@@ -768,7 +791,7 @@ class DripState {
 				const useDripType1Indent = ingestExt !== '.md';
 				await writeTextFile(
 					targetUri,
-					buildAppendedNote(existingContent, draft, headingPath, {
+					buildAppendedNote(existingContent, writeDraft, headingPath, {
 						fileDisplayStem: fileStem,
 						useDripType1Indent
 					})
@@ -777,7 +800,7 @@ class DripState {
 				mode = 'create';
 				targetUri = vscode.Uri.joinPath(targetFolder, buildNoteFileName(draft.title));
 				const n = await allocateNextEntityNumber(kbRoot);
-				await writeTextFile(targetUri, buildNewNoteFile(draft, { fileEntityNumber: n }));
+				await writeTextFile(targetUri, buildNewNoteFile(writeDraft, { fileEntityNumber: n }));
 				await normalizeNoteIdentityFile(targetUri, { context: this.context });
 				try {
 					await indexNewNoteImmediately(kbRoot, targetUri, this.context);
@@ -1454,12 +1477,22 @@ class DripState {
 	}
 }
 
+function combineComposerSections(metadata, body) {
+	const meta = String(metadata || '').replace(/\s+$/g, '');
+	const content = String(body || '')
+		.replace(/^\s+/g, '')
+		.replace(/\s+$/g, '');
+	if (meta && content) return `${meta}\n\n${content}`;
+	return meta || content || '';
+}
+
 function createEmptyDraft() {
 	return {
 		id: '',
 		title: '',
 		priority: 'Medium',
 		headings: '',
+		metadata: '',
 		content: '',
 		metadataFilename: '',
 		status: 'draft'
@@ -1468,5 +1501,6 @@ function createEmptyDraft() {
 
 module.exports = {
 	createEmptyDraft,
+	combineComposerSections,
 	DripState
 };

@@ -84,7 +84,11 @@ async function getKnowledgeBaseTreeChildren(rootUri, currentUri) {
  * Direct subfolders of the KB root only (one hierarchy level). Excludes `.img` and ignored paths.
  * Deeper paths like `a/b` never appear here — user drills in via the next step.
  */
-async function listImmediateFolderChildrenOfRoot(rootUri) {
+async function listImmediateFolderChildrenOfRoot(rootUri, corpusOpts) {
+	const opts = normalizeCorpusOptions(corpusOpts);
+	if (opts.corpus === 'custom' && !opts.customCorpusPaths.length) {
+		return [];
+	}
 	const folders = [];
 	const entries = await vscode.workspace.fs.readDirectory(rootUri);
 
@@ -102,7 +106,7 @@ async function listImmediateFolderChildrenOfRoot(rootUri) {
 		const childUri = vscode.Uri.joinPath(rootUri, name);
 		const relativePath = toRelativePath(rootUri, childUri);
 
-		if (await isPathIgnored(rootUri, relativePath)) {
+		if (!(await isPathVisibleForCorpus(rootUri, relativePath, opts))) {
 			continue;
 		}
 
@@ -300,6 +304,107 @@ async function isPathIgnored(rootUri, relativePath, options) {
 	return false;
 }
 
+/**
+ * Normalize Storage/Retriever corpus payload.
+ * Default: working set (respect `.dripignore`).
+ * @param {{ corpus?: string, customCorpusPaths?: unknown, respectDripignore?: boolean }} [raw]
+ * @returns {{ corpus: 'working'|'entire'|'custom', respectDripignore: boolean, customCorpusPaths: { path: string, kind: 'file'|'folder', name: string }[] }}
+ */
+function normalizeCorpusOptions(raw) {
+	const r = raw && typeof raw === 'object' ? raw : {};
+	const customCorpusPaths = normalizeCustomCorpusEntries(r.customCorpusPaths);
+	let corpus = 'working';
+	const c = String(r.corpus || '').toLowerCase();
+	if (c === 'entire') corpus = 'entire';
+	else if (c === 'custom') corpus = 'custom';
+	else if (c === 'working') corpus = 'working';
+	else if (r.respectDripignore === false) corpus = 'entire';
+	const respectDripignore = corpus === 'working';
+	return {
+		corpus,
+		respectDripignore,
+		customCorpusPaths: corpus === 'custom' ? customCorpusPaths : []
+	};
+}
+
+/**
+ * @param {unknown} raw
+ * @returns {{ path: string, kind: 'file'|'folder', name: string }[]}
+ */
+function normalizeCustomCorpusEntries(raw) {
+	if (!Array.isArray(raw)) return [];
+	/** @type {{ path: string, kind: 'file'|'folder', name: string }[]} */
+	const out = [];
+	const seen = new Set();
+	for (const item of raw) {
+		if (!item || typeof item !== 'object') continue;
+		const rec = /** @type {Record<string, unknown>} */ (item);
+		const p = String(rec.path || '')
+			.replace(/\\/g, '/')
+			.replace(/^\/+/, '')
+			.replace(/\/+$/, '')
+			.trim();
+		if (!p || p === '.' || seen.has(p.toLowerCase())) continue;
+		seen.add(p.toLowerCase());
+		const kind = String(rec.kind || '').toLowerCase() === 'folder' ? 'folder' : 'file';
+		const name =
+			String(rec.name || '').trim() ||
+			(p.includes('/') ? p.slice(p.lastIndexOf('/') + 1) : p);
+		out.push({ path: p, kind, name });
+	}
+	return out;
+}
+
+/**
+ * @param {string} relativePath
+ * @param {{ path: string, kind: 'file'|'folder' }[]} entries
+ */
+function relPathInCustomCorpus(relativePath, entries) {
+	const list = Array.isArray(entries) ? entries : [];
+	if (!list.length) return false;
+	const rel = String(relativePath || '')
+		.replace(/\\/g, '/')
+		.replace(/^\/+/, '')
+		.replace(/\/+$/, '')
+		.toLowerCase();
+	if (!rel) return false;
+	for (const e of list) {
+		const p = String(e.path || '')
+			.replace(/\\/g, '/')
+			.replace(/\/+$/, '')
+			.toLowerCase();
+		if (!p) continue;
+		if (e.kind === 'file') {
+			if (rel === p) return true;
+		} else if (rel === p || rel.startsWith(p + '/')) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * Whether a KB-relative path is visible for the active corpus.
+ * @param {import('vscode').Uri} rootUri
+ * @param {string} relativePath
+ * @param {{ corpus?: string, respectDripignore?: boolean, customCorpusPaths?: { path: string, kind: 'file'|'folder', name: string }[] }} [corpusOpts]
+ */
+async function isPathVisibleForCorpus(rootUri, relativePath, corpusOpts) {
+	const opts = normalizeCorpusOptions(corpusOpts);
+	const rel = String(relativePath || '')
+		.replace(/\\/g, '/')
+		.replace(/^\/+|\/+$/g, '');
+	if (!rel) {
+		return opts.corpus !== 'custom' || opts.customCorpusPaths.length > 0;
+	}
+	if (opts.corpus === 'custom') {
+		if (!opts.customCorpusPaths.length) return false;
+		if (!relPathInCustomCorpus(rel, opts.customCorpusPaths)) return false;
+		return !(await isPathIgnored(rootUri, rel, { respectDripignore: false }));
+	}
+	return !(await isPathIgnored(rootUri, rel, { respectDripignore: opts.respectDripignore }));
+}
+
 function matchesIgnorePattern(relativePath, pattern) {
 	const normalized = relativePath.replace(/\\/g, '/');
 	const p = pattern.replace(/\\/g, '/');
@@ -329,8 +434,12 @@ module.exports = {
 	forEachKnowledgeBaseNotePath,
 	getKnowledgeBaseTreeChildren,
 	isPathIgnored,
+	isPathVisibleForCorpus,
 	listImmediateFolderChildrenOfRoot,
 	loadIgnoreMatchersAt,
+	normalizeCorpusOptions,
+	normalizeCustomCorpusEntries,
+	relPathInCustomCorpus,
 	readFileHeaderSnippet,
 	readTextFile,
 	toRelativePath,
