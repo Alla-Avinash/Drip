@@ -24,6 +24,7 @@ Grep/read only files relevant to your task.
 | `.dripindex/` skeleton init | `src/startup/initializeDripIndex.js` |
 | `settings.drip.json` load/save/import/export | `src/startup/settingsDrip.js` |
 | New `.driplock` default settings template | `src/startup/settings.drip.json` → `defaultKnowledgeBaseSettings.js` → `initializeDripIndex.js` (`ensureDripIndexSkeleton`) |
+| **GitHub backup** (push/pull KB notes via Git) | `src/startup/githubBackup.js` — Settings panel in `settingsWebview.js`; commands `drip.github.*` in `activate.js`; optional PAT in `SecretStorage`; `.dripindex/` gitignored |
 | `drafts.drip/` storage | `src/startup/draftsDrip.js` |
 | KB sidecar load on startup | `src/startup/loadKbSidecar.js` |
 | `startup_check` (restored window) | `src/startup/startupCheck.js` |
@@ -31,7 +32,13 @@ Grep/read only files relevant to your task.
 | KB filesystem (scan, walk, `.dripignore`) | `src/indexing/kbFilesystem.js` |
 | Note parse / ingest / ranking | `src/document/kbNoteOps.js` |
 | Note extensions | `src/document/model/noteFileTypes.js` |
-| Tree providers | `src/views/lhs/knowledgebase/tree.js` |
+| **Project folders (`.p`)** | `src/document/model/dripProjectFolder.js`; `src/startup/dripProjectFolder.js`. Index note `_Name.p.d.txt` with h0 `# .p Title`. Create: `drip.createProjectFolder` / New menu (or New Folder named `Name.p`). Delete: `drip.deleteProject` (index note cannot be deleted alone). |
+| **Feature / project placement** | `src/document/model/dripKbFolderRules.js` — project folder whitelist: `_Name.p.d.txt`, `_issues.d.txt`, feature folders `*.f` **and** feature files `*.f.d.txt`. Create: `drip.createFeatureFolder` / `drip.createFeatureFile` / New menu. |
+| **Project structure / ids / mailbox** | Rules: `.cursor/rules/context/drip-project-structure.mdc`. Code: `src/document/project/projectStructureRules.js`, `projectEntityIds.js` (`f-#`/`i-#` alloc in `index_meta`), `projectIssuesMailbox.js` (create in `_issues`, **move** to feature `_recent`), `issueInboxLayout.js` (pure text placement: new issues as last child of plain `# recents` in `_issues`; sub-issues indented under their parent heading), `issueParentLink.js` (issue parent rules: nested under an issue in the same file → parent **implied** by indentation, no `parent:` line; else **optional** `parent: i-N` = any project issue except self/sub-issues; validation, cycle sanitize, line write — used by RHS, diagnostics, index, Project View, mailbox move). |
+| **Special vs document metadata** | Notes: concept+task. Projects: project+feature+issue+task. Issue attribute `parent: i-N` → `issues.parent_issue_key` (and `issue_metadata` mirror). No decision in defaults. |
+| **Project View** | `src/views/lhs/projects/panel.js` + `webview/projectView.js` / `projectView.css`; `src/indexing/projectViewQuery.js` (`projects` + `issues` by `project_id`). |
+| **Project index helpers** | `src/indexing/projectIndex.js` — ensure `projects` row, resolve `project_id`, upsert `issues`. |
+| Tables (v14) | `projects`, `headings.project_id`, `issues` (+ legacy `issue_metadata` mirror); `project_entity_alloc_*` cache in `index_meta` |
 | Recents (last 10 `.d.txt`, KB-portable) | `.dripindex/recents.drip.json` via `src/startup/recentsDrip.js`; `DripState.getRecentFiles` / `touchRecentFile` / `refreshRecentsFromStorage`; view `drip.recents` |
 | Daily Notes (LHS tree; KB folder hidden from KB tree) | KB-root `dailynotes.drip/<year>/<Month YYYY>/` via `src/startup/dailyNotesDrip.js` (`ensureTodayDailyNote` uses `buildNewNoteFile` + normal fileid/heading identity); view `drip.dailyNotes`; command `drip.openTodayDailyNote`; hidden in `kbFilesystem.getKnowledgeBaseTreeChildren` |
 | Create menu, icons, drag-drop | `src/views/lhs/knowledgebase/kbCreateMenu.js`, `kbTreeIcon.js`, `kbTreeDragDrop.js`, `icons/*.svg` |
@@ -46,7 +53,7 @@ Grep/read only files relevant to your task.
 | Capture | `src/views/capturePreprocess.js` — strip `@f…` ids + blank noise; split title / metadata / body |
 | Webview helpers | `src/views/webviews.js` (sidebar; Composer re-exported from `composer/`) |
 | Storage (RHS) | `src/views/rhs/storage/` — `storageHtml.js` (host shell), `webview/storage.js` (UI logic), `storage.css`, `storageBody.html` |
-| Heading form (RHS) | `src/views/rhs/headingForm/` — `panel.js` (webview host), `headingFormSession.js` (open/close/bind), `headingFormApply.js` (surgical buffer write via `document/model/headingBlockPatch.js`), `webview/*`. Soft-lock: `src/views/editor/persistentHeadingSoftLock.js`. Zones: `document/model/persistentHeadingZones.js`. Modes: `headingEditModes.js` |
+| Heading form (RHS) | `src/views/rhs/headingForm/` — `panel.js` (webview host), `headingFormSession.js` (open/close/bind), `headingFormApply.js` (surgical buffer write via `document/model/headingBlockPatch.js`), `headingFormIssueParent.js` (Parent issue field: locked state, project-wide options, apply-time validation), `webview/*`. Soft-lock: `src/views/editor/persistentHeadingSoftLock.js`. Zones: `document/model/persistentHeadingZones.js`. Modes: `headingEditModes.js` |
 | RHS Storage reveal | `src/views/rhs/revealStorageOnly.js` — mutually exclusive Heading ↔ Storage via `drip.rhsHideHeading` / `drip.rhsHideStorage` |
 | Settings HTML | `src/views/settingsWebview.js` |
 | Tags UI | `src/graph/tagsWebview.js` |
@@ -97,8 +104,8 @@ Grep/read only files relevant to your task.
 | Index update buffer (6s) | `src/indexing/sync/dripnoteIndexUpdateQueue.js` |
 | Document edit surveillance | `src/indexing/sync/dripnoteDocumentWatch.js` (`DOCUMENT_WATCH_MANIFEST`) |
 | VS Code event wiring | `src/indexing/dripnoteIndexSync.js` |
-| KB reindex (settings + toolbar) | `src/indexing/sync/dripnoteKbReindex.js` — workspace (`.dripignore`) vs full driplock reset (`index.drip` wipe). Commands: `drip.reindexCurrentKbWorkspace`, `drip.resetReindexEntireKb` |
-| Tables (v11) | Core: `files`, `headings`, `heading_references`, `tags`, `searchtags`, `relations`; lookups: `metadata_types`, `relation_types`; hot metadata: `concept_metadata`, `project_metadata`, `task_metadata`, `issue_metadata`, `decision_metadata`; sparse EAV: `metadata_remaining_keys`; embeddings: `heading_embedding_records` + vec0 `heading_embedding_vectors`; folder embeddings: `folder_embedding_records` + vec0 `folder_embedding_vectors`; tag embeddings: `tag_embedding_records` + vec0 `tag_embedding_vectors` |
+| KB reindex (settings + toolbar update) | `src/indexing/sync/dripnoteKbReindex.js` — workspace (`.dripignore`) vs full driplock reset (`index.drip` wipe). Commands: `drip.reindexCurrentKbWorkspace` (KB toolbar + settings), `drip.resetReindexEntireKb` (**settings only**). |
+| Tables (v12) | Core: `files`, `headings` (`parent` = same-file parent heading_id from tab indent), `heading_references`, `tags`, `searchtags`, `relations`; lookups: `metadata_types`, `relation_types`; hot metadata: `concept_metadata`, `project_metadata`, `task_metadata`, `issue_metadata`, `decision_metadata`; sparse EAV: `metadata_remaining_keys`; embeddings: `heading_embedding_records` + vec0 `heading_embedding_vectors`; folder embeddings: `folder_embedding_records` + vec0 `folder_embedding_vectors`; tag embeddings: `tag_embedding_records` + vec0 `tag_embedding_vectors` |
 | `searchtags` | heading → searchable tag (`tags:` / `[…]`) |
 | `relations` | heading → related tag via relation key (`pre-req: [react, …]`) |
 | `heading_references` | `ref: [@f32 (topic), @f3]` file-level links (no heading target) |

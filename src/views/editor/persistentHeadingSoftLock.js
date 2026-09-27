@@ -20,13 +20,17 @@ const {
 	isPersistentHeadingReadyForRhs
 } = require('../../document/model/persistentHeadingZones');
 const { classifyPersistentHeadingTitle } = require('../../document/model/dripnotePersistentHeading');
-const { getMetadataSettings } = require('../../document/model/dripnoteMetadataTemplates');
+const { getMetadataSettings, getMetadataSettingsForNotePath } = require('../../document/model/dripnoteMetadataTemplates');
 const {
 	revealDripHeadingFormView,
 	syncHeadingFormFromEditor,
 	isHeadingFormApplyActive
 } = require('../rhs/headingForm/panel');
-const { runGuardedDocumentEdit, isGuardedDocumentEditActive } = require('../../shared/documentEditGuard');
+const {
+	runGuardedDocumentEdit,
+	isGuardedDocumentEditActive,
+	isExpectedDiskWrite
+} = require('../../shared/documentEditGuard');
 const { parseHeadingForValidation } = require('../../document/parse/dripnoteCanvasParse');
 
 /** @type {Map<string, string>} */
@@ -231,7 +235,7 @@ function registerPersistentHeadingSoftLock(context) {
 			const before = lastTextByUri.has(key) ? lastTextByUri.get(key) : after;
 			const changes = ev.contentChanges || [];
 
-			if (isGuardedDocumentEditActive() || isHeadingFormApplyActive()) {
+			if (isGuardedDocumentEditActive() || isHeadingFormApplyActive() || isExpectedDiskWrite(doc.uri)) {
 				lastTextByUri.set(key, after);
 				return;
 			}
@@ -244,9 +248,10 @@ function registerPersistentHeadingSoftLock(context) {
 
 			const editor = vscode.window.visibleTextEditors.find(ed => ed.document.uri.toString() === key);
 			const caret = editor ? editor.selection.active : null;
+			const noteSettings = getMetadataSettingsForNotePath(doc.uri.fsPath);
 
-			const beforeCount = countPersistentHeadings(before || '');
-			const afterCount = countPersistentHeadings(after);
+			const beforeCount = countPersistentHeadings(before || '', noteSettings);
+			const afterCount = countPersistentHeadings(after, noteSettings);
 			const added = afterCount - beforeCount;
 			const removed = beforeCount - afterCount;
 
@@ -286,7 +291,7 @@ function registerPersistentHeadingSoftLock(context) {
 				}
 				lastTextByUri.set(key, after);
 				if (editor) {
-					const z = findPersistentZoneAtLine(after, editor.selection.active.line);
+					const z = findPersistentZoneAtLine(after, editor.selection.active.line, noteSettings);
 					if (z && z.persistent && z.readyForRhs) {
 						await syncHeadingFormFromEditor(editor, z.headingLine, { reveal: true });
 					}
@@ -325,7 +330,7 @@ function registerPersistentHeadingSoftLock(context) {
 
 			// Soft-lock ready persistent zones only
 			if (modes.softLockPersistent && changes.length) {
-				const zonesBefore = findPersistentHeadingZones(before || '').filter(
+				const zonesBefore = findPersistentHeadingZones(before || '', noteSettings).filter(
 					z => z.persistent && z.readyForRhs
 				);
 				let hit = null;
@@ -333,7 +338,7 @@ function registerPersistentHeadingSoftLock(context) {
 					for (const z of zonesBefore) {
 						if (changeTouchesZone(z, ch)) {
 							// Only if the change is on heading / identity / structured meta — not blanks.
-							const zHit = findPersistentZoneAtLine(before || '', ch.range.start.line);
+							const zHit = findPersistentZoneAtLine(before || '', ch.range.start.line, noteSettings);
 							if (zHit && zHit.headingLine === z.headingLine) {
 								hit = z;
 								break;
@@ -341,7 +346,7 @@ function registerPersistentHeadingSoftLock(context) {
 						}
 					}
 					if (hit) break;
-					const zNow = findPersistentZoneAtLine(after, ch.range.start.line);
+					const zNow = findPersistentZoneAtLine(after, ch.range.start.line, noteSettings);
 					if (zNow && zNow.persistent && zNow.readyForRhs) {
 						hit = zNow;
 						break;

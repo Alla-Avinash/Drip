@@ -289,9 +289,7 @@ function rebuildCanonicalFileLevelBlock(lines, opts) {
 		body = trimmedBody.length ? [...moved, '', ...trimmedBody] : moved;
 	}
 
-	while (body.length && !String(body[body.length - 1] || '').trim()) {
-		body.pop();
-	}
+	// Do not strip trailing blank lines at EOF — leave the user's empty space as-is.
 
 	return [
 		`filename: ${filename}`,

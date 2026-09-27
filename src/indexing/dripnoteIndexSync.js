@@ -12,7 +12,6 @@ const { writeTextFile, readTextFile } = require('./kbFilesystem');
 const { applyFileIdLinkMigrationKb, processAllPendingLinkMigrations } = require('./dripnoteReferencePhase3');
 const { removeFileFromDripIndex, resolveSequentialFileEntityForKbNote } = require('./dripIndexDb');
 const { updateNoteInDripIndex, updateDripIndexScope } = require('./sync/dripnoteIndexUpdate');
-const { reconcileHeadingIdentitiesScope } = require('./dripnoteHeadingIdentityReconcile');
 const { createDripnoteIndexUpdateQueue } = require('./sync/dripnoteIndexUpdateQueue');
 const { promptAndRunKbReindex } = require('./sync/dripnoteKbReindex');
 const {
@@ -176,18 +175,18 @@ function registerDripnoteIndexSync(context, state) {
 			document.positionAt(0),
 			document.positionAt(text.length)
 		);
-		const applied = await vscode.workspace.applyEdit(
-			new vscode.WorkspaceEdit().replace(document.uri, fullRange, next)
+		const applied = await runGuardedDocumentEdit(async () =>
+			vscode.workspace.applyEdit(new vscode.WorkspaceEdit().replace(document.uri, fullRange, next))
 		);
 		if (applied) {
 			try {
-				await vscode.workspace.save(document.uri);
+				await document.save();
 				diskPersisted = true;
 			} catch (err) {
 				console.error('[DRIP] save after fileid realign', err);
 			}
 		}
-		if (!diskPersisted) {
+		if (!diskPersisted && document.isClosed) {
 			try {
 				await writeTextFile(document.uri, next);
 				diskPersisted = true;
@@ -198,6 +197,10 @@ function registerDripnoteIndexSync(context, state) {
 				);
 				return;
 			}
+		}
+		if (!diskPersisted) {
+			console.error('[DRIP] fileid realign could not persist while editor is open');
+			return;
 		}
 
 		if (drift.currentId && drift.expectedId && drift.currentId !== drift.expectedId) {
@@ -952,15 +955,18 @@ function registerDripnoteIndexSync(context, state) {
 		}
 
 		await applyReconciledTextToDocument(document, reconciled);
-		if (!document.isDirty) {
+		if (document.isDirty) {
 			try {
-				await writeTextFile(document.uri, reconciled);
+				await document.save();
 				if (kbRoot) {
 					indexQueue.scheduleNoteUpdate(document.uri, { immediate: true });
 				}
 			} catch (err) {
-				console.error('[DRIP] writeTextFile after heading identity reconcile', err);
+				console.error('[DRIP] save after heading identity reconcile on open', err);
 			}
+		} else if (document.getText().replace(/\r\n/g, '\n') !== reconciled) {
+			// Apply failed; do not writeTextFile while a buffer is open (causes “file is newer”).
+			console.error('[DRIP] heading identity reconcile on open could not apply to buffer');
 		}
 	}
 
@@ -1214,7 +1220,7 @@ function registerDripnoteIndexSync(context, state) {
 					void vscode.window.showInformationMessage('No indexable notes in that scope.');
 					return;
 				}
-				const summary = `DRIP index: ${updated} updated, ${failed} failed, ${total} note(s) in scope.`;
+				const summary = `DRIP update: ${updated} updated, ${failed} failed, ${total} note(s) in scope.`;
 				const errors = (issues || []).filter(i => i.severity === 'error');
 				const warnings = (issues || []).filter(i => i.severity === 'warning');
 				if (failed > 0 || errors.length) {
@@ -1243,62 +1249,7 @@ function registerDripnoteIndexSync(context, state) {
 			} catch (err) {
 				console.error('[DRIP] drip.updateIndexScope', err);
 				void vscode.window.showErrorMessage(
-					`DRIP could not update index: ${err && err.message ? err.message : String(err)}`
-				);
-			}
-		}),
-		vscode.commands.registerCommand('drip.reconcileHeadingsScope', async item => {
-			const kbRoot = await state.ensureKnowledgeBaseRoot();
-			if (!kbRoot) {
-				void vscode.window.showWarningMessage('Select a knowledge base folder first.');
-				return;
-			}
-			const scopeUri = item?.uri || item?.resourceUri;
-			if (!scopeUri) {
-				void vscode.window.showWarningMessage('Select a file or folder in the knowledge base tree.');
-				return;
-			}
-			try {
-				await indexQueue.flushAllPending();
-				const { total, changed, failed, issues } = await reconcileHeadingIdentitiesScope(
-					kbRoot,
-					scopeUri,
-					context
-				);
-				if (!total) {
-					void vscode.window.showInformationMessage('No notes to reconcile in that scope.');
-					return;
-				}
-				const summary = `DRIP headings: ${changed} updated, ${failed} failed, ${total} note(s) in scope.`;
-				const errors = (issues || []).filter(i => i.severity === 'error');
-				const warnings = (issues || []).filter(i => i.severity === 'warning');
-				if (failed > 0 || errors.length) {
-					const lines = errors.slice(0, 10).map(i => {
-						const loc = i.line ? `${i.path}:${i.line}` : i.path;
-						return `${loc}: ${i.message}`;
-					});
-					if (errors.length > 10) {
-						lines.push(`…and ${errors.length - 10} more error(s)`);
-					}
-					void vscode.window.showWarningMessage(`${summary} ${lines.join(' | ')}`);
-					return;
-				}
-				if (warnings.length) {
-					const lines = warnings.slice(0, 6).map(i => {
-						const loc = i.line ? `${i.path}:${i.line}` : i.path;
-						return `${loc}: ${i.message}`;
-					});
-					if (warnings.length > 6) {
-						lines.push(`…and ${warnings.length - 6} more warning(s)`);
-					}
-					void vscode.window.showInformationMessage(`${summary} Warnings: ${lines.join(' | ')}`);
-					return;
-				}
-				void vscode.window.showInformationMessage(summary);
-			} catch (err) {
-				console.error('[DRIP] drip.reconcileHeadingsScope', err);
-				void vscode.window.showErrorMessage(
-					`DRIP could not reconcile headings: ${err && err.message ? err.message : String(err)}`
+					`DRIP could not update: ${err && err.message ? err.message : String(err)}`
 				);
 			}
 		})

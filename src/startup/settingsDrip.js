@@ -124,17 +124,37 @@ async function loadSettingsFromDripIndex(kbRootUri) {
 }
 
 /**
+ * KB-only keys stored in settings.drip.json but not as `drip.*` VS Code config.
+ * Must be preserved when rewriting the file from workspace settings.
+ * @param {import('vscode').Uri} settingsUri
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function readPreservedKbOnlySettings(settingsUri) {
+	/** @type {Record<string, unknown>} */
+	const preserved = {};
+	const existing = await readSettingsObjectFromFile(settingsUri);
+	if (existing && existing.githubBackup != null) {
+		preserved.githubBackup = existing.githubBackup;
+	}
+	return preserved;
+}
+
+/**
  * Persist current workspace `drip.*` settings into `.dripindex/settings.drip.json`.
  * @param {import('vscode').Uri} kbRootUri
  */
 async function saveSettingsToDripIndex(kbRootUri) {
 	await ensureDripIndexSkeleton(kbRootUri);
 	const settingsUri = getSettingsDripFileUri(kbRootUri);
+	const preserved = await readPreservedKbOnlySettings(settingsUri);
 	const snapshot = {
 		format: 'drip-settings',
 		version: 1,
 		savedAt: new Date().toISOString(),
-		settings: readWorkspaceDripSettingsObject()
+		settings: {
+			...readWorkspaceDripSettingsObject(),
+			...preserved
+		}
 	};
 	await vscode.workspace.fs.writeFile(
 		settingsUri,
@@ -190,6 +210,23 @@ async function importSettingsToKnowledgeBase(kbRootUri, sourceUri) {
 
 	await applySettingsObjectToWorkspace(settings);
 	await saveSettingsToDripIndex(kbRootUri);
+	// githubBackup is KB-file-only (not drip.* config); re-apply after workspace save.
+	if (settings.githubBackup != null) {
+		const settingsUri = getSettingsDripFileUri(kbRootUri);
+		const envelope = {
+			format: 'drip-settings',
+			version: 1,
+			savedAt: new Date().toISOString(),
+			settings: {
+				...(await readSettingsObjectFromFile(settingsUri)),
+				githubBackup: settings.githubBackup
+			}
+		};
+		await vscode.workspace.fs.writeFile(
+			settingsUri,
+			Buffer.from(JSON.stringify(envelope, null, 2), 'utf8')
+		);
+	}
 	void vscode.window.showInformationMessage('DRIP settings imported into the current knowledge base.');
 	return { ok: true };
 }
@@ -205,11 +242,16 @@ async function exportSettingsFromKnowledgeBase(kbRootUri, destUri) {
 		return { ok: false, cancelled: true };
 	}
 
+	const settingsUri = getSettingsDripFileUri(kbRootUri);
+	const preserved = await readPreservedKbOnlySettings(settingsUri);
 	const snapshot = {
 		format: 'drip-settings',
 		version: 1,
 		savedAt: new Date().toISOString(),
-		settings: readWorkspaceDripSettingsObject()
+		settings: {
+			...readWorkspaceDripSettingsObject(),
+			...preserved
+		}
 	};
 	await vscode.workspace.fs.writeFile(
 		toUri,

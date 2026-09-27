@@ -19,6 +19,7 @@ const {
 	parseFileEntityFromLines
 } = require('../dripnoteHeadingIdentity');
 const { reconcileNoteHeadingIdentitiesOnDisk } = require('../dripnoteHeadingIdentityReconcile');
+const { reconcileUpdate } = require('./dripnoteReconcileUpdate');
 
 /**
  * Collect parse / structure issues for a note before or after index update.
@@ -197,8 +198,8 @@ async function upsertNoteInDripIndex(kbRootUri, noteUri, context) {
 }
 
 /**
- * Re-index notes under a KB tree scope (single `.d.txt` file or folder subtree).
- * Invalid regions (unknown tags, bad metadata) are skipped by the parser — same rules as editor diagnostics.
+ * Reconcile-update notes under a KB tree scope (same pipeline as Settings Update/reindex).
+ * Single `.d.txt` file or folder subtree.
  *
  * @param {import('vscode').Uri} kbRootUri
  * @param {import('vscode').Uri} scopeUri file or folder under the KB
@@ -245,51 +246,22 @@ async function updateDripIndexScope(kbRootUri, scopeUri, context) {
 
 	for (const noteUri of noteUris) {
 		const relPath = path.relative(kbRootUri.fsPath, noteUri.fsPath).replace(/\\/g, '/');
-		let text = '';
 		try {
-			const buf = await vscode.workspace.fs.readFile(noteUri);
-			text = Buffer.from(buf).toString('utf8');
-		} catch (err) {
-			failed += 1;
-			issues.push({
-				path: relPath,
-				message: `Could not read file: ${err && err.message ? err.message : String(err)}`,
-				severity: 'error'
+			const result = await reconcileUpdate(kbRootUri, noteUri, {
+				context,
+				applyToEditor: true,
+				writeToDisk: true,
+				persistIndex: true
 			});
-			continue;
-		}
-
-		try {
-			const identity = await reconcileNoteHeadingIdentitiesOnDisk(kbRootUri, noteUri, context, {
-				text
-			});
-			text = identity.text;
-		} catch (err) {
-			failed += 1;
-			issues.push({
-				path: relPath,
-				message: `Heading identity reconcile failed: ${err && err.message ? err.message : String(err)}`,
-				severity: 'error'
-			});
-			continue;
-		}
-
-		for (const issue of collectNoteIndexIssues(text, context)) {
-			issues.push({ path: relPath, ...issue });
-		}
-
-		try {
-			const result = await updateNoteInDripIndex(kbRootUri, noteUri, context, {
-				force: true,
-				text,
-				reconcileIdentities: false
-			});
-			if (result.updated) {
+			if (result.changed || result.indexUpdated) {
 				updated += 1;
+			}
+			for (const issue of collectNoteIndexIssues(result.text, context)) {
+				issues.push({ path: relPath, ...issue });
 			}
 		} catch (err) {
 			failed += 1;
-			console.error('[DRIP] scoped index update failed', noteUri.fsPath, err);
+			console.error('[DRIP] scoped reconcile-update failed', noteUri.fsPath, err);
 			issues.push({
 				path: relPath,
 				message: err && err.message ? err.message : String(err),

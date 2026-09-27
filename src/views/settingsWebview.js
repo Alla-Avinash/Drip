@@ -1,11 +1,12 @@
 'use strict';
 
 const { getNonce } = require('../shared/utils');
-const { DEFAULT_METADATA_TYPES } = require('../document/model/dripnoteMetadataTemplates');
+const { DEFAULT_METADATA_TYPES, DEFAULT_FILE_LEVEL_METADATA_TYPES } = require('../document/model/dripnoteMetadataTemplates');
 
 function getSettingsWebviewHtml(webview) {
 	const nonce = getNonce();
 	const defaultTypesJson = JSON.stringify(DEFAULT_METADATA_TYPES).replace(/</g, '\\u003c');
+	const defaultFileTypesJson = JSON.stringify(DEFAULT_FILE_LEVEL_METADATA_TYPES).replace(/</g, '\\u003c');
 
 	return `<!DOCTYPE html>
 <html lang="en">
@@ -78,6 +79,7 @@ function getSettingsWebviewHtml(webview) {
 			<button class="navBtn" data-panel="ref-links">Ref Links</button>
 			<button class="navBtn" data-panel="metadata">Markdown</button>
 			<button class="navBtn" data-panel="embedding">Embedding model</button>
+			<button class="navBtn" data-panel="github-backup">GitHub backup</button>
 			<button class="navBtn" data-panel="saved-settings">Saved Settings</button>
 			<button class="navBtn" data-panel="shortcuts">Keyboard Shortcuts</button>
 		</aside>
@@ -161,12 +163,22 @@ function getSettingsWebviewHtml(webview) {
 					<label class="row"><input type="checkbox" id="opt-heading-hierarchy-indent"><span>Show heading hierarchy indent errors (body line vs next heading tabs)</span></label>
 				</div>
 				<div class="card">
-					<p class="meta">Each type has marker, heading shortcut, color, and attribute rules. Defaults are .concept, .task, .project.</p>
+					<h3>Special metadata types</h3>
+					<p class="meta">Project and feature (.p / .f) folder index notes. Shortcuts are fixed to <code>.p</code> / <code>.f</code>. RHS Heading only shows this type — not document types.</p>
+					<div id="file-level-types-list" class="typeList"></div>
+					<div class="actions">
+						<button id="btn-save-file-types">Save Special Types</button>
+						<button id="btn-reset-file-types" class="secondary">Revert Special Types</button>
+					</div>
+				</div>
+				<div class="card">
+					<h3>Document types</h3>
+					<p class="meta">Heading metadata types (marker, shortcut, attributes). Defaults include .concept, .task, .issue.</p>
 					<div id="metadata-types-list" class="typeList"></div>
 					<div class="actions">
 						<button id="btn-add-type" class="iconBtn" title="Add Metadata Type">+</button>
-						<button id="btn-save-types">Save Metadata Types</button>
-						<button id="btn-reset-types" class="secondary">Revert to Standard Metadata Types</button>
+						<button id="btn-save-types">Save Document Types</button>
+						<button id="btn-reset-types" class="secondary">Revert Document Types</button>
 					</div>
 				</div>
 				<div class="card">
@@ -247,6 +259,50 @@ function getSettingsWebviewHtml(webview) {
 				</div>
 			</section>
 
+			<section id="panel-github-backup" class="panel">
+				<h3>GitHub backup</h3>
+				<p class="meta">Back up this knowledge base’s notes to a GitHub remote. The regenerable <code>.dripindex/</code> folder is ignored. Never store a GitHub password here — use HTTPS + Git Credential Manager / <code>gh auth</code>, SSH keys, or an optional PAT (Secret Storage).</p>
+				<div class="card">
+					<h3 style="margin-top:0;">Status</h3>
+					<p id="gh-status-line" class="meta">Select a knowledge base to configure backup.</p>
+					<p id="gh-status-detail" class="meta"></p>
+					<p id="gh-status-error" style="color:var(--vscode-errorForeground);"></p>
+				</div>
+				<div class="card">
+					<h3 style="margin-top:0;">Repository</h3>
+					<label class="row" style="display:block;">
+						<span>Remote URL (HTTPS or SSH)</span>
+						<input type="text" id="gh-remote-url" placeholder="https://github.com/you/my-kb.git" autocomplete="off" spellcheck="false" />
+					</label>
+					<label class="row" style="display:block;margin-top:10px;">
+						<span>Branch</span>
+						<input type="text" id="gh-branch" placeholder="main" autocomplete="off" spellcheck="false" style="max-width:12em;" />
+					</label>
+					<div class="actions">
+						<button id="btn-gh-save-remote" type="button">Save remote</button>
+						<button id="btn-gh-open" class="secondary" type="button">Open on GitHub</button>
+					</div>
+				</div>
+				<div class="card">
+					<h3 style="margin-top:0;">Actions</h3>
+					<div class="actions">
+						<button id="btn-gh-init" type="button">Initialize backup</button>
+						<button id="btn-gh-push" type="button">Push backup</button>
+						<button id="btn-gh-pull" type="button">Pull / restore</button>
+					</div>
+					<p class="meta" style="margin-top:10px;">Initialize creates a Git repo in the KB folder, seeds <code>.gitignore</code>, and sets <code>origin</code>. Push commits note changes and uploads. Pull downloads then reindexes.</p>
+				</div>
+				<div class="card">
+					<h3 style="margin-top:0;">Optional token (HTTPS)</h3>
+					<p class="meta">Only if Git Credential Manager / <code>gh</code> is not available. Stored in VS Code Secret Storage for this KB — not in <code>settings.drip.json</code>.</p>
+					<p id="gh-pat-status" class="meta">Token: not set</p>
+					<div class="actions">
+						<button id="btn-gh-set-pat" type="button">Set token…</button>
+						<button id="btn-gh-clear-pat" class="secondary" type="button">Clear token</button>
+					</div>
+				</div>
+			</section>
+
 			<section id="panel-saved-settings" class="panel">
 				<h3>Saved Settings</h3>
 				<div class="card">
@@ -292,6 +348,7 @@ function getSettingsWebviewHtml(webview) {
 			'ref-links': document.getElementById('panel-ref-links'),
 			metadata: document.getElementById('panel-metadata'),
 			embedding: document.getElementById('panel-embedding'),
+			'github-backup': document.getElementById('panel-github-backup'),
 			'saved-settings': document.getElementById('panel-saved-settings'),
 			shortcuts: document.getElementById('panel-shortcuts')
 		};
@@ -304,6 +361,7 @@ function getSettingsWebviewHtml(webview) {
 		const kbExtMd = document.getElementById('kb-ext-md');
 		const kbDefaultExt = document.getElementById('kb-default-ext');
 		const metadataTypesListEl = document.getElementById('metadata-types-list');
+		const fileLevelTypesListEl = document.getElementById('file-level-types-list');
 		const metadataKeyColorEl = document.getElementById('metadata-key-color');
 		const metadataValueColorEl = document.getElementById('metadata-value-color');
 		const metadataKeyColorPickerEl = document.getElementById('metadata-key-color-picker');
@@ -328,9 +386,11 @@ function getSettingsWebviewHtml(webview) {
 		const metadataMarksListEl = document.getElementById('metadata-marks-list');
 		const savedSettingsPathEl = document.getElementById('saved-settings-path');
 		const defaultMetadataTypes = ${defaultTypesJson};
+		const defaultFileLevelMetadataTypes = ${defaultFileTypesJson};
 		/** Extensions set only via settings JSON; preserved when toggling .d.txt / .md here. */
 		var preservedOtherExts = [];
 		var metadataTypesState = [];
+		var fileLevelTypesState = [];
 		var relationsState = [];
 		var metadataMarksState = [];
 
@@ -510,11 +570,17 @@ function getSettingsWebviewHtml(webview) {
 		}
 
 
-		var LOCKED_METADATA_TYPE_IDS = { concept: true, project: true, task: true };
+		var LOCKED_METADATA_TYPE_IDS = { concept: true, task: true };
+		var LOCKED_FILE_LEVEL_TYPE_IDS = { project: true, feature: true };
 
 		function isLockedMetadataType(t) {
 			var id = String((t && t.id) || '').trim().toLowerCase();
 			return !!LOCKED_METADATA_TYPE_IDS[id];
+		}
+
+		function isLockedFileLevelType(t) {
+			var id = String((t && t.id) || '').trim().toLowerCase();
+			return !!LOCKED_FILE_LEVEL_TYPE_IDS[id];
 		}
 
 		function addNewType() {
@@ -581,6 +647,92 @@ function getSettingsWebviewHtml(webview) {
 					'</details>';
 			}
 			metadataTypesListEl.innerHTML = html;
+		}
+
+		function renderFileLevelTypes() {
+			var html = '';
+			for (var i = 0; i < fileLevelTypesState.length; i++) {
+				var t = fileLevelTypesState[i] || {};
+				var typeId = String(t.id || '').trim().toLowerCase();
+				var attrs = Array.isArray(t.attributes) ? t.attributes : [];
+				var rows = '';
+				for (var j = 0; j < attrs.length; j++) {
+					var a = attrs[j] || {};
+					rows += '<tr data-type-index="' + i + '" data-attr-index="' + j + '">' +
+						'<td><input type="text" data-role="attr-key" value="' + escapeHtml(a.key) + '" placeholder="key"></td>' +
+						'<td><select data-role="attr-kind">' +
+							'<option value="enum"' + (a.kind === 'enum' ? ' selected' : '') + '>enum</option>' +
+							'<option value="datetime"' + (a.kind === 'datetime' ? ' selected' : '') + '>datetime</option>' +
+							'<option value="duration"' + (a.kind === 'duration' ? ' selected' : '') + '>duration</option>' +
+						'</select></td>' +
+						'<td>' + renderAttrValuesCell(a) + '</td>' +
+						'<td>' + renderAttrDefaultCell(a) + '</td>' +
+						'<td><label class="row" style="margin:0;"><input type="checkbox" data-role="attr-required"' + (a.required ? ' checked' : '') + '><span>required</span></label></td>' +
+						'<td><button class="iconBtn secondary deleteIcon" data-role="remove-attr" title="Delete Attribute">🗑</button></td>' +
+					'</tr>';
+				}
+				var shortcutLabel = typeId === 'project' ? '.p' : typeId === 'feature' ? '.f' : '';
+				html +=
+					'<details class="typeDetails" data-type-index="' + i + '" open>' +
+						'<summary class="typeSummary">' +
+							'<span>' + escapeHtml(t.id || 'type') + ' (special)</span>' +
+							'<span class="summaryRight"><span class="chev">⌃</span></span>' +
+						'</summary>' +
+						'<div class="typeBody" data-type-index="' + i + '">' +
+							'<div class="typeGrid">' +
+								'<label class="row" style="display:block;margin:0;"><span>Type Id</span><input type="text" data-role="type-id" value="' + escapeHtml(t.id) + '" disabled></label>' +
+								'<label class="row" style="display:block;margin:0;"><span>Shortcut</span><input type="text" value="' + escapeHtml(shortcutLabel) + '" disabled></label>' +
+								'<label class="row" style="display:block;margin:0;"><span>Type Color</span><div class="colorRow"><input type="text" data-role="type-color" value="' + escapeHtml(t.color) + '" placeholder="theme default"' + (t.useThemeColor ? ' disabled' : '') + '><input type="color" class="colorPatch" data-role="type-color-picker" value="' + escapeHtml(/^#([0-9a-f]{6})$/i.test(String(t.color || '')) ? t.color : '#808080') + '"' + (t.useThemeColor ? ' disabled' : '') + '></div></label>' +
+								'<label class="row" style="display:block;margin:0;"><input type="checkbox" data-role="type-theme-color"' + (t.useThemeColor ? ' checked' : '') + '><span>Use theme default color</span></label>' +
+							'</div>' +
+							'<table class="attrTable">' +
+								'<thead><tr><th>Key</th><th>Kind</th><th>Values</th><th>Default</th><th>Required</th><th>Action</th></tr></thead>' +
+								'<tbody>' + rows + '</tbody>' +
+							'</table>' +
+							'<div class="inlineActions">' +
+								'<button class="iconBtn" data-role="add-attr" title="Add Attribute">+</button>' +
+							'</div>' +
+						'</div>' +
+					'</details>';
+			}
+			fileLevelTypesListEl.innerHTML = html;
+		}
+
+		function collectFileLevelTypesForSave() {
+			var out = [];
+			for (var i = 0; i < fileLevelTypesState.length; i++) {
+				var t = fileLevelTypesState[i] || {};
+				var id = String(t.id || '').trim().toLowerCase();
+				if (!id || !LOCKED_FILE_LEVEL_TYPE_IDS[id]) continue;
+				var marker = '.' + id;
+				var attrsObj = {};
+				var attrs = Array.isArray(t.attributes) ? t.attributes : [];
+				for (var j = 0; j < attrs.length; j++) {
+					var a = attrs[j] || {};
+					var k = String(a.key || '').trim().toLowerCase();
+					if (!k) continue;
+					var kind = normalizeAttributeKind(a.kind);
+					var values = kind === 'enum' && Array.isArray(a.values)
+						? a.values.map(function (x) { return String(x || '').trim().toLowerCase(); }).filter(Boolean)
+						: [];
+					var entry = {
+						kind: kind,
+						default: kind === 'enum' ? String(a.default != null ? a.default : '').trim() : '',
+						required: !!a.required
+					};
+					if (kind === 'enum') entry.values = values;
+					attrsObj[k] = entry;
+				}
+				out.push({
+					id: id,
+					marker: marker,
+					shortcut: id === 'project' ? 'p' : id === 'feature' ? 'f' : '',
+					color: t.useThemeColor ? '' : String(t.color || '').trim(),
+					displayTemplate: true,
+					attributes: attrsObj
+				});
+			}
+			return out.length ? out : cloneJson(defaultFileLevelMetadataTypes);
 		}
 
 		function renderRelations() {
@@ -774,6 +926,13 @@ function getSettingsWebviewHtml(webview) {
 			syncColorPickerFromText(metadataValueColorEl, metadataValueColorPickerEl);
 			metadataTypesState = normalizeTypesFromSettings(message.metadataTypes, message.metadataTypeColors);
 			renderMetadataTypes();
+			fileLevelTypesState = normalizeTypesFromSettings(
+				message.fileLevelMetadataTypes && message.fileLevelMetadataTypes.length
+					? message.fileLevelMetadataTypes
+					: defaultFileLevelMetadataTypes,
+				message.metadataTypeColors
+			);
+			renderFileLevelTypes();
 			var tr = message.tagsRelationsConfig || {};
 			relationsState = Array.isArray(tr.relations) && tr.relations.length ? tr.relations : [
 				{ name: 'tags', description: 'Special default relation for tags.', locked: true },
@@ -808,7 +967,68 @@ function getSettingsWebviewHtml(webview) {
 				var p = String(message.kbSettingsFilePath || '').trim();
 				savedSettingsPathEl.textContent = p || '(no knowledge base selected — bind a .driplock folder first)';
 			}
+			applyGithubBackupStatus(message.githubBackupStatus || null);
 		});
+
+		window.addEventListener('message', function (event) {
+			var message = event.data;
+			if (message.type === 'githubBackupStatus') {
+				applyGithubBackupStatus(message.status || null);
+			}
+		});
+
+		function fmtTime(iso) {
+			if (!iso) return 'never';
+			try {
+				return new Date(iso).toLocaleString();
+			} catch (e) {
+				return String(iso);
+			}
+		}
+
+		function applyGithubBackupStatus(st) {
+			var statusLine = document.getElementById('gh-status-line');
+			var statusDetail = document.getElementById('gh-status-detail');
+			var statusError = document.getElementById('gh-status-error');
+			var remoteEl = document.getElementById('gh-remote-url');
+			var branchEl = document.getElementById('gh-branch');
+			var patStatus = document.getElementById('gh-pat-status');
+			if (!statusLine) return;
+			if (!st) {
+				statusLine.textContent = 'Select a knowledge base to configure backup.';
+				if (statusDetail) statusDetail.textContent = '';
+				if (statusError) statusError.textContent = '';
+				if (patStatus) patStatus.textContent = 'Token: not set';
+				return;
+			}
+			if (!st.gitAvailable) {
+				statusLine.textContent = 'Git not found on PATH — install Git, then reload.';
+			} else if (st.connected) {
+				statusLine.textContent = 'Connected — ready to push / pull.';
+			} else if (st.isRepo && st.remoteUrl) {
+				statusLine.textContent = 'Repo ready — save remote and Initialize if origin is missing.';
+			} else if (st.remoteUrl) {
+				statusLine.textContent = 'Remote saved — run Initialize backup.';
+			} else {
+				statusLine.textContent = 'Not connected — enter a remote URL.';
+			}
+			var bits = [];
+			if (st.branch) bits.push('branch: ' + st.branch);
+			bits.push('last push: ' + fmtTime(st.lastPushAt));
+			bits.push('last pull: ' + fmtTime(st.lastPullAt));
+			if (st.dirty) bits.push('uncommitted changes');
+			if (statusDetail) statusDetail.textContent = bits.join(' · ');
+			if (statusError) statusError.textContent = st.lastError ? String(st.lastError) : '';
+			if (remoteEl && document.activeElement !== remoteEl) {
+				remoteEl.value = String(st.remoteUrl || '');
+			}
+			if (branchEl && document.activeElement !== branchEl) {
+				branchEl.value = String(st.branch || 'main');
+			}
+			if (patStatus) {
+				patStatus.textContent = st.hasPat ? 'Token: saved (Secret Storage)' : 'Token: not set';
+			}
+		}
 
 		vscode.postMessage({ type: 'requestSettings' });
 
@@ -980,17 +1200,114 @@ function getSettingsWebviewHtml(webview) {
 				renderMetadataTypes();
 			}
 		});
+		fileLevelTypesListEl.addEventListener('input', function (ev) {
+			var target = ev.target;
+			if (!target) return;
+			var body = target.closest('[data-type-index]');
+			if (!body) return;
+			var typeIndex = Number(body.getAttribute('data-type-index'));
+			if (!Number.isFinite(typeIndex) || !fileLevelTypesState[typeIndex]) return;
+			var role = target.getAttribute('data-role');
+			var typeRef = fileLevelTypesState[typeIndex];
+			if (role === 'type-color') {
+				typeRef.color = String(target.value || '').trim();
+				var pickerA = body.querySelector('input[data-role="type-color-picker"]');
+				syncColorPickerFromText(target, pickerA);
+			}
+			if (role === 'type-color-picker') {
+				typeRef.color = String(target.value || '').trim().toLowerCase();
+				typeRef.useThemeColor = false;
+				var colorTextA = body.querySelector('input[data-role="type-color"]');
+				if (colorTextA) colorTextA.value = typeRef.color;
+			}
+			if (role === 'type-theme-color') {
+				typeRef.useThemeColor = !!target.checked;
+				if (typeRef.useThemeColor) typeRef.color = '';
+				renderFileLevelTypes();
+				return;
+			}
+			var row = target.closest('tr[data-attr-index]');
+			if (row) {
+				var attrIndex = Number(row.getAttribute('data-attr-index'));
+				if (Number.isFinite(attrIndex) && typeRef.attributes && typeRef.attributes[attrIndex]) {
+					var attr = typeRef.attributes[attrIndex];
+					if (role === 'attr-key') attr.key = String(target.value || '').trim().toLowerCase();
+					if (role === 'attr-kind') {
+						attr.kind = normalizeAttributeKind(target.value);
+						normalizeAttrByKind(attr);
+						renderFileLevelTypes();
+						return;
+					}
+					if (role === 'attr-values') {
+						if (normalizeAttributeKind(attr.kind) !== 'enum') return;
+						attr.values = String(target.value || '')
+							.split(',')
+							.map(function (x) { return String(x || '').trim(); })
+							.filter(Boolean);
+						return;
+					}
+					if (role === 'attr-default') attr.default = String(target.value || '').trim();
+					if (role === 'attr-required') attr.required = !!target.checked;
+				}
+			}
+		});
+		fileLevelTypesListEl.addEventListener('click', function (ev) {
+			var target = ev.target;
+			if (!target) return;
+			var role = target.getAttribute('data-role');
+			if (!role) return;
+			var scope = target.closest('[data-type-index]');
+			if (!scope) return;
+			var typeIndex = Number(scope.getAttribute('data-type-index'));
+			if (!Number.isFinite(typeIndex) || !fileLevelTypesState[typeIndex]) return;
+			if (role === 'add-attr') {
+				ev.preventDefault();
+				ev.stopPropagation();
+				if (!Array.isArray(fileLevelTypesState[typeIndex].attributes)) fileLevelTypesState[typeIndex].attributes = [];
+				fileLevelTypesState[typeIndex].attributes.push({ key: '', kind: 'enum', values: [], default: '', required: false });
+				renderFileLevelTypes();
+				return;
+			}
+			if (role === 'remove-attr') {
+				ev.preventDefault();
+				ev.stopPropagation();
+				var row = target.closest('tr[data-attr-index]');
+				if (!row) return;
+				var attrIndex = Number(row.getAttribute('data-attr-index'));
+				if (!Number.isFinite(attrIndex)) return;
+				fileLevelTypesState[typeIndex].attributes.splice(attrIndex, 1);
+				renderFileLevelTypes();
+			}
+		});
 		document.getElementById('btn-save-types').addEventListener('click', function () {
 			var types = collectTypesForSave();
 			vscode.postMessage({ type: 'updateSetting', key: 'metadataTypes', value: types.length ? types : defaultMetadataTypes });
 			vscode.postMessage({ type: 'updateSetting', key: 'metadataTypeColors', value: collectTypeColorsForSave() });
 		});
 		document.getElementById('btn-reset-types').addEventListener('click', function () {
-			if (!confirm('Revert to standard metadata types (.concept, .task, .project)?')) return;
+			if (!confirm('Revert document types to standard (.concept, .task, .issue, …)?')) return;
 			metadataTypesState = normalizeTypesFromSettings(defaultMetadataTypes, {});
 			renderMetadataTypes();
 			vscode.postMessage({ type: 'updateSetting', key: 'metadataTypes', value: defaultMetadataTypes });
 			vscode.postMessage({ type: 'updateSetting', key: 'metadataTypeColors', value: {} });
+		});
+		document.getElementById('btn-save-file-types').addEventListener('click', function () {
+			vscode.postMessage({
+				type: 'updateSetting',
+				key: 'fileLevelMetadataTypes',
+				value: collectFileLevelTypesForSave()
+			});
+			vscode.postMessage({ type: 'updateSetting', key: 'metadataTypeColors', value: collectTypeColorsForSave() });
+		});
+		document.getElementById('btn-reset-file-types').addEventListener('click', function () {
+			if (!confirm('Revert special metadata types to standard (project, feature)?')) return;
+			fileLevelTypesState = normalizeTypesFromSettings(defaultFileLevelMetadataTypes, {});
+			renderFileLevelTypes();
+			vscode.postMessage({
+				type: 'updateSetting',
+				key: 'fileLevelMetadataTypes',
+				value: defaultFileLevelMetadataTypes
+			});
 		});
 		document.getElementById('btn-save-colors').addEventListener('click', function () {
 			vscode.postMessage({ type: 'updateSetting', key: 'metadataTypeColors', value: collectTypeColorsForSave() });
@@ -1007,6 +1324,11 @@ function getSettingsWebviewHtml(webview) {
 			postBool(customColorsEnabledEl, 'metadataUseCustomColors');
 			var types = collectTypesForSave();
 			vscode.postMessage({ type: 'updateSetting', key: 'metadataTypes', value: types.length ? types : defaultMetadataTypes });
+			vscode.postMessage({
+				type: 'updateSetting',
+				key: 'fileLevelMetadataTypes',
+				value: collectFileLevelTypesForSave()
+			});
 			vscode.postMessage({ type: 'updateSetting', key: 'metadataTypeColors', value: collectTypeColorsForSave() });
 			vscode.postMessage({ type: 'updateSetting', key: 'metadataKeyColor', value: String(metadataKeyColorEl.value || '').trim() });
 			vscode.postMessage({ type: 'updateSetting', key: 'metadataValueColor', value: String(metadataValueColorEl.value || '').trim() });
@@ -1215,6 +1537,52 @@ function getSettingsWebviewHtml(webview) {
 		document.getElementById('btn-export-settings').addEventListener('click', function () {
 			vscode.postMessage({ type: 'exportKbSettings' });
 		});
+		var btnGhSave = document.getElementById('btn-gh-save-remote');
+		if (btnGhSave) {
+			btnGhSave.addEventListener('click', function () {
+				vscode.postMessage({
+					type: 'githubBackupSaveRemote',
+					remoteUrl: String((document.getElementById('gh-remote-url') || {}).value || '').trim(),
+					branch: String((document.getElementById('gh-branch') || {}).value || 'main').trim() || 'main'
+				});
+			});
+		}
+		var btnGhOpen = document.getElementById('btn-gh-open');
+		if (btnGhOpen) {
+			btnGhOpen.addEventListener('click', function () {
+				vscode.postMessage({ type: 'githubBackupOpen' });
+			});
+		}
+		var btnGhInit = document.getElementById('btn-gh-init');
+		if (btnGhInit) {
+			btnGhInit.addEventListener('click', function () {
+				vscode.postMessage({ type: 'githubBackupInit' });
+			});
+		}
+		var btnGhPush = document.getElementById('btn-gh-push');
+		if (btnGhPush) {
+			btnGhPush.addEventListener('click', function () {
+				vscode.postMessage({ type: 'githubBackupPush' });
+			});
+		}
+		var btnGhPull = document.getElementById('btn-gh-pull');
+		if (btnGhPull) {
+			btnGhPull.addEventListener('click', function () {
+				vscode.postMessage({ type: 'githubBackupPull' });
+			});
+		}
+		var btnGhSetPat = document.getElementById('btn-gh-set-pat');
+		if (btnGhSetPat) {
+			btnGhSetPat.addEventListener('click', function () {
+				vscode.postMessage({ type: 'githubBackupSetPat' });
+			});
+		}
+		var btnGhClearPat = document.getElementById('btn-gh-clear-pat');
+		if (btnGhClearPat) {
+			btnGhClearPat.addEventListener('click', function () {
+				vscode.postMessage({ type: 'githubBackupClearPat' });
+			});
+		}
 		showPanel('kb');
 	</script>
 </body>

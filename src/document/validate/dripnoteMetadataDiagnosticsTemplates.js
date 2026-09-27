@@ -5,6 +5,7 @@ const path = require('path');
 const tagGraphStore = require('../../graph/tagGraphStore');
 const {
 	getMetadataSettings,
+	getMetadataSettingsForNotePath,
 	inferTypeFromHeadingLine,
 	inferTypeFromMarkerLine,
 	getTypeRule,
@@ -27,10 +28,17 @@ const {
 } = require('../../indexing/dripnoteHeadingIdentity');
 const { collectWorkflowDiagnostics } = require('../workflow/dripnoteWorkflowDiagnostics');
 const { parseFileEntityIdNumber } = require('../../indexing/dripnoteEntityIds');
+const {
+	isProtectedFolderIndexNotePath,
+	isDripProjectFolderName
+} = require('../model/dripProjectFolder');
+const { classifyPersistentHeadingTitle } = require('../model/dripnotePersistentHeading');
 const HEADING_HIERARCHY_CODE = 'drip.headingHierarchyIndent';
 const HEADING_ABOVE_INDENT_CODE = 'drip.headingAboveIndent';
 const SPACE_INDENT_CODE = 'drip.spaceIndent';
 const HEADING_SPACE_BEFORE_HASH_CODE = 'drip.headingIndentSpacesBeforeHash';
+const FOLDER_INDEX_TYPED_CODE = 'drip.folderIndexTypedHeading';
+const CONCEPT_IN_PROJECT_CODE = 'drip.conceptInProject';
 
 const HEADING_RE = /^\s*#{1,6}\s+/;
 const TYPE_RE = /^\s*\.[a-z][a-z0-9_-]*\b/i;
@@ -373,6 +381,22 @@ function collectDiagnosticsForBlock(lines, start, endExclusive, blockTypeId, set
 					}
 				}
 			}
+			if (rule && rule.kind === 'issue_parent' && value) {
+				const m = String(value)
+					.trim()
+					.match(/^i-(\d+)$/i);
+				const n = m ? parseInt(m[1], 10) : NaN;
+				if (!m || !Number.isFinite(n) || n < 1) {
+					const at = line.indexOf(value);
+					const d = new vscode.Diagnostic(
+						new vscode.Range(i, at >= 0 ? at : 0, i, at >= 0 ? at + value.length : line.length),
+						`Invalid issue parent "${value}". Use i-N (e.g. i-12) for a parent issue in this project.`,
+						vscode.DiagnosticSeverity.Error
+					);
+					d.code = `${INVALID_METADATA_VALUE_CODE_PREFIX}${key}|issue_parent|${value}`;
+					diagnostics.push(d);
+				}
+			}
 		}
 	}
 	if (blockTypeId && settings.useTemplates && settings.strictValidation && !settings.ignoreErrors) {
@@ -394,6 +418,57 @@ function collectDiagnosticsForBlock(lines, start, endExclusive, blockTypeId, set
 			d.code = `${MISSING_METADATA_KEY_CODE_PREFIX}${key}`;
 			diagnostics.push(d);
 		}
+	}
+}
+
+/**
+ * Nested issues must not carry `parent:` (implied by indentation); conflicting value = error,
+ * same value = redundant warning. Cross-file existence is checked in the RHS (needs the index).
+ * @param {string[]} lines
+ * @param {object} settings
+ * @param {vscode.Diagnostic[]} diagnostics
+ */
+function pushIssueParentLockDiagnostics(lines, settings, diagnostics) {
+	const { findPersistentHeadingZones } = require('../model/persistentHeadingZones');
+	const {
+		findNearestOutlineAncestorIssueId,
+		issueIdFromHeadingTitle
+	} = require('../project/issueParentLink');
+	const { normalizeIssueEntityId } = require('../project/projectStructureRules');
+	const text = lines.join('\n');
+	for (const z of findPersistentHeadingZones(text, settings)) {
+		if (z.typeId !== 'issue') continue;
+		let parentRow = -1;
+		for (let j = z.headingLine + 1; j < z.lockEndExclusive; j++) {
+			if (/^\s*parent\s*:/i.test(String(lines[j] || ''))) {
+				parentRow = j;
+				break;
+			}
+		}
+		if (parentRow < 0) continue;
+		const line = String(lines[parentRow] || '');
+		const value = normalizeIssueEntityId(line.replace(/^\s*parent\s*:/i, '').trim());
+		if (!value) continue;
+		const self = issueIdFromHeadingTitle(z.titleRaw);
+		let message = '';
+		let severity = vscode.DiagnosticSeverity.Error;
+		const locked = findNearestOutlineAncestorIssueId(text, z.headingLine);
+		if (locked && value !== locked) {
+			message = `Parent is set by indentation (${locked}). Remove this line, or outdent the issue to link a different parent.`;
+		} else if (locked) {
+			message = `Redundant: parent ${locked} is already implied by indentation. Remove this line.`;
+			severity = vscode.DiagnosticSeverity.Warning;
+		} else if (self && value === self) {
+			message = 'An issue cannot be its own parent.';
+		}
+		if (!message) continue;
+		diagnostics.push(
+			new vscode.Diagnostic(
+				new vscode.Range(parentRow, 0, parentRow, Math.max(1, line.length)),
+				message,
+				severity
+			)
+		);
 	}
 }
 
@@ -584,17 +659,77 @@ function registerDripnoteMetadataDiagnostics(context) {
 		}
 	}
 
+	function pathIsUnderProjectFolder(fsPath) {
+		const parts = String(fsPath || '')
+			.replace(/\\/g, '/')
+			.split('/')
+			.filter(Boolean);
+		for (const part of parts) {
+			if (isDripProjectFolderName(part)) return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Index notes (`_Name.p.d.txt` / `_Name.f.d.txt`): allow `# .` / `# . Title` and structural `# .p` / `# .f`.
+	 * Anywhere under a `.p` tree: no concept headings.
+	 */
+	function isAllowedFolderIndexH0Title(title) {
+		const t = String(title || '').trim();
+		if (t === '.' || /^\.\s/.test(t)) return true;
+		// Structural folder markers (not document metadata types).
+		return /^\.(p|f)(\s|$)/i.test(t);
+	}
+
+	function pushProjectFeaturePlacementDiagnostics(document, lines, settings, diagnostics) {
+		const fsPath = document.uri.fsPath || '';
+		const isIndexNote = isProtectedFolderIndexNotePath(fsPath);
+		const underProject = pathIsUnderProjectFolder(fsPath);
+		if (!isIndexNote && !underProject) return;
+
+		for (let i = 0; i < lines.length; i++) {
+			const hLine = String(lines[i] || '');
+			if (!HEADING_RE.test(hLine)) continue;
+			const title = hLine.replace(/^\s*#{1,6}\s+/, '').trim();
+			const classification = classifyPersistentHeadingTitle(title, settings);
+			if (!classification.persistent) continue;
+			const typeId = classification.metadataType ? String(classification.metadataType).toLowerCase() : '';
+
+			if (isIndexNote && !isAllowedFolderIndexH0Title(title)) {
+				const d = new vscode.Diagnostic(
+					new vscode.Range(i, 0, i, hLine.length),
+					'Project/feature index notes only allow `# . Title` or structural `# .p` / `# .f`. Other typed headings are not allowed; attributes are file-level.',
+					vscode.DiagnosticSeverity.Error
+				);
+				d.code = FOLDER_INDEX_TYPED_CODE;
+				diagnostics.push(d);
+			}
+
+			if (underProject && typeId === 'concept') {
+				const d = new vscode.Diagnostic(
+					new vscode.Range(i, 0, i, hLine.length),
+					'Concept headings are not allowed inside a project folder (.p).',
+					vscode.DiagnosticSeverity.Error
+				);
+				d.code = CONCEPT_IN_PROJECT_CODE;
+				diagnostics.push(d);
+			}
+		}
+	}
+
 	function validateDocument(document) {
 		if (!document || document.languageId !== 'dripnote') return;
 		const base = path.basename(document.uri.fsPath || document.uri.path || '').toLowerCase();
 		if (base === '_index.d.txt') return collection.delete(document.uri);
-		const settings = getMetadataSettings();
+		const settings = getMetadataSettingsForNotePath(document.uri.fsPath);
 		const lines = document.getText().split(/\r?\n/);
 		const diagnostics = [];
 		pushLeadingIndentSpaceDiagnostics(lines, diagnostics);
 		pushHeadingHierarchyIndentDiagnostics(lines, diagnostics);
 		pushHeadingIdentityDiagnostics(lines, diagnostics, document);
 		pushFileLevelHeadingDiagnostics(lines, diagnostics);
+		pushProjectFeaturePlacementDiagnostics(document, lines, getMetadataSettings(), diagnostics);
+		pushIssueParentLockDiagnostics(lines, settings, diagnostics);
 		const knownTags = knownTagsLowerSet(context);
 		const { topEnd } = splitFileTopRegion(lines);
 		const topSettings = { ...settings, strictValidation: false };
@@ -631,18 +766,22 @@ function registerDripnoteMetadataDiagnostics(context) {
 				diagnostics.push(d);
 			} else if (!titleMatch.typeId) {
 				// Persistent `# .token` that is not in drip settings → still allowed (untyped), but flag it.
+				// `.p` / `.f` are structural folder markers on index notes, not document metadata shortcuts.
 				const titleOnly = hLine.replace(/^\s*#{1,6}\s+/, '').trim();
 				const unk = titleOnly.match(/^(\.([A-Za-z][A-Za-z0-9_-]*)(#|\d+)?)/);
 				if (unk && unk[1] !== '.') {
-					const prefix = unk[1];
-					const at = hLine.indexOf(prefix);
-					const d = new vscode.Diagnostic(
-						new vscode.Range(i, Math.max(0, at), i, Math.max(0, at) + prefix.length),
-						`Unknown metadata shortcut "${prefix}" — not in DRIP settings. Heading stays persistent with no metadata type.`,
-						vscode.DiagnosticSeverity.Error
-					);
-					d.code = 'drip.unknownMetadataShortcut';
-					diagnostics.push(d);
+					const prefix = String(unk[1] || '');
+					const structural = /^\.(p|f)$/i.test(prefix);
+					if (!structural) {
+						const at = hLine.indexOf(prefix);
+						const d = new vscode.Diagnostic(
+							new vscode.Range(i, Math.max(0, at), i, Math.max(0, at) + prefix.length),
+							`Unknown metadata shortcut "${prefix}" — not in DRIP settings. Heading stays persistent with no metadata type.`,
+							vscode.DiagnosticSeverity.Error
+						);
+						d.code = 'drip.unknownMetadataShortcut';
+						diagnostics.push(d);
+					}
 				}
 			}
 			if (!started || end <= start) continue;

@@ -2755,6 +2755,7 @@
 					renderSelectedTagChips();
 					renderSelectedRelationTagChips();
 					syncRelationTagInputEnabled();
+					// One query after catalog paint — never chain catalog↔query loops here.
 					runAfterNextPaint(() => scheduleQueryImmediate({ skipSuggest: true }));
 					break;
 				}

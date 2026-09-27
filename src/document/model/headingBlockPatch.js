@@ -83,7 +83,29 @@ function buildHeadingTitleLine(model, settings, existingHeadingLine) {
 		prefix = rawPrefix === '.' || rawPrefix === '' ? '.' : '.';
 	}
 
-	const titlePart = String(model.titleDisplay || '').trim();
+	let titlePart = String(model.titleDisplay || '').trim();
+
+	// Issues keep a durable `.i-N` type prefix (never rewrite to bare `.i` on RHS apply).
+	if (typeId === 'issue') {
+		const {
+			parseIssueTypePrefix,
+			formatIssueTypePrefix,
+			parseIssueTitleEntityId,
+			normalizeIssueEntityId
+		} = require('../project/projectStructureRules');
+		const fromPrefix = parseIssueTypePrefix(model.typePrefix);
+		const fromModelId = model.issueEntityId
+			? normalizeIssueEntityId(model.issueEntityId)
+			: null;
+		const legacy = parseIssueTitleEntityId(titlePart);
+		const issueId = fromPrefix || fromModelId || (legacy ? legacy.id : null);
+		if (issueId) {
+			const tp = formatIssueTypePrefix(issueId);
+			if (tp) prefix = tp;
+		}
+		if (legacy) titlePart = legacy.rest;
+	}
+
 	// Keep a trailing space after prefix when title is empty so the heading stays "ready" for RHS.
 	return `${tabs}${'#'.repeat(level)} ${prefix}${titlePart ? ` ${titlePart}` : ' '}`;
 }
@@ -120,6 +142,8 @@ function buildDesiredMetaLines(model, settings, tabDepth) {
 
 	const special = model.special && typeof model.special === 'object' ? model.special : {};
 	for (const key of Object.keys(special)) {
+		// Issue `parent: i-N` lives in attributes only (workflow special parent is for tasks).
+		if (typeId === 'issue' && String(key).toLowerCase() === 'parent') continue;
 		const v = String(special[key] || '').trim();
 		if (v) out.push({ key, text: `${attrIndent}${key}: ${v}` });
 	}

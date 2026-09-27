@@ -20,7 +20,7 @@ const TYPED_COLUMNS_BY_TYPE = {
 	concept: { status: 'text' },
 	project: { status: 'text', deadline: 'int' },
 	task: { status: 'text', category: 'text', deadline: 'int', priority: 'text' },
-	issue: { status: 'text', category: 'text', deadline: 'int', priority: 'text' },
+	issue: { status: 'text', category: 'text', deadline: 'int', priority: 'text', parent: 'text' },
 	decision: { category: 'text' }
 };
 

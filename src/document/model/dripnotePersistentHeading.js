@@ -54,6 +54,13 @@ function stripHeadingTitleTypePrefix(title) {
 	if (/^\.\s+/.test(t)) {
 		return t.replace(/^\.\s+/, '').trim();
 	}
+	// Numbered entity prefix: ".i-34 Title" → "i-34 Title" (keep id for Project View / mailbox)
+	const hyp = t.match(/^\.([A-Za-z]+)-(\d+)(?:\s+|$)(.*)$/);
+	if (hyp) {
+		const id = `${hyp[1]}-${hyp[2]}`;
+		const rest = String(hyp[3] || '').trim();
+		return rest ? `${id} ${rest}` : id;
+	}
 	// Known-shaped marker/shortcut: ".c Title", ".t4 Title", ".concept Foo"
 	const m = t.match(/^\.([A-Za-z][A-Za-z0-9_-]*)(?:\s+|$)(.*)$/);
 	if (m) {

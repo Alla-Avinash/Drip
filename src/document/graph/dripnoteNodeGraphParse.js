@@ -53,6 +53,24 @@ function classifyNodeTitle(title, settings) {
 
 	for (const type of types) {
 		for (const prefix of [type.shortcut, type.marker].filter(Boolean)) {
+			// Numbered hyphen form first: `.i-34` (issues)
+			const hyp = normalized.match(
+				new RegExp(`^(\\.?${escapeRegex(prefix)})-(\\d+)(?=\\s|$)`, 'i')
+			);
+			if (hyp) {
+				const dotted = hyp[1].startsWith('.');
+				const shortcut = type.shortcut || type.marker || type.id;
+				const badge = hyp[1] + '-' + hyp[2];
+				return {
+					badge,
+					ref: type.shortcut
+						? `${type.shortcut.toLowerCase()}-${parseInt(hyp[2], 10)}`
+						: '',
+					filterKey: String(shortcut).toLowerCase(),
+					shortcut: String(shortcut).toLowerCase(),
+					persistent: dotted
+				};
+			}
 			const match = normalized.match(new RegExp(`^(\\.?${escapeRegex(prefix)})(\\d*)(?=\\s|$)`, 'i'));
 			if (!match) continue;
 			const dotted = match[1].startsWith('.');

@@ -9,8 +9,9 @@
  *
  * Defaults (application-enforced; see `headings.metadata_type_id`):
  * - `headings.metadata_type_id` → SQL NULL when the note has no `.type` marker or an unknown type
- * - `index_meta.schema_version` → `11`
+ * - `index_meta.schema_version` → `14`
  * - `index_meta.next_file_id` → `0`
+ * - `index_meta.next_project_id` → `1`
  * - `index_meta.embedding_*` → model/dims/format/generation (see headingEmbeddingStore.js)
  *
  * Lookup tables (name stored once; rows reference ids):
@@ -18,6 +19,10 @@
  * - `relation_types(relation_type_id, relation_type_name)`
  *
  * Typed metadata (hot keys only) + `metadata_remaining_keys` EAV for the rest.
+ * Heading hierarchy (v12): `headings.parent` = parent `heading_id` in the same file (from tab indent); NULL = root.
+ * Projects (v14): `projects` registry + `headings.project_id` (NULL = note zone) + `issues` (issue_key / parent_issue_key).
+ * Issue logical parent: `issues.parent_issue_key` = `i-N` (cross-file); distinct from `headings.parent`.
+ * Project entity alloc: `index_meta` key `project_entity_alloc_<prefix>` → `{"nextIssue":N,"nextFeature":M}` (cache; live from `issues`).
  * Heading embeddings (v11): `heading_embedding_records` + sqlite-vec `heading_embedding_vectors`.
  * Folder embeddings (v11 additive): `folder_embedding_records` + `folder_embedding_vectors` (exact only).
  */
@@ -26,7 +31,7 @@ const { ensureHeadingEmbeddingStorage } = require('../embeddings/headingEmbeddin
 const { ensureFolderEmbeddingStorage } = require('../embeddings/folderEmbeddingStore');
 const { ensureTagEmbeddingStorage } = require('../embeddings/tagEmbeddingStore');
 
-const SCHEMA_VERSION = 11;
+const SCHEMA_VERSION = 14;
 
 /** @type {string} */
 const SCHEMA_SQL = `
@@ -55,16 +60,35 @@ CREATE TABLE IF NOT EXISTS relation_types (
 	relation_type_name TEXT NOT NULL UNIQUE
 );
 
+CREATE TABLE IF NOT EXISTS projects (
+	project_id INTEGER PRIMARY KEY,
+	folder_prefix TEXT NOT NULL UNIQUE,
+	index_file_id INTEGER,
+	title TEXT,
+	status TEXT,
+	deadline INTEGER,
+	FOREIGN KEY (index_file_id) REFERENCES files(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_projects_prefix ON projects(folder_prefix);
+
 CREATE TABLE IF NOT EXISTS headings (
 	file_id INTEGER NOT NULL,
 	heading_id INTEGER NOT NULL,
 	title TEXT NOT NULL,
 	metadata_type_id INTEGER,
 	hash TEXT,
+	-- Parent heading_id in the same file (from tab indent at index time). NULL = root.
+	parent INTEGER,
+	-- NULL = note zone (concept/task); set when file lives under a .p project folder.
+	project_id INTEGER,
 	PRIMARY KEY (file_id, heading_id),
 	FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE,
-	FOREIGN KEY (metadata_type_id) REFERENCES metadata_types(metadata_type_id)
+	FOREIGN KEY (metadata_type_id) REFERENCES metadata_types(metadata_type_id),
+	FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE SET NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_headings_project ON headings(project_id);
 
 CREATE TABLE IF NOT EXISTS heading_references (
 	source_file_id INTEGER NOT NULL,
@@ -77,6 +101,7 @@ CREATE INDEX IF NOT EXISTS idx_ref_source ON heading_references(source_file_id, 
 CREATE INDEX IF NOT EXISTS idx_ref_target ON heading_references(target_file_id);
 CREATE INDEX IF NOT EXISTS idx_heading_type ON headings(metadata_type_id);
 CREATE INDEX IF NOT EXISTS idx_headings_title ON headings(title);
+CREATE INDEX IF NOT EXISTS idx_headings_parent ON headings(file_id, parent);
 
 CREATE TABLE IF NOT EXISTS tags (
 	tag_id INTEGER PRIMARY KEY,
@@ -147,11 +172,35 @@ CREATE TABLE IF NOT EXISTS issue_metadata (
 	category TEXT,
 	deadline INTEGER,
 	priority TEXT,
+	parent_issue_key TEXT,
 	PRIMARY KEY (file_id, heading_id),
 	FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_issue_sort ON issue_metadata(deadline, priority);
+CREATE INDEX IF NOT EXISTS idx_issue_parent_key ON issue_metadata(parent_issue_key);
+
+-- Canonical Project View issue store (v14). issue_key = i-N; parent_issue_key = logical parent.
+CREATE TABLE IF NOT EXISTS issues (
+	project_id INTEGER NOT NULL,
+	issue_key TEXT NOT NULL,
+	file_id INTEGER NOT NULL,
+	heading_id INTEGER NOT NULL,
+	title TEXT,
+	parent_issue_key TEXT,
+	status TEXT,
+	category TEXT,
+	deadline INTEGER,
+	priority TEXT,
+	PRIMARY KEY (project_id, issue_key),
+	UNIQUE (file_id, heading_id),
+	FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE,
+	FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_id);
+CREATE INDEX IF NOT EXISTS idx_issues_parent ON issues(project_id, parent_issue_key);
+CREATE INDEX IF NOT EXISTS idx_issues_sort ON issues(deadline, priority);
 
 CREATE TABLE IF NOT EXISTS decision_metadata (
 	file_id INTEGER NOT NULL,
@@ -312,7 +361,7 @@ function migrateMetadataTypeNullable(db) {
 }
 
 /**
- * Persistent headings no longer store document hierarchy in index.drip.
+ * v7 stripped an older parent_id column. v12 reintroduces `parent` from indent parse.
  * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  */
 function migrateHeadingsWithoutHierarchy(db) {
@@ -340,6 +389,145 @@ function migrateHeadingsWithoutHierarchy(db) {
 		CREATE INDEX IF NOT EXISTS idx_headings_title ON headings(title);
 		PRAGMA foreign_keys = ON;
 	`);
+}
+
+/**
+ * v12: store document hierarchy as `headings.parent` (same-file parent heading_id).
+ * @param {import('../db/dripSqlite').DripSqliteDatabase} db
+ */
+function migrateHeadingsAddParent(db) {
+	if (!tableExists(db, 'headings')) return;
+	if (!columnExists(db, 'headings', 'parent')) {
+		db.exec(`ALTER TABLE headings ADD COLUMN parent INTEGER`);
+	}
+	db.exec(`CREATE INDEX IF NOT EXISTS idx_headings_parent ON headings(file_id, parent)`);
+}
+
+/**
+ * v13: logical issue parent `parent: i-N` → `issue_metadata.parent_issue_key`.
+ * @param {import('../db/dripSqlite').DripSqliteDatabase} db
+ */
+function migrateIssueMetadataParentKey(db) {
+	if (!tableExists(db, 'issue_metadata')) return;
+	if (!columnExists(db, 'issue_metadata', 'parent_issue_key')) {
+		db.exec(`ALTER TABLE issue_metadata ADD COLUMN parent_issue_key TEXT`);
+	}
+	db.exec(`CREATE INDEX IF NOT EXISTS idx_issue_parent_key ON issue_metadata(parent_issue_key)`);
+}
+
+/**
+ * v14: projects registry, headings.project_id, issues table; backfill from paths + issue_metadata.
+ * @param {import('../db/dripSqlite').DripSqliteDatabase} db
+ */
+function migrateProjectsV14(db) {
+	if (!tableExists(db, 'files')) return;
+
+	db.exec(`
+		CREATE TABLE IF NOT EXISTS projects (
+			project_id INTEGER PRIMARY KEY,
+			folder_prefix TEXT NOT NULL UNIQUE,
+			index_file_id INTEGER,
+			title TEXT,
+			status TEXT,
+			deadline INTEGER,
+			FOREIGN KEY (index_file_id) REFERENCES files(id) ON DELETE SET NULL
+		);
+		CREATE INDEX IF NOT EXISTS idx_projects_prefix ON projects(folder_prefix);
+	`);
+
+	if (tableExists(db, 'headings') && !columnExists(db, 'headings', 'project_id')) {
+		db.exec(`ALTER TABLE headings ADD COLUMN project_id INTEGER REFERENCES projects(project_id)`);
+	}
+	db.exec(`CREATE INDEX IF NOT EXISTS idx_headings_project ON headings(project_id)`);
+
+	db.exec(`
+		CREATE TABLE IF NOT EXISTS issues (
+			project_id INTEGER NOT NULL,
+			issue_key TEXT NOT NULL,
+			file_id INTEGER NOT NULL,
+			heading_id INTEGER NOT NULL,
+			title TEXT,
+			parent_issue_key TEXT,
+			status TEXT,
+			category TEXT,
+			deadline INTEGER,
+			priority TEXT,
+			PRIMARY KEY (project_id, issue_key),
+			UNIQUE (file_id, heading_id),
+			FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE,
+			FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
+		);
+		CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_id);
+		CREATE INDEX IF NOT EXISTS idx_issues_parent ON issues(project_id, parent_issue_key);
+		CREATE INDEX IF NOT EXISTS idx_issues_sort ON issues(deadline, priority);
+	`);
+
+	db.run(`INSERT OR IGNORE INTO index_meta(key, value) VALUES ('next_project_id', '1')`);
+
+	// Backfill projects + headings.project_id + issues from existing rows (native API).
+	if (!db.native) return;
+	const {
+		projectFolderPrefixFromPath,
+		ensureProjectRow,
+		issueKeyFromHeadingTitle
+	} = require('../projectIndex');
+
+	const fileRows = db.native.prepare(`SELECT id AS fileId, path AS path FROM files`).all();
+	/** @type {Map<string, number>} */
+	const prefixToId = new Map();
+	for (const r of fileRows || []) {
+		const filePath = String(r.path || '').replace(/\\/g, '/');
+		const prefix = projectFolderPrefixFromPath(filePath);
+		if (!prefix) continue;
+		let projectId = prefixToId.get(prefix);
+		if (projectId == null) {
+			projectId = ensureProjectRow(db, prefix, {
+				fileId: Number(r.fileId),
+				filePath
+			});
+			if (projectId != null) prefixToId.set(prefix, projectId);
+		}
+		if (projectId == null) continue;
+		db.native
+			.prepare(`UPDATE headings SET project_id = ? WHERE file_id = ? AND project_id IS NULL`)
+			.run(projectId, Number(r.fileId));
+	}
+
+	if (!tableExists(db, 'issue_metadata')) return;
+	const issueRows = db.native
+		.prepare(
+			`SELECT h.file_id AS fileId, h.heading_id AS headingId, h.title AS title, h.project_id AS projectId,
+			        im.status AS status, im.category AS category, im.deadline AS deadline,
+			        im.priority AS priority, im.parent_issue_key AS parentIssueKey
+			 FROM headings h
+			 JOIN issue_metadata im
+			   ON im.file_id = h.file_id AND im.heading_id = h.heading_id
+			 WHERE h.project_id IS NOT NULL`
+		)
+		.all();
+	const insert = db.native.prepare(
+		`INSERT OR REPLACE INTO issues (
+			project_id, issue_key, file_id, heading_id, title,
+			parent_issue_key, status, category, deadline, priority
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	);
+	for (const r of issueRows || []) {
+		const projectId = Number(r.projectId);
+		const issueKey = issueKeyFromHeadingTitle(r.title);
+		if (!Number.isFinite(projectId) || !issueKey) continue;
+		insert.run(
+			projectId,
+			issueKey,
+			Number(r.fileId),
+			Number(r.headingId),
+			String(r.title || issueKey),
+			r.parentIssueKey != null ? String(r.parentIssueKey) : null,
+			r.status != null ? String(r.status) : null,
+			r.category != null ? String(r.category) : null,
+			r.deadline != null && Number.isFinite(Number(r.deadline)) ? Number(r.deadline) : null,
+			r.priority != null ? String(r.priority) : null
+		);
+	}
 }
 
 /**
@@ -771,6 +959,18 @@ function migrateSchemaIfNeeded(db) {
 		// Records table comes from SCHEMA_SQL; vec0 + meta via ensureHeadingEmbeddingStorage.
 	}
 
+	if (version < 12) {
+		migrateHeadingsAddParent(db);
+	}
+
+	if (version < 13) {
+		migrateIssueMetadataParentKey(db);
+	}
+
+	if (version < 14) {
+		migrateProjectsV14(db);
+	}
+
 	db.exec(SCHEMA_SQL);
 	ensureHeadingEmbeddingStorage(db);
 	ensureFolderEmbeddingStorage(db);
@@ -786,6 +986,7 @@ function migrateSchemaIfNeeded(db) {
  */
 function seedInitialIndexMeta(db) {
 	db.run(`INSERT OR IGNORE INTO index_meta(key, value) VALUES ('next_file_id', '0')`);
+	db.run(`INSERT OR IGNORE INTO index_meta(key, value) VALUES ('next_project_id', '1')`);
 	db.run(`INSERT OR REPLACE INTO index_meta(key, value) VALUES ('schema_version', ?)`, [
 		String(SCHEMA_VERSION)
 	]);
@@ -813,8 +1014,12 @@ function ensureDripIndexSchema(db) {
 	migrateHeadingReferencesFileOnly(db);
 	migrateMetadataAndRelationTypeIds(db);
 	migrateTypedMetadataV10(db);
+	migrateHeadingsAddParent(db);
+	migrateIssueMetadataParentKey(db);
+	migrateProjectsV14(db);
 	db.exec(SCHEMA_SQL);
 	seedInitialIndexMeta(db);
+	db.run(`INSERT OR IGNORE INTO index_meta(key, value) VALUES ('next_project_id', '1')`);
 	ensureHeadingEmbeddingStorage(db);
 	ensureFolderEmbeddingStorage(db);
 	ensureTagEmbeddingStorage(db);

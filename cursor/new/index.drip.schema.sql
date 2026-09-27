@@ -1,4 +1,4 @@
--- DRIP index.drip — SQLite schema v11
+-- DRIP index.drip — SQLite schema v14
 -- Docs mirror only — runtime schema: src/indexing/dbSchema/dripIndexSchema.js (via dripIndexDb.js)
 -- Spec: cursor/new/features.txt (DB schema §4–7)
 --
@@ -10,17 +10,25 @@
 --   ref: [@f26 (optional topic), @f45, @f3]
 --
 -- index_meta defaults (seeded on init):
---   schema_version → "11"
+--   schema_version → "14"
 --   next_file_id   → "0"
+--   next_project_id → "1"
 --   heading_alloc_<file_id> → per-file non-h0 id pool JSON, e.g. '{"next":4,"free":[2,3]}'
 --   workflow_alloc_<file_id>_<workflow_heading_id> → dense per-workflow task id pool (contiguous .t1…tN)
+--   project_entity_alloc_<projectPrefix> → '{"nextIssue":N,"nextFeature":M}' cache (live issues from `issues`)
 --   embedding_model / embedding_dimensions / embedding_format_version / embedding_generation
 --   next_embedding_id → allocator for heading_embedding_records.embedding_id
 --
+-- Projects (v14):
+--   projects(project_id, folder_prefix, …) — one row per `.p` folder
+--   headings.project_id — NULL for note-zone; set under a project (filter Project View cheaply)
+--   issues(project_id, issue_key, …, parent_issue_key) — canonical issue store / hierarchy
+--   issue_metadata kept as typed hot-keys mirror on ingest
+--
 -- Lookup tables store each type name once; headings/relations reference ids.
 -- Typed tables store hot keys; metadata_remaining_keys stores the rest (EAV).
--- Heading vectors: heading_embedding_records + sqlite-vec virtual table heading_embedding_vectors
---   (created at runtime via ensureHeadingEmbeddingStorage; not plain CREATE TABLE).
+-- headings.parent = same-file parent heading_id from tab indent at index time (NULL = root).
+-- issues.parent_issue_key = logical parent `i-N` (cross-file); distinct from headings.parent.
 
 PRAGMA foreign_keys = ON;
 
@@ -47,6 +55,18 @@ CREATE TABLE IF NOT EXISTS relation_types (
 	relation_type_name TEXT NOT NULL UNIQUE
 );
 
+CREATE TABLE IF NOT EXISTS projects (
+	project_id INTEGER PRIMARY KEY,
+	folder_prefix TEXT NOT NULL UNIQUE,
+	index_file_id INTEGER,
+	title TEXT,
+	status TEXT,
+	deadline INTEGER,
+	FOREIGN KEY (index_file_id) REFERENCES files(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_projects_prefix ON projects(folder_prefix);
+
 CREATE TABLE IF NOT EXISTS headings (
 	file_id INTEGER NOT NULL,
 	heading_id INTEGER NOT NULL,
@@ -54,10 +74,17 @@ CREATE TABLE IF NOT EXISTS headings (
 	-- NULL = no .type marker, or marker not in drip.metadataTypes (known ids only are stored)
 	metadata_type_id INTEGER,
 	hash TEXT,
+	-- Parent heading_id in the same file (from tab indent). NULL = root.
+	parent INTEGER,
+	-- NULL = note zone; set when file is under a `.p` project folder.
+	project_id INTEGER,
 	PRIMARY KEY (file_id, heading_id),
 	FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE,
-	FOREIGN KEY (metadata_type_id) REFERENCES metadata_types(metadata_type_id)
+	FOREIGN KEY (metadata_type_id) REFERENCES metadata_types(metadata_type_id),
+	FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE SET NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_headings_project ON headings(project_id);
 
 CREATE TABLE IF NOT EXISTS heading_references (
 	source_file_id INTEGER NOT NULL,
@@ -70,6 +97,7 @@ CREATE INDEX IF NOT EXISTS idx_ref_source ON heading_references(source_file_id, 
 CREATE INDEX IF NOT EXISTS idx_ref_target ON heading_references(target_file_id);
 CREATE INDEX IF NOT EXISTS idx_heading_type ON headings(metadata_type_id);
 CREATE INDEX IF NOT EXISTS idx_headings_title ON headings(title);
+CREATE INDEX IF NOT EXISTS idx_headings_parent ON headings(file_id, parent);
 
 CREATE TABLE IF NOT EXISTS tags (
 	tag_id INTEGER PRIMARY KEY,
@@ -142,11 +170,34 @@ CREATE TABLE IF NOT EXISTS issue_metadata (
 	category TEXT,
 	deadline INTEGER,
 	priority TEXT,
+	parent_issue_key TEXT,
 	PRIMARY KEY (file_id, heading_id),
 	FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_issue_sort ON issue_metadata(deadline, priority);
+CREATE INDEX IF NOT EXISTS idx_issue_parent_key ON issue_metadata(parent_issue_key);
+
+CREATE TABLE IF NOT EXISTS issues (
+	project_id INTEGER NOT NULL,
+	issue_key TEXT NOT NULL,
+	file_id INTEGER NOT NULL,
+	heading_id INTEGER NOT NULL,
+	title TEXT,
+	parent_issue_key TEXT,
+	status TEXT,
+	category TEXT,
+	deadline INTEGER,
+	priority TEXT,
+	PRIMARY KEY (project_id, issue_key),
+	UNIQUE (file_id, heading_id),
+	FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE,
+	FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_id);
+CREATE INDEX IF NOT EXISTS idx_issues_parent ON issues(project_id, parent_issue_key);
+CREATE INDEX IF NOT EXISTS idx_issues_sort ON issues(deadline, priority);
 
 CREATE TABLE IF NOT EXISTS decision_metadata (
 	file_id INTEGER NOT NULL,

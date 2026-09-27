@@ -122,6 +122,14 @@ function resolveValidatedAttributeValue(rule, rawValue, now) {
 		return seconds != null ? seconds : undefined;
 	}
 
+	if (kind === 'issue_parent') {
+		const m = value.match(/^i-(\d+)$/i);
+		if (!m) return undefined;
+		const n = parseInt(m[1], 10);
+		if (!Number.isFinite(n) || n < 1) return undefined;
+		return `i-${n}`;
+	}
+
 	return undefined;
 }
 

@@ -1,6 +1,8 @@
  'use strict';
 
 const vscode = require('vscode');
+const path = require('path');
+const { isProtectedFolderIndexNotePath } = require('./dripProjectFolder');
 
 const DEFAULT_METADATA_TYPES = [
 	{
@@ -28,6 +30,31 @@ const DEFAULT_METADATA_TYPES = [
 		}
 	},
 	{
+		id: 'issue',
+		marker: '.issue',
+		shortcut: 'i',
+		color: '',
+		attributes: {
+			priority: { kind: 'enum', values: ['high', 'medium', 'low'], default: '' },
+			status: { kind: 'enum', values: ['in-progress', 'to-do', 'completed'], default: '' },
+			/**
+			 * Logical parent for Project View (`i-N`). Distinct from outline indent.
+			 * Auto-stamped when nesting under an issue; set manually to override.
+			 */
+			parent: {
+				kind: 'issue_parent',
+				default: '',
+				required: false,
+				label: 'Parent issue',
+				placeholder: 'i-N'
+			}
+		}
+	}
+];
+
+/** Special metadata types (project / feature folder index notes). */
+const DEFAULT_FILE_LEVEL_METADATA_TYPES = [
+	{
 		id: 'project',
 		marker: '.project',
 		shortcut: 'p',
@@ -39,25 +66,23 @@ const DEFAULT_METADATA_TYPES = [
 		}
 	},
 	{
-		id: 'implementation',
-		marker: '.implementation',
-		shortcut: 'impl',
+		id: 'feature',
+		marker: '.feature',
+		shortcut: 'f',
 		color: '',
 		attributes: {
 			implemented: { kind: 'enum', values: ['true', 'false'], default: '' }
 		}
-	},
-	{
-		id: 'issue',
-		marker: '.issue',
-		shortcut: 'i',
-		color: '',
-		attributes: {
-			priority: { kind: 'enum', values: ['high', 'medium', 'low'], default: '' },
-			status: { kind: 'enum', values: ['in-progress', 'to-do', 'completed'], default: '' }
-		}
 	}
 ];
+
+/** @deprecated alias — prefer SPECIAL_METADATA_TYPE_IDS */
+const FILE_LEVEL_METADATA_TYPE_IDS = new Set(
+	DEFAULT_FILE_LEVEL_METADATA_TYPES.map(t => String(t.id || '').toLowerCase())
+);
+const SPECIAL_METADATA_TYPE_IDS = FILE_LEVEL_METADATA_TYPE_IDS;
+/** Defaults export alias for settings UI. */
+const DEFAULT_SPECIAL_METADATA_TYPES = DEFAULT_FILE_LEVEL_METADATA_TYPES;
 
 const DEFAULT_TAG_RELATIONS = {
 	allowed: ['tags', 'pre-req']
@@ -109,6 +134,16 @@ function formatMetadataShortcutDisplay(shortcut) {
 	return s.startsWith('.') ? s : `.${s}`;
 }
 
+/** Product-fixed issue attribute; re-added even when KB settings omit it. */
+const ISSUE_PARENT_ATTRIBUTE_RULE = Object.freeze({
+	kind: 'issue_parent',
+	values: [],
+	default: '',
+	required: false,
+	label: 'Parent issue',
+	placeholder: 'i-N'
+});
+
 function normalizeMetadataType(raw) {
 	const id = String(raw && raw.id ? raw.id : '').trim().toLowerCase();
 	if (!id) return null;
@@ -122,6 +157,7 @@ function normalizeMetadataType(raw) {
 	for (const k of Object.keys(attrsRaw)) {
 		const key = String(k || '').trim().toLowerCase();
 		if (!key) continue;
+		if (id === 'issue' && key === 'parent') continue;
 		const rule = attrsRaw[k] || {};
 		const normalizedKind = normalizeAttributeKind(rule.kind);
 		const unitValues =
@@ -134,6 +170,9 @@ function normalizeMetadataType(raw) {
 			default: String(rule.default != null ? rule.default : '').trim(),
 			required: Boolean(rule.required)
 		};
+	}
+	if (id === 'issue') {
+		attributes.parent = { ...ISSUE_PARENT_ATTRIBUTE_RULE, values: [] };
 	}
 	return { id, marker, shortcut, color, displayTemplate: raw && raw.displayTemplate !== false, attributes };
 }
@@ -152,7 +191,12 @@ function getMetadataSettings() {
 	const normalized = [];
 	for (const item of Array.isArray(rawTypes) ? rawTypes : []) {
 		const t = normalizeMetadataType(item);
-		if (t) normalized.push(t);
+		if (!t) continue;
+		// Project/feature are special types only — never document heading types.
+		if (SPECIAL_METADATA_TYPE_IDS.has(t.id)) continue;
+		// Product: decision removed — ignore if still present in old settings.
+		if (t.id === 'decision' || t.id === 'implementation') continue;
+		normalized.push(t);
 	}
 	const types = normalized.length ? normalized : deepClone(DEFAULT_METADATA_TYPES);
 	const mapById = new Map();
@@ -199,8 +243,196 @@ function getMetadataSettings() {
 }
 
 /**
+ * Ensure project/feature keep structural shortcuts `.p` / `.f` for index-note h0.
+ * @param {object} t
+ * @returns {object}
+ */
+function withSpecialTypeShortcut(t) {
+	if (!t || !t.id) return t;
+	const id = String(t.id).toLowerCase();
+	const sc = normalizeMetadataShortcut(t.shortcut);
+	if (id === 'project' && (!sc || sc === '.' || sc === 'project' || sc === '.project')) {
+		return { ...t, shortcut: 'p' };
+	}
+	if (id === 'feature' && (!sc || sc === '.' || sc === 'feature' || sc === '.feature')) {
+		return { ...t, shortcut: 'f' };
+	}
+	return t;
+}
+
+/**
+ * Build type lookup maps from a types array.
+ * @param {object[]} types
+ */
+function buildTypeMaps(types) {
+	const mapById = new Map();
+	const mapByMarker = new Map();
+	const mapByShortcut = new Map();
+	for (const t of types || []) {
+		mapById.set(t.id, t);
+		mapByMarker.set(String(t.marker || '').toLowerCase(), t);
+		if (t.shortcut) {
+			mapByShortcut.set(t.shortcut, t);
+			if (!String(t.shortcut).startsWith('.')) {
+				mapByShortcut.set(`.${t.shortcut}`, t);
+			}
+		}
+	}
+	return { typeById: mapById, typeByMarker: mapByMarker, typeByShortcut: mapByShortcut };
+}
+
+/**
+ * Special metadata types (project / feature folder index notes).
+ * @returns {{ types: object[], typeById: Map<string, object> }}
+ */
+function getFileLevelMetadataSettings() {
+	const c = vscode.workspace.getConfiguration('drip');
+	const rawTypes = c.get('fileLevelMetadataTypes', []);
+	const normalized = [];
+	for (const item of Array.isArray(rawTypes) ? rawTypes : []) {
+		const t = normalizeMetadataType(item);
+		if (t && SPECIAL_METADATA_TYPE_IDS.has(t.id)) {
+			normalized.push(withSpecialTypeShortcut(t));
+		}
+	}
+	// Migrate: pull project/feature still sitting in document metadataTypes.
+	if (!normalized.length) {
+		const docRaw = c.get('metadataTypes', []);
+		for (const item of Array.isArray(docRaw) ? docRaw : []) {
+			const t = normalizeMetadataType(item);
+			if (t && SPECIAL_METADATA_TYPE_IDS.has(t.id)) {
+				normalized.push(withSpecialTypeShortcut(t));
+			}
+		}
+	}
+	const types = (normalized.length ? normalized : deepClone(DEFAULT_FILE_LEVEL_METADATA_TYPES)).map(
+		withSpecialTypeShortcut
+	);
+	const { typeById } = buildTypeMaps(types);
+	return { types, typeById };
+}
+
+/** @returns {{ types: object[], typeById: Map<string, object> }} */
+function getSpecialMetadataSettings() {
+	return getFileLevelMetadataSettings();
+}
+
+/**
+ * Settings used when classifying headings for index.drip (document types + special project/feature).
+ * @returns {ReturnType<typeof getMetadataSettings>}
+ */
+function getMetadataSettingsForIndex() {
+	const doc = getMetadataSettings();
+	const special = getSpecialMetadataSettings();
+	const types = [...(doc.types || []), ...(special.types || [])];
+	const maps = buildTypeMaps(types);
+	return {
+		...doc,
+		types,
+		typeById: maps.typeById,
+		typeByMarker: maps.typeByMarker,
+		typeByShortcut: maps.typeByShortcut
+	};
+}
+
+/**
+ * Locked special type for a project/feature index note path, or null.
+ * @param {string} fsPath
+ * @returns {'project' | 'feature' | null}
+ */
+function lockedSpecialTypeIdForPath(fsPath) {
+	if (!isProtectedFolderIndexNotePath(fsPath)) return null;
+	const base = path.basename(String(fsPath || '')).toLowerCase();
+	if (/\.p\.d\.txt$/i.test(base)) return 'project';
+	if (/\.f\.d\.txt$/i.test(base)) return 'feature';
+	return null;
+}
+
+/**
+ * Metadata settings for parsing/editing headings in a specific note.
+ * Index notes (`_*.p.d.txt` / `_*.f.d.txt`): only the matching special type (project/feature).
+ *
+ * @param {string} [fsPath]
+ * @returns {ReturnType<typeof getMetadataSettings> & { specialIndex: boolean, lockedTypeId: string | null }}
+ */
+function getMetadataSettingsForNotePath(fsPath) {
+	const docSettings = getMetadataSettings();
+	const lockedTypeId = lockedSpecialTypeIdForPath(fsPath);
+	if (!lockedTypeId) {
+		return { ...docSettings, specialIndex: false, lockedTypeId: null };
+	}
+	const special = getSpecialMetadataSettings();
+	const types = (special.types || [])
+		.filter(t => String(t.id || '').toLowerCase() === lockedTypeId)
+		.map(withSpecialTypeShortcut);
+	const maps = buildTypeMaps(types);
+	return {
+		...docSettings,
+		types,
+		typeById: maps.typeById,
+		typeByMarker: maps.typeByMarker,
+		typeByShortcut: maps.typeByShortcut,
+		specialIndex: true,
+		lockedTypeId
+	};
+}
+
+/**
+ * One-shot: move project/feature out of metadataTypes into fileLevelMetadataTypes if needed.
+ * @returns {Promise<boolean>} true if settings were written
+ */
+async function migrateFileLevelMetadataTypesIfNeeded() {
+	const c = vscode.workspace.getConfiguration('drip');
+	const docRaw = Array.isArray(c.get('metadataTypes', [])) ? c.get('metadataTypes', []) : [];
+	const fileRaw = Array.isArray(c.get('fileLevelMetadataTypes', []))
+		? c.get('fileLevelMetadataTypes', [])
+		: [];
+	const moved = [];
+	const keptDoc = [];
+	for (const item of docRaw) {
+		const t = normalizeMetadataType(item);
+		if (t && SPECIAL_METADATA_TYPE_IDS.has(t.id)) {
+			moved.push(item);
+		} else {
+			keptDoc.push(item);
+		}
+	}
+	if (!moved.length && fileRaw.length) {
+		return false;
+	}
+	if (!moved.length && !fileRaw.length) {
+		// Seed special-type defaults when empty.
+		await c.update(
+			'fileLevelMetadataTypes',
+			deepClone(DEFAULT_FILE_LEVEL_METADATA_TYPES),
+			vscode.ConfigurationTarget.Workspace
+		);
+		return true;
+	}
+	if (moved.length) {
+		const existingIds = new Set(
+			fileRaw.map(x => String((x && x.id) || '').toLowerCase()).filter(Boolean)
+		);
+		const mergedFile = fileRaw.slice();
+		for (const item of moved) {
+			const id = String((item && item.id) || '').toLowerCase();
+			if (id && !existingIds.has(id)) {
+				const t = normalizeMetadataType(item);
+				mergedFile.push(t ? withSpecialTypeShortcut(t) : item);
+				existingIds.add(id);
+			}
+		}
+		await c.update('metadataTypes', keptDoc, vscode.ConfigurationTarget.Workspace);
+		await c.update('fileLevelMetadataTypes', mergedFile, vscode.ConfigurationTarget.Workspace);
+		return true;
+	}
+	return false;
+}
+
+/**
  * Heading-adjacent special keys (not type attributes): must sit under the heading before `.type`.
  * `workflow: true|false` marks a task as a workflow root; `parent: [tN,…]` links DAG deps.
+ * Note: issue type attribute `parent: i-N` (after `.issue`) is separate — see projectStructureRules.
  */
 const HEADING_SPECIAL_KEYS = new Set(['workflow', 'parent']);
 
@@ -249,6 +481,21 @@ function matchHeadingTitleTypePrefix(titleOrHeading, settings) {
 			const taskId = parseInt(num[2], 10);
 			return {
 				typeId: byNum.id,
+				matchedPrefix,
+				form: 'numeric',
+				taskId: Number.isFinite(taskId) && taskId > 0 ? taskId : null,
+				invalid: false
+			};
+		}
+	}
+	// Issue (and similar): `.i-34` — hyphen + digits on the shortcut
+	const hyphenNum = body.match(/^([A-Za-z]+)-(\d+)$/);
+	if (hyphenNum) {
+		const byHyphen = lookupShortcutType(settings, String(hyphenNum[1] || ''));
+		if (byHyphen) {
+			const taskId = parseInt(hyphenNum[2], 10);
+			return {
+				typeId: byHyphen.id,
 				matchedPrefix,
 				form: 'numeric',
 				taskId: Number.isFinite(taskId) && taskId > 0 ? taskId : null,
@@ -398,6 +645,10 @@ function resolveTypeFromMarkerOrHeading(typeLineOrHeadingText, cfg) {
 
 module.exports = {
 	DEFAULT_METADATA_TYPES,
+	DEFAULT_FILE_LEVEL_METADATA_TYPES,
+	DEFAULT_SPECIAL_METADATA_TYPES,
+	FILE_LEVEL_METADATA_TYPE_IDS,
+	SPECIAL_METADATA_TYPE_IDS,
 	DEFAULT_TAG_RELATIONS,
 	DEFAULT_TAGS_RELATIONS: { allowedRelations: DEFAULT_TAG_RELATIONS.allowed.slice(), defaultRelation: 'tags' },
 	METADATA_ATTRIBUTE_KINDS,
@@ -410,6 +661,12 @@ module.exports = {
 	getMetadataTemplateConfig,
 	resolveTypeFromMarkerOrHeading,
 	getMetadataSettings,
+	getFileLevelMetadataSettings,
+	getSpecialMetadataSettings,
+	getMetadataSettingsForIndex,
+	getMetadataSettingsForNotePath,
+	lockedSpecialTypeIdForPath,
+	migrateFileLevelMetadataTypesIfNeeded,
 	inferTypeFromHeadingLine,
 	inferTypeFromMarkerLine,
 	getTypeRule,

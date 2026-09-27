@@ -18,15 +18,17 @@ const path = require('path');
 const { DRIP_HEADING_FORM_VIEW_ID } = require('../../../shared/constants');
 const { getHeadingFormWebviewHtml } = require('./headingFormHtml');
 const { getHeadingEditModes } = require('../../../document/model/headingEditModes');
-const { getMetadataSettings } = require('../../../document/model/dripnoteMetadataTemplates');
+const { getMetadataSettingsForNotePath } = require('../../../document/model/dripnoteMetadataTemplates');
 const { findPersistentZoneAtLine } = require('../../../document/model/persistentHeadingZones');
 const { listTagsFromIndex } = require('../../../indexing/embeddings/headingEmbeddingSearch');
 const { listKnownTagLabelsForCompletion } = require('../../editor/dripnoteTagCompletion');
 const session = require('./headingFormSession');
 const {
 	applyHeadingFormModelFromMessage,
+	applyHeadingFormModel,
 	isHeadingFormApplyActive
 } = require('./headingFormApply');
+const { setHeadingFormKbRootGetter, getHeadingFormKbRoot } = require('./headingFormKb');
 
 /** @type {import('vscode').ExtensionContext | undefined} */
 let extensionContext;
@@ -36,6 +38,53 @@ let extensionContext;
  */
 function setHeadingFormExtensionContext(context) {
 	extensionContext = context;
+}
+
+/**
+ * Stamp durable `.i-N` into the issue heading type prefix in the editor buffer.
+ * @param {import('vscode').TextEditor} editor
+ * @param {any} payload
+ * @returns {Promise<{ headingLine: number } | null>}
+ */
+async function stampIssueIdOntoEditor(editor, payload) {
+	const kbRoot = getHeadingFormKbRoot();
+	if (!kbRoot || !editor || !payload) return null;
+	const { ensureIssueTypePrefixHasEntityId } = require('../../../document/project/issueEntityIdStamp');
+	const ensured = await ensureIssueTypePrefixHasEntityId(
+		kbRoot,
+		editor.document.uri.fsPath,
+		payload.typePrefix || '',
+		payload.titleDisplay || ''
+	);
+	if (!ensured) return null;
+
+	let bufferAlreadyNumbered = false;
+	try {
+		const line = editor.document.lineAt(payload.headingLine).text;
+		bufferAlreadyNumbered = /#\s+\.i-\d+\b/i.test(line);
+	} catch {
+		bufferAlreadyNumbered = false;
+	}
+
+	payload.issueEntityId = ensured.issueId;
+	payload.typePrefix = ensured.typePrefix;
+	payload.titleDisplay = ensured.titleDisplay;
+
+	// Buffer already has `# .i-N` and we did not allocate → nothing to write.
+	if (!ensured.allocated && bufferAlreadyNumbered) {
+		return null;
+	}
+
+	const model = {
+		...payload,
+		typePrefix: ensured.typePrefix,
+		titleDisplay: ensured.titleDisplay,
+		typeId: 'issue',
+		issueEntityId: ensured.issueId
+	};
+	const changed = await applyHeadingFormModel(editor, model);
+	if (!changed) return null;
+	return { headingLine: payload.headingLine };
 }
 
 /**
@@ -119,7 +168,7 @@ async function collectKnownTagsForDoc(doc) {
 function buildPayloadForLine(doc, line, knownTags) {
 	const modes = getHeadingEditModes();
 	if (!modes.showRhsForm) return null;
-	const settings = getMetadataSettings();
+	const settings = getMetadataSettingsForNotePath(doc.uri.fsPath);
 	const zone = findPersistentZoneAtLine(doc.getText(), line, settings);
 	// Non-persistent headings never drive the RHS form.
 	if (!zone || !zone.persistent || !zone.readyForRhs) return null;
@@ -130,14 +179,44 @@ function buildPayloadForLine(doc, line, knownTags) {
 		shortcut: t.shortcut,
 		attributes: t.attributes || {}
 	}));
+	const typeLocked = !!settings.specialIndex && !!settings.lockedTypeId;
+	const typeId = typeLocked
+		? String(settings.lockedTypeId).toLowerCase()
+		: zone.typeId
+			? String(zone.typeId).toLowerCase()
+			: null;
 	/** @type {Record<string, string>} */
 	const attributes = { ...(zone.attributes || {}) };
-	if (zone.typeId) {
-		const tdef = types.find(t => String(t.id || '').toLowerCase() === zone.typeId);
+	if (typeId) {
+		const tdef = types.find(t => String(t.id || '').toLowerCase() === typeId);
 		const attrs = tdef && tdef.attributes ? tdef.attributes : {};
 		for (const key of Object.keys(attrs)) {
 			if (attributes[key] == null) attributes[key] = '';
 		}
+	}
+	let titleDisplay = zone.titleDisplay;
+	let issueEntityId = '';
+	/** @type {boolean} */
+	let parentStamped = false;
+	if (typeId === 'issue') {
+		const { peekIssueEntityId } = require('../../../document/project/issueEntityIdStamp');
+		issueEntityId = peekIssueEntityId(zone.typePrefix, titleDisplay);
+		// RHS title is human text only — strip legacy leading `i-N` if still present.
+		if (issueEntityId) {
+			const { parseIssueTitleEntityId } = require('../../../document/project/projectStructureRules');
+			const legacy = parseIssueTitleEntityId(titleDisplay);
+			if (legacy && legacy.id === issueEntityId) {
+				titleDisplay = legacy.rest;
+			}
+		}
+		// Nested under an issue in this file → parent is implied; drop any redundant `parent:` line.
+		const beforeParent = String(attributes.parent || '').trim();
+		const { ensureIssueParentAttribute } = require('../../../document/project/issueParentLink');
+		Object.assign(
+			attributes,
+			ensureIssueParentAttribute(attributes, doc.getText(), zone.headingLine)
+		);
+		parentStamped = beforeParent !== String(attributes.parent || '').trim();
 	}
 	return {
 		softLock: modes.softLockPersistent,
@@ -148,17 +227,21 @@ function buildPayloadForLine(doc, line, knownTags) {
 		identityLine: zone.identityLine,
 		tabDepth: zone.tabDepth,
 		level: zone.level,
-		titleDisplay: zone.titleDisplay,
+		titleDisplay,
 		typePrefix: zone.typePrefix,
-		typeId: zone.typeId,
+		typeId,
+		typeLocked,
+		specialIndex: !!settings.specialIndex,
 		identityText: zone.identityText,
+		issueEntityId,
 		attributes,
 		tags: zone.tags,
 		relations: zone.relations,
 		special: zone.special,
 		types,
 		relationNames: [...(settings.allowedRelations || [])],
-		knownTags: Array.isArray(knownTags) ? knownTags : []
+		knownTags: Array.isArray(knownTags) ? knownTags : [],
+		parentStamped
 	};
 }
 
@@ -183,12 +266,59 @@ async function syncHeadingFormFromEditor(editor, line, opts = {}) {
 	}
 	const lineNo = typeof line === 'number' ? line : editor.selection.active.line;
 	const knownTags = await collectKnownTagsForDoc(doc);
-	const payload = buildPayloadForLine(doc, lineNo, knownTags);
+	let payload = buildPayloadForLine(doc, lineNo, knownTags);
 	if (!payload) {
 		session.setBound(null);
 		await session.postToForm({ type: 'headingFormClear' });
 		return;
 	}
+
+	// New / unstamped issue under a project → allocate durable `.i-N` once into the type prefix.
+	if (payload.typeId === 'issue' && !payload.issueEntityId) {
+		const stamped = await stampIssueIdOntoEditor(editor, payload);
+		if (stamped) {
+			payload = buildPayloadForLine(doc, stamped.headingLine, knownTags) || payload;
+		} else {
+			const { peekIssueEntityId } = require('../../../document/project/issueEntityIdStamp');
+			payload.issueEntityId = peekIssueEntityId(payload.typePrefix, payload.titleDisplay);
+		}
+	}
+
+	// Issue tree: remove `parent:` on nested issues (indentation already says it),
+	// and collapse duplicate `parent:` lines (legacy bug).
+	if (payload.typeId === 'issue') {
+		const linesNow = doc.getText().replace(/\r\n/g, '\n').split('\n');
+		let parentLineCount = 0;
+		const end = Math.max(
+			payload.headingLine + 1,
+			Number(payload.lockEndExclusive) || payload.headingLine + 1
+		);
+		for (let j = payload.headingLine + 1; j < end && j < linesNow.length; j++) {
+			if (/^\s*parent\s*:/i.test(String(linesNow[j] || ''))) parentLineCount += 1;
+		}
+		if (payload.parentStamped || parentLineCount > 1) {
+			const wrote = await applyHeadingFormModel(editor, payload);
+			if (wrote) {
+				payload = buildPayloadForLine(doc, payload.headingLine, knownTags) || payload;
+			}
+		}
+		try {
+			const { loadIssueParentContext, selfIssueKeyFromModel } = require('./headingFormIssueParent');
+			const ctx = await loadIssueParentContext(
+				doc,
+				payload.headingLine,
+				selfIssueKeyFromModel(payload)
+			);
+			payload.issueParent = {
+				locked: ctx.locked,
+				lockedParent: ctx.lockedParent,
+				options: ctx.options
+			};
+		} catch (err) {
+			console.error('[DRIP] issue parent options', err);
+		}
+	}
+
 	session.setBound({
 		uri: payload.documentUri,
 		headingLine: payload.headingLine,
@@ -242,7 +372,11 @@ function registerHeadingFormAutoFlush(context) {
 				await session.closeHeadingSidebar();
 				return;
 			}
-			const zone = findPersistentZoneAtLine(editor.document.getText(), editor.selection.active.line);
+			const zone = findPersistentZoneAtLine(
+				editor.document.getText(),
+				editor.selection.active.line,
+				getMetadataSettingsForNotePath(editor.document.uri.fsPath)
+			);
 			if (zone && zone.persistent && zone.headingLine === b.headingLine) return;
 			await requestHeadingFormFlush();
 			await session.closeHeadingSidebar();

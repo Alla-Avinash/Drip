@@ -11,6 +11,7 @@
 	const addRelBtn = document.getElementById('hf-add-rel');
 	const copyIdBtn = document.getElementById('hf-copy-id');
 	const deleteBtn = document.getElementById('hf-delete');
+	const issueIdEl = document.getElementById('hf-issue-id');
 
 	/** @type {any} */
 	let lastPayload = null;
@@ -62,10 +63,16 @@
 		return typeDefs.find(t => String(t.id || '').toLowerCase() === id) || null;
 	}
 
-	/** Shortcut written into the heading for the selected type (e.g. `.c`). */
+	/** Shortcut written into the heading for the selected type (e.g. `.c`, or `.i-34` for issues). */
 	function shortcutPrefixForTypeId(typeId) {
 		const id = String(typeId || '').trim().toLowerCase();
 		if (!id) return '.';
+		if (id === 'issue' && lastPayload) {
+			const existing = String(lastPayload.typePrefix || '').trim();
+			if (/^\.i-\d+$/i.test(existing)) return existing;
+			const ikey = String(lastPayload.issueEntityId || '').trim();
+			if (/^i-\d+$/i.test(ikey)) return `.${ikey}`;
+		}
 		const t = typeDefs.find(x => String(x.id || '').toLowerCase() === id);
 		if (!t) return `.${id}`;
 		const sc = String(t.shortcut || '').trim();
@@ -74,12 +81,14 @@
 		return marker || `.${id}`;
 	}
 
-	function renderTypeOptions(selectedId) {
+	function renderTypeOptions(selectedId, typeLocked) {
 		typeEl.innerHTML = '';
-		const none = document.createElement('option');
-		none.value = '';
-		none.textContent = '—';
-		typeEl.appendChild(none);
+		if (!typeLocked) {
+			const none = document.createElement('option');
+			none.value = '';
+			none.textContent = '—';
+			typeEl.appendChild(none);
+		}
 		for (const t of typeDefs) {
 			const opt = document.createElement('option');
 			opt.value = String(t.id || '');
@@ -89,6 +98,10 @@
 			typeEl.appendChild(opt);
 		}
 		typeEl.value = selectedId ? String(selectedId) : '';
+		typeEl.disabled = !!typeLocked;
+		typeEl.title = typeLocked
+			? 'Special type is fixed for this project/feature index note'
+			: 'Metadata type';
 	}
 
 	function scheduleSave() {
@@ -251,16 +264,19 @@
 		const keys = def && def.attributes ? Object.keys(def.attributes) : Object.keys(attrs || {});
 		for (const key of keys) {
 			const rule = def && def.attributes ? def.attributes[key] : null;
+			if (rule && rule.kind === 'issue_parent' && issueParentInfo().locked) continue;
 			const row = document.createElement('div');
 			row.className = 'hf-row';
 			const span = document.createElement('span');
 			span.className = 'hf-key';
-			span.textContent = key;
+			span.textContent = (rule && rule.label) || key;
 			const valWrap = document.createElement('div');
 			valWrap.className = 'hf-val';
 			const kind = rule && rule.kind ? rule.kind : 'enum';
 			const val = attrs && attrs[key] != null ? String(attrs[key]) : '';
-			if (kind === 'enum' && rule && Array.isArray(rule.values) && rule.values.length) {
+			if (kind === 'issue_parent') {
+				renderIssueParentField(key, val, valWrap);
+			} else if (kind === 'enum' && rule && Array.isArray(rule.values) && rule.values.length) {
 				const sel = document.createElement('select');
 				sel.dataset.key = key;
 				const empty = document.createElement('option');
@@ -282,7 +298,14 @@
 				input.dataset.key = key;
 				input.value = val;
 				input.placeholder =
-					kind === 'datetime' ? 'YYYY-MM-DD HH:mm' : kind === 'duration' ? 'e.g. 2h' : '';
+					(rule && rule.placeholder) ||
+					(kind === 'datetime'
+						? 'YYYY-MM-DD HH:mm'
+						: kind === 'duration'
+							? 'e.g. 2h'
+							: kind === 'issue_parent'
+								? 'i-N'
+								: '');
 				wireSave(input);
 				valWrap.appendChild(input);
 			}
@@ -292,13 +315,184 @@
 		}
 	}
 
+	/** `I-04` → `i-4`; returns '' for empty, null for malformed. */
+	function normalizeIssueKey(raw) {
+		const s = String(raw || '').trim();
+		if (!s) return '';
+		const m = s.match(/^i-(\d+)$/i);
+		return m ? `i-${parseInt(m[1], 10)}` : null;
+	}
+
+	function issueParentInfo() {
+		const ip = lastPayload && lastPayload.issueParent;
+		return {
+			locked: !!(ip && ip.locked),
+			lockedParent: (ip && ip.lockedParent) || '',
+			options: ip && Array.isArray(ip.options) ? ip.options : []
+		};
+	}
+
+	function describeIssueOption(key) {
+		const opt = issueParentInfo().options.find(o => o.key === key);
+		if (!opt) return '';
+		return opt.where ? `${opt.title || key} — ${opt.where}` : String(opt.title || key);
+	}
+
+	/**
+	 * Optional parent issue field (only shown when the issue is not nested under another issue
+	 * in this file): any project issue except self / own sub-issues. Invalid input is never saved.
+	 */
+	function renderIssueParentField(key, val, valWrap) {
+		const info = issueParentInfo();
+		const input = document.createElement('input');
+		input.type = 'text';
+		input.dataset.key = key;
+		input.dataset.issueParent = '1';
+		input.autocomplete = 'off';
+		input.spellcheck = false;
+		const hint = document.createElement('div');
+		hint.className = 'hf-hint';
+		// Custom dropdown: native <datalist> popups are mispositioned inside VS Code webviews.
+		const anchor = document.createElement('div');
+		anchor.className = 'hf-issue-parent';
+		const dd = document.createElement('div');
+		dd.className = 'hf-dd';
+		let activeIdx = -1;
+
+		const filtered = () => {
+			const q = String(input.value || '').trim().toLowerCase();
+			if (!q) return info.options;
+			return info.options.filter(o =>
+				[o.key, o.title, o.where].some(s => String(s || '').toLowerCase().includes(q))
+			);
+		};
+		const closeDd = () => {
+			dd.classList.remove('open');
+			dd.innerHTML = '';
+			activeIdx = -1;
+		};
+		const openDd = () => {
+			const items = filtered();
+			dd.innerHTML = '';
+			if (!items.length) {
+				closeDd();
+				return;
+			}
+			if (activeIdx >= items.length) activeIdx = items.length - 1;
+			items.forEach((o, i) => {
+				const item = document.createElement('div');
+				item.className = 'hf-dd-item hf-issue-opt' + (i === activeIdx ? ' active' : '');
+				const k = document.createElement('span');
+				k.className = 'hf-issue-opt-key';
+				k.textContent = o.key;
+				const t = document.createElement('span');
+				t.className = 'hf-issue-opt-title';
+				t.textContent = o.title || '';
+				item.appendChild(k);
+				item.appendChild(t);
+				if (o.where) {
+					const w = document.createElement('span');
+					w.className = 'hf-issue-opt-where';
+					w.textContent = o.where;
+					item.appendChild(w);
+				}
+				item.addEventListener('mousedown', e => {
+					e.preventDefault();
+					pick(o.key);
+				});
+				dd.appendChild(item);
+			});
+			dd.classList.add('open');
+			const act = dd.querySelector('.hf-dd-item.active');
+			if (act && typeof act.scrollIntoView === 'function') act.scrollIntoView({ block: 'nearest' });
+		};
+		const pick = key => {
+			input.value = key;
+			closeDd();
+			onEdit();
+		};
+
+		input.addEventListener('focus', () => {
+			activeIdx = -1;
+			openDd();
+		});
+		input.addEventListener('blur', () => setTimeout(closeDd, 120));
+		input.addEventListener('keydown', e => {
+			const items = filtered();
+			if (e.key === 'ArrowDown' && items.length) {
+				e.preventDefault();
+				activeIdx = Math.min(items.length - 1, activeIdx + 1);
+				openDd();
+			} else if (e.key === 'ArrowUp' && items.length) {
+				e.preventDefault();
+				activeIdx = Math.max(0, activeIdx - 1);
+				openDd();
+			} else if (e.key === 'Enter' && dd.classList.contains('open') && items[activeIdx]) {
+				e.preventDefault();
+				pick(items[activeIdx].key);
+			} else if (e.key === 'Escape') {
+				closeDd();
+			}
+		});
+		input.placeholder = info.options.length
+			? 'Optional — i-N from this project'
+			: 'No other issues in this project';
+
+		const initial = normalizeIssueKey(val) || '';
+		input.value = initial;
+		input.dataset.lastValid = initial;
+
+		const validate = () => {
+			const norm = normalizeIssueKey(input.value);
+			const allowed = norm === '' || (norm && info.options.some(o => o.key === norm));
+			if (allowed) {
+				input.classList.remove('hf-invalid');
+				input.dataset.invalid = '';
+				input.dataset.lastValid = norm;
+				hint.classList.remove('hf-hint-error');
+				hint.textContent = norm ? describeIssueOption(norm) : '';
+				return true;
+			}
+			input.classList.add('hf-invalid');
+			input.dataset.invalid = '1';
+			hint.classList.add('hf-hint-error');
+			hint.textContent =
+				norm === null
+					? 'Use an issue id like i-12.'
+					: `${norm} can't be the parent. Pick another issue in this project (not this issue or one of its sub-issues).`;
+			return false;
+		};
+		hint.textContent = initial ? describeIssueOption(initial) : '';
+		function onEdit() {
+			if (validate()) scheduleSave();
+		}
+		input.addEventListener('input', () => {
+			activeIdx = 0;
+			openDd();
+			onEdit();
+		});
+		input.addEventListener('change', onEdit);
+		anchor.appendChild(input);
+		anchor.appendChild(dd);
+		valWrap.appendChild(anchor);
+		valWrap.appendChild(hint);
+	}
+
 	function readAttrs() {
 		/** @type {Record<string, string>} */
 		const out = {};
 		attrsEl.querySelectorAll('[data-key]').forEach(el => {
 			const key = el.getAttribute('data-key');
 			if (!key) return;
-			out[key] = String(/** @type {HTMLInputElement|HTMLSelectElement} */ (el).value || '').trim();
+			const input = /** @type {HTMLInputElement|HTMLSelectElement} */ (el);
+			if (input.dataset.issueParent === '1') {
+				out[key] =
+					input.dataset.invalid === '1'
+						? String(input.dataset.lastValid || '')
+						: normalizeIssueKey(input.value) || '';
+				return;
+			}
+			out[key] = String(input.value || '').trim();
 		});
 		return out;
 	}
@@ -478,7 +672,7 @@
 		emptyEl.hidden = true;
 		formEl.hidden = false;
 		titleEl.value = String(payload.titleDisplay || '');
-		renderTypeOptions(payload.typeId || '');
+		renderTypeOptions(payload.typeId || '', !!payload.typeLocked);
 		renderAttrs(payload.attributes || {});
 		tagsPicker = createTagPicker(tagsPickerHost, Array.isArray(payload.tags) ? payload.tags : [], {
 			onChange: scheduleSave,
@@ -489,6 +683,11 @@
 		if (copyIdBtn) {
 			copyIdBtn.disabled = !id;
 			copyIdBtn.title = id ? `Copy ${id}` : 'No identity yet';
+		}
+		// Issue id lives in the heading type prefix (`.i-34`), not a separate RHS badge.
+		if (issueIdEl) {
+			issueIdEl.hidden = true;
+			issueIdEl.textContent = '';
 		}
 		filling = false;
 		lastSavedSig = contentSig(collectModel());
@@ -510,6 +709,7 @@
 			level: (lastPayload && lastPayload.level) || 1,
 			typeId,
 			titleDisplay: String(titleEl.value || '').trim(),
+			issueEntityId: lastPayload && lastPayload.issueEntityId,
 			attributes: readAttrs(),
 			tags,
 			relations: readRelations(),
@@ -575,6 +775,26 @@
 				saveTimer = null;
 			}
 			saveIfChanged();
+		}
+		if (msg.type === 'headingFormIssueParentError') {
+			const input = /** @type {HTMLInputElement|null} */ (
+				attrsEl.querySelector('[data-issue-parent="1"]')
+			);
+			if (input) {
+				const value = String(msg.value || '');
+				input.value = value;
+				input.dataset.lastValid = value;
+				input.dataset.invalid = '';
+				input.classList.remove('hf-invalid');
+				const wrap = input.closest('.hf-val');
+				const hint = wrap && wrap.querySelector('.hf-hint');
+				if (hint) {
+					hint.classList.add('hf-hint-error');
+					hint.textContent = String(msg.message || 'Invalid parent issue.');
+				}
+			}
+			lastSavedSig = contentSig(collectModel());
+			return;
 		}
 		if (msg.type === 'headingFormBoundUpdate' && lastPayload && msg.payload) {
 			filling = true;

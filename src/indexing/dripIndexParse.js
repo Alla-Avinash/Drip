@@ -2,7 +2,7 @@
 
 const crypto = require('crypto');
 const { collectHeadingSequenceValidated } = require('../document/parse/dripnoteCanvasParse');
-const { getMetadataSettings } = require('../document/model/dripnoteMetadataTemplates');
+const { getMetadataSettingsForIndex } = require('../document/model/dripnoteMetadataTemplates');
 const {
 	classifyPersistentHeadingTitle,
 	stripHeadingTitleTypePrefix
@@ -411,6 +411,36 @@ function parseHeadingNodeForIndex(lines, node, knownTagsLower, nextAutoHeadingId
 }
 
 /**
+ * Set `heading.parent` from tab indent: nearest preceding indexed heading with smaller tab_depth.
+ * Document order = `nodes` order; only nodes present in `headingIdByNodeIndex` participate.
+ *
+ * @param {import('../document/parse/dripnoteCanvasParse').HeadingNodeFlat[]} nodes
+ * @param {Map<number, number>} headingIdByNodeIndex
+ * @param {{ heading_id: number, tab_depth?: number, parent?: number | null }[]} headings
+ */
+function assignHeadingParentsFromIndent(nodes, headingIdByNodeIndex, headings) {
+	/** @type {Map<number, { heading_id: number, parent?: number | null }>} */
+	const byId = new Map();
+	for (const h of headings || []) {
+		if (h && h.heading_id != null) byId.set(Number(h.heading_id), h);
+	}
+	/** @type {{ heading_id: number, tab_depth: number }[]} */
+	const stack = [];
+	for (let i = 0; i < (nodes || []).length; i++) {
+		const headingId = headingIdByNodeIndex.get(i);
+		if (headingId == null) continue;
+		const h = byId.get(Number(headingId));
+		if (!h) continue;
+		const depth = Number(nodes[i].tabDepth) || 0;
+		while (stack.length && stack[stack.length - 1].tab_depth >= depth) {
+			stack.pop();
+		}
+		h.parent = stack.length ? stack[stack.length - 1].heading_id : null;
+		stack.push({ heading_id: Number(headingId), tab_depth: depth });
+	}
+}
+
+/**
  * @param {string[]} lines
  * @param {import('../document/parse/dripnoteCanvasParse').HeadingNodeFlat[]} nodes
  * @param {Set<string> | undefined} knownTagsLower
@@ -419,7 +449,7 @@ function parseHeadingNodeForIndex(lines, node, knownTagsLower, nextAutoHeadingId
 function parseAllHeadingNodesForIndex(lines, nodes, knownTagsLower, options) {
 	const onlyDetail = options && options.onlyDetailForNodeIndices;
 	const knownMetadataTypeIds = options?.knownMetadataTypeIds || getKnownMetadataTypeIds();
-	const metadataSettings = getMetadataSettings();
+	const metadataSettings = getMetadataSettingsForIndex();
 	const separatorIndex = lines.findIndex(line => String(line || '').trim() === '---');
 	const h0NodeIndex = nodes.findIndex(
 		node =>
@@ -481,6 +511,8 @@ function parseAllHeadingNodesForIndex(lines, nodes, knownTagsLower, options) {
 		relations.push(...parsed.relations);
 		typedMetadata.push(...parsed.typedMetadata);
 	}
+
+	assignHeadingParentsFromIndent(nodes, headingIdByNodeIndex, headings);
 
 	return { headings, references, searchtags, relations, typedMetadata, headingIdByNodeIndex };
 }
@@ -567,6 +599,7 @@ module.exports = {
 	parseNoteForIndex,
 	parseAllHeadingNodesForIndex,
 	parseHeadingNodeForIndex,
+	assignHeadingParentsFromIndent,
 	computeHeadingHash,
 	parseRefLine,
 	parseRefTargetFromToken,

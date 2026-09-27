@@ -1,17 +1,27 @@
 'use strict';
 
-const { getMetadataSettings } = require('../../document/model/dripnoteMetadataTemplates');
+const {
+	getMetadataSettings,
+	getSpecialMetadataSettings
+} = require('../../document/model/dripnoteMetadataTemplates');
 
 /**
+ * Document + special (project/feature) type ids allowed in index.drip.
  * @returns {Set<string>}
  */
 function getKnownMetadataTypeIds() {
-	const settings = getMetadataSettings();
-	return new Set(
-		settings.types
-			.map(t => String(t.id || '').trim().toLowerCase())
-			.filter(Boolean)
-	);
+	const doc = getMetadataSettings();
+	const special = getSpecialMetadataSettings();
+	const ids = new Set();
+	for (const t of doc.types || []) {
+		const id = String(t.id || '').trim().toLowerCase();
+		if (id) ids.add(id);
+	}
+	for (const t of special.types || []) {
+		const id = String(t.id || '').trim().toLowerCase();
+		if (id) ids.add(id);
+	}
+	return ids;
 }
 
 /**

@@ -939,6 +939,14 @@ function buildNewNoteFile(draft, options = {}) {
 	const n = Number.isFinite(options.fileEntityNumber) ? Math.max(0, Math.floor(options.fileEntityNumber)) : 0;
 	const fid = formatFileEntityId(n);
 	const rootHeadingId = `${fid}:h0`;
+	// Optional typed h0 (e.g. project index: `# .p Title`). Default remains bare `# . Title`.
+	const typeMarkerRaw = String(options.h0TypeMarker || '').trim();
+	const typeMarker = typeMarkerRaw
+		? typeMarkerRaw.startsWith('.')
+			? typeMarkerRaw
+			: `.${typeMarkerRaw}`
+		: '.';
+	const h0Title = typeMarker === '.' ? `# . ${metaLabel}` : `# ${typeMarker} ${metaLabel}`;
 
 	// File metadata + h0 live in the same pre-`---` block; `---` separates them from other headings.
 	return (
@@ -947,7 +955,7 @@ function buildNewNoteFile(draft, options = {}) {
 		`headings: 0\n` +
 		`\n` +
 		`${rootHeadingId}\n` +
-		`# . ${metaLabel}\n` +
+		`${h0Title}\n` +
 		`${body}` +
 		(body.trim() ? '' : '\n') +
 		`---\n`

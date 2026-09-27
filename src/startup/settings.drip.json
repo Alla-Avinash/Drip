@@ -126,6 +126,56 @@
         }
       },
       {
+        "id": "issue",
+        "marker": ".issue",
+        "shortcut": "i",
+        "color": "",
+        "displayTemplate": true,
+        "attributes": {
+          "priority": {
+            "kind": "enum",
+            "default": "",
+            "required": false,
+            "values": [
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "status": {
+            "kind": "enum",
+            "default": "",
+            "required": true,
+            "values": [
+              "in-progress",
+              "to-do",
+              "completed"
+            ]
+          },
+          "deadline": {
+            "kind": "datetime",
+            "default": "",
+            "required": false
+          },
+          "category": {
+            "kind": "enum",
+            "default": "problem",
+            "required": false,
+            "values": [
+              "problem",
+              "bug"
+            ]
+          },
+          "parent": {
+            "kind": "issue_parent",
+            "default": "",
+            "required": false
+          }
+        }
+      }
+    ],
+    "fileLevelMetadataTypes": [
+      {
         "id": "project",
         "marker": ".project",
         "shortcut": "p",
@@ -173,68 +223,6 @@
             "values": [
               "true",
               "false"
-            ]
-          }
-        }
-      },
-      {
-        "id": "issue",
-        "marker": ".issue",
-        "shortcut": "i",
-        "color": "",
-        "displayTemplate": true,
-        "attributes": {
-          "priority": {
-            "kind": "enum",
-            "default": "",
-            "required": false,
-            "values": [
-              "high",
-              "medium",
-              "low"
-            ]
-          },
-          "status": {
-            "kind": "enum",
-            "default": "",
-            "required": true,
-            "values": [
-              "in-progress",
-              "to-do",
-              "completed"
-            ]
-          },
-          "deadline": {
-            "kind": "datetime",
-            "default": "",
-            "required": false
-          },
-          "category": {
-            "kind": "enum",
-            "default": "problem",
-            "required": false,
-            "values": [
-              "problem",
-              "bug"
-            ]
-          }
-        }
-      },
-      {
-        "id": "decision",
-        "marker": ".decision",
-        "shortcut": "d",
-        "color": "",
-        "displayTemplate": true,
-        "attributes": {
-          "category": {
-            "kind": "enum",
-            "default": "",
-            "required": false,
-            "values": [
-              "architecture",
-              "ux design",
-              "performance optimization"
             ]
           }
         }
@@ -365,6 +353,13 @@
     "metadataKeyColor": "",
     "metadataValueColor": "",
     "canvasVisibleTypeIds": [],
-    "canvasShowHeadingsWithoutType": true
+    "canvasShowHeadingsWithoutType": true,
+    "githubBackup": {
+      "remoteUrl": "",
+      "branch": "main",
+      "lastPushAt": null,
+      "lastPullAt": null,
+      "lastError": null
+    }
   }
 }

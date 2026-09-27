@@ -5,6 +5,8 @@ const DRIP_PANEL_ID = 'drip.composer';
 const DRIP_TAGS_GRAPH_PANEL_ID = 'drip.tagsGraph';
 /** Editor-area webview panel for DRIP Retriever */
 const DRIP_RETRIEVER_PANEL_ID = 'drip.retriever';
+/** Editor-area webview panel for Project View (Linear-style) */
+const DRIP_PROJECT_VIEW_PANEL_ID = 'drip.projectView';
 /** Separate editor panel for a tag with many sub-tags (≥ threshold) */
 const DRIP_SUBGRAPH_PANEL_ID = 'drip.subGraphEditor';
 const DRIP_COMPONENTS_VIEW_ID = 'drip.components';
@@ -42,6 +44,7 @@ module.exports = {
 	DRIP_PANEL_ID,
 	DRIP_TAGS_GRAPH_PANEL_ID,
 	DRIP_RETRIEVER_PANEL_ID,
+	DRIP_PROJECT_VIEW_PANEL_ID,
 	DRIP_SUBGRAPH_PANEL_ID,
 	DRIP_COMPONENTS_VIEW_ID,
 	DRIP_KB_VIEW_ID,

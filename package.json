@@ -17,6 +17,7 @@
 		"onCommand:drip.openRetriever",
 		"onCommand:drip.retrieverQuickOpen",
 		"onCommand:drip.openCanvasView",
+		"onCommand:drip.openProjectView",
 		"onCommand:drip.openHeadingInCanvas",
 		"onCommand:drip.openFileInCanvas",
 		"onWebviewPanel:drip.tagsGraph",
@@ -25,6 +26,9 @@
 		"onCommand:drip.captureSelectionToComposer",
 		"onCommand:drip.selectKnowledgeBase",
 		"onCommand:drip.openDripSettingsView",
+		"onCommand:drip.github.pushBackup",
+		"onCommand:drip.github.pullBackup",
+		"onCommand:drip.github.initRepo",
 		"onView:drip.components",
 		"onView:drip.knowledgeBase",
 		"onView:drip.drafts",
@@ -162,6 +166,12 @@
 				"icon": "$(layout)"
 			},
 			{
+				"command": "drip.openProjectView",
+				"title": "Open Project View",
+				"category": "DRIP",
+				"icon": "$(folder-library)"
+			},
+			{
 				"command": "drip.openHeadingInCanvas",
 				"title": "Open in Canvas View",
 				"category": "DRIP",
@@ -182,6 +192,41 @@
 				"title": "Open DRIP Settings",
 				"category": "DRIP",
 				"icon": "$(gear)"
+			},
+			{
+				"command": "drip.github.configureRemote",
+				"title": "Configure GitHub backup remote",
+				"category": "DRIP"
+			},
+			{
+				"command": "drip.github.initRepo",
+				"title": "Initialize GitHub backup",
+				"category": "DRIP"
+			},
+			{
+				"command": "drip.github.pushBackup",
+				"title": "Push knowledge base backup",
+				"category": "DRIP"
+			},
+			{
+				"command": "drip.github.pullBackup",
+				"title": "Pull knowledge base backup",
+				"category": "DRIP"
+			},
+			{
+				"command": "drip.github.openRemote",
+				"title": "Open GitHub backup remote",
+				"category": "DRIP"
+			},
+			{
+				"command": "drip.github.setPat",
+				"title": "Set GitHub backup token",
+				"category": "DRIP"
+			},
+			{
+				"command": "drip.github.clearPat",
+				"title": "Clear GitHub backup token",
+				"category": "DRIP"
 			},
 			{
 				"command": "drip.selectKnowledgeBase",
@@ -208,12 +253,30 @@
 				"icon": "$(new-folder)"
 			},
 			{
+				"command": "drip.createProjectFolder",
+				"title": "New Project",
+				"category": "DRIP",
+				"icon": "$(folder-library)"
+			},
+			{
+				"command": "drip.createFeatureFolder",
+				"title": "New Feature Folder",
+				"category": "DRIP",
+				"icon": "$(folder)"
+			},
+			{
+				"command": "drip.createFeatureFile",
+				"title": "New Feature File",
+				"category": "DRIP",
+				"icon": "$(file)"
+			},
+			{
 				"command": "drip.createDripIgnore",
 				"title": "New .dripignore File"
 			},
 			{
 				"command": "drip.showKbNewMenu",
-				"title": "New…",
+				"title": "New",
 				"category": "DRIP",
 				"icon": "$(add)"
 			},
@@ -234,6 +297,23 @@
 			{
 				"command": "drip.renameItem",
 				"title": "Rename"
+			},
+			{
+				"command": "drip.convertFolderToFeature",
+				"title": "Convert to Feature Folder",
+				"category": "DRIP"
+			},
+			{
+				"command": "drip.deleteProject",
+				"title": "Delete Project",
+				"category": "DRIP",
+				"icon": "$(trash)"
+			},
+			{
+				"command": "drip.deleteFeature",
+				"title": "Delete Feature",
+				"category": "DRIP",
+				"icon": "$(trash)"
 			},
 			{
 				"command": "drip.deleteItem",
@@ -264,15 +344,9 @@
 			},
 			{
 				"command": "drip.updateIndexScope",
-				"title": "DRIP: Update index",
+				"title": "DRIP: Update",
 				"category": "DRIP",
 				"icon": "$(sync)"
-			},
-			{
-				"command": "drip.reconcileHeadingsScope",
-				"title": "DRIP: Reconcile headings",
-				"category": "DRIP",
-				"icon": "$(list-ordered)"
 			},
 			{
 				"command": "drip.processPendingLinkMigrations",
@@ -502,40 +576,6 @@
 							}
 						},
 						{
-							"id": "project",
-							"marker": ".project",
-							"shortcut": "p",
-							"color": "",
-							"displayTemplate": true,
-							"attributes": {
-								"status": {
-									"kind": "enum",
-									"default": "",
-									"required": true,
-									"values": [
-										"in-progress",
-										"to-do",
-										"completed"
-									]
-								},
-								"priority": {
-									"kind": "enum",
-									"default": "",
-									"required": false,
-									"values": [
-										"high",
-										"medium",
-										"low"
-									]
-								},
-								"deadline": {
-									"kind": "datetime",
-									"default": "",
-									"required": false
-								}
-							}
-						},
-						{
 							"id": "implementation",
 							"marker": ".implementation",
 							"shortcut": "impl",
@@ -588,7 +628,65 @@
 							}
 						}
 					],
-					"description": "Metadata type definitions used for .d.txt templates. New knowledge bases start with the bundled default set (concept, task, project, implementation, issue)."
+					"description": "Document (heading) metadata type definitions for .d.txt notes. Project and feature are configured under drip.fileLevelMetadataTypes (special metadata types)."
+				},
+				"drip.fileLevelMetadataTypes": {
+					"type": "array",
+					"default": [
+						{
+							"id": "project",
+							"marker": ".project",
+							"shortcut": "p",
+							"color": "",
+							"displayTemplate": true,
+							"attributes": {
+								"status": {
+									"kind": "enum",
+									"default": "",
+									"required": true,
+									"values": [
+										"in-progress",
+										"to-do",
+										"completed"
+									]
+								},
+								"priority": {
+									"kind": "enum",
+									"default": "",
+									"required": false,
+									"values": [
+										"high",
+										"medium",
+										"low"
+									]
+								},
+								"deadline": {
+									"kind": "datetime",
+									"default": "",
+									"required": false
+								}
+							}
+						},
+						{
+							"id": "feature",
+							"marker": ".feature",
+							"shortcut": "f",
+							"color": "",
+							"displayTemplate": true,
+							"attributes": {
+								"implemented": {
+									"kind": "enum",
+									"default": "",
+									"required": false,
+									"values": [
+										"true",
+										"false"
+									]
+								}
+							}
+						}
+					],
+					"description": "Special metadata types for project (.p) and feature (.f) folder index notes. Shortcuts are .p / .f; RHS Heading shows only this type on those files."
 				},
 				"drip.metadataTypeColors": {
 					"type": "object",
@@ -715,7 +813,7 @@
 		"submenus": [
 			{
 				"id": "drip.kb.new",
-				"label": "New…"
+				"label": "New"
 			}
 		],
 		"menus": {
@@ -726,19 +824,9 @@
 					"group": "navigation@99"
 				},
 				{
-					"command": "drip.createFolder",
+					"command": "drip.showKbNewMenu",
 					"when": "view == drip.knowledgeBase",
 					"group": "navigation@1"
-				},
-				{
-					"command": "drip.createMarkdownFile",
-					"when": "view == drip.knowledgeBase",
-					"group": "navigation@2"
-				},
-				{
-					"command": "drip.createNoteFile",
-					"when": "view == drip.knowledgeBase",
-					"group": "navigation@3"
 				},
 				{
 					"command": "drip.refreshTree",
@@ -749,11 +837,6 @@
 					"command": "drip.reindexCurrentKbWorkspace",
 					"when": "view == drip.knowledgeBase && drip.startupCheckComplete",
 					"group": "navigation@5"
-				},
-				{
-					"command": "drip.resetReindexEntireKb",
-					"when": "view == drip.knowledgeBase && drip.startupCheckComplete",
-					"group": "navigation@5.1"
 				},
 				{
 					"command": "drip.selectKnowledgeBase",
@@ -793,11 +876,6 @@
 					"group": "2_kb@3"
 				},
 				{
-					"command": "drip.resetReindexEntireKb",
-					"when": "view == drip.knowledgeBase && drip.startupCheckComplete",
-					"group": "2_kb@3.1"
-				},
-				{
 					"command": "drip.processPendingLinkMigrations",
 					"when": "view == drip.knowledgeBase",
 					"group": "2_kb@4"
@@ -809,16 +887,24 @@
 					"group": "1@1"
 				},
 				{
-					"command": "drip.createMarkdownFile",
+					"command": "drip.createProjectFolder",
 					"group": "1@2"
 				},
 				{
-					"command": "drip.createNoteFile",
+					"command": "drip.createFeatureFolder",
 					"group": "1@3"
 				},
 				{
-					"command": "drip.createDripIgnore",
+					"command": "drip.createFeatureFile",
 					"group": "1@4"
+				},
+				{
+					"command": "drip.createMarkdownFile",
+					"group": "1@5"
+				},
+				{
+					"command": "drip.createNoteFile",
+					"group": "1@6"
 				}
 			],
 			"editor/context": [
@@ -841,28 +927,23 @@
 			"view/item/context": [
 				{
 					"submenu": "drip.kb.new",
-					"when": "view == drip.knowledgeBase && drip.kbEmptySelection",
-					"group": "dripEmpty@1"
+					"when": "view == drip.knowledgeBase",
+					"group": "0_new@1"
 				},
 				{
 					"command": "drip.selectKnowledgeBase",
-					"when": "view == drip.knowledgeBase && drip.kbEmptySelection",
+					"when": "view == drip.knowledgeBase && !viewItem",
 					"group": "dripEmpty@2"
 				},
 				{
 					"command": "drip.refreshTree",
-					"when": "view == drip.knowledgeBase && drip.kbEmptySelection",
+					"when": "view == drip.knowledgeBase && !viewItem",
 					"group": "dripEmpty@3"
 				},
 				{
 					"command": "drip.reindexCurrentKbWorkspace",
-					"when": "view == drip.knowledgeBase && drip.kbEmptySelection && drip.startupCheckComplete",
+					"when": "view == drip.knowledgeBase && !viewItem && drip.startupCheckComplete",
 					"group": "dripEmpty@4"
-				},
-				{
-					"command": "drip.resetReindexEntireKb",
-					"when": "view == drip.knowledgeBase && drip.kbEmptySelection && drip.startupCheckComplete",
-					"group": "dripEmpty@4.1"
 				},
 				{
 					"command": "drip.refreshTree",
@@ -875,54 +956,49 @@
 					"group": "dripNavigation@2"
 				},
 				{
-					"submenu": "drip.kb.new",
-					"when": "view == drip.knowledgeBase && (viewItem == dripKbRoot || viewItem == dripFolderNoIndex || viewItem == dripFolderWithIndex)",
-					"group": "dripCreate@1"
-				},
-				{
 					"command": "drip.createDripIgnore",
-					"when": "view == drip.knowledgeBase && (viewItem == dripKbRoot || viewItem == dripFolderNoIndex || viewItem == dripFolderWithIndex)",
-					"group": "dripCreate@3"
+					"when": "view == drip.knowledgeBase && (viewItem == dripKbRoot || viewItem == dripProjectFolder)",
+					"group": "dripCreate@2"
 				},
 				{
 					"command": "drip.copyPath",
-					"when": "view == drip.knowledgeBase && (viewItem == dripKbRoot || viewItem == dripFolderNoIndex || viewItem == dripFolderWithIndex || viewItem == dripNoteFile || viewItem == dripIgnoreFile || viewItem == dripImageFile)",
+					"when": "view == drip.knowledgeBase && (viewItem == dripKbRoot || viewItem == dripFolder || viewItem == dripFolderInProject || viewItem == dripFolderInProjectBlocked || viewItem == dripFolderInFeature || viewItem == dripProjectFolder || viewItem == dripFeatureFolder || viewItem == dripNoteFile || viewItem == dripNoteFileInProject || viewItem == dripNoteFileInFeature || viewItem == dripFolderIndexNote || viewItem == dripFeatureFile || viewItem == dripIgnoreFile || viewItem == dripImageFile)",
 					"group": "dripPath@1"
 				},
 				{
 					"command": "drip.renameItem",
-					"when": "view == drip.knowledgeBase && (viewItem == dripFolderNoIndex || viewItem == dripFolderWithIndex || viewItem == dripNoteFile || viewItem == dripIgnoreFile || viewItem == dripImageFile)",
+					"when": "view == drip.knowledgeBase && (viewItem == dripFolder || viewItem == dripFolderInProject || viewItem == dripFolderInProjectBlocked || viewItem == dripFolderInFeature || viewItem == dripProjectFolder || viewItem == dripFeatureFolder || viewItem == dripNoteFile || viewItem == dripNoteFileInProject || viewItem == dripNoteFileInFeature || viewItem == dripFeatureFile || viewItem == dripIgnoreFile || viewItem == dripImageFile)",
 					"group": "dripPath@2"
 				},
 				{
+					"command": "drip.deleteProject",
+					"when": "view == drip.knowledgeBase && viewItem == dripProjectFolder",
+					"group": "dripProject@1"
+				},
+				{
+					"command": "drip.convertFolderToFeature",
+					"when": "view == drip.knowledgeBase && viewItem == dripFolderInProject",
+					"group": "dripFeature@1"
+				},
+				{
+					"command": "drip.deleteFeature",
+					"when": "view == drip.knowledgeBase && viewItem == dripFeatureFolder",
+					"group": "dripFeature@2"
+				},
+				{
 					"command": "drip.ignorePath",
-					"when": "view == drip.knowledgeBase && (viewItem == dripFolderNoIndex || viewItem == dripFolderWithIndex || viewItem == dripNoteFile || viewItem == dripIgnoreFile || viewItem == dripImageFile)",
+					"when": "view == drip.knowledgeBase && (viewItem == dripFolder || viewItem == dripFolderInProject || viewItem == dripFolderInProjectBlocked || viewItem == dripFolderInFeature || viewItem == dripProjectFolder || viewItem == dripFeatureFolder || viewItem == dripNoteFile || viewItem == dripNoteFileInProject || viewItem == dripNoteFileInFeature || viewItem == dripFeatureFile || viewItem == dripIgnoreFile || viewItem == dripImageFile)",
 					"group": "dripIgnore@1"
 				},
 				{
 					"command": "drip.deleteItem",
-					"when": "view == drip.knowledgeBase && (viewItem == dripFolderNoIndex || viewItem == dripFolderWithIndex || viewItem == dripNoteFile || viewItem == dripIgnoreFile || viewItem == dripImageFile)",
+					"when": "view == drip.knowledgeBase && (viewItem == dripFolder || viewItem == dripFolderInProject || viewItem == dripFolderInProjectBlocked || viewItem == dripFolderInFeature || viewItem == dripNoteFile || viewItem == dripNoteFileInProject || viewItem == dripNoteFileInFeature || viewItem == dripFeatureFile || viewItem == dripIgnoreFile || viewItem == dripImageFile)",
 					"group": "dripDelete@1"
 				},
 				{
 					"command": "drip.updateIndexScope",
-					"when": "view == drip.knowledgeBase && (viewItem == dripFolder || viewItem == dripNoteFile) && drip.startupCheckComplete",
+					"when": "view == drip.knowledgeBase && (viewItem == dripFolder || viewItem == dripFolderInProject || viewItem == dripFolderInProjectBlocked || viewItem == dripFolderInFeature || viewItem == dripProjectFolder || viewItem == dripFeatureFolder || viewItem == dripNoteFile || viewItem == dripNoteFileInProject || viewItem == dripNoteFileInFeature || viewItem == dripFeatureFile) && drip.startupCheckComplete",
 					"group": "dripIndex@1"
-				},
-				{
-					"command": "drip.reconcileHeadingsScope",
-					"when": "view == drip.knowledgeBase && (viewItem == dripFolder || viewItem == dripNoteFile) && drip.startupCheckComplete",
-					"group": "dripIndex@2"
-				},
-				{
-					"command": "drip.createIndexHere",
-					"when": "view == drip.knowledgeBase && viewItem == dripFolderNoIndex",
-					"group": "dripIndex@1"
-				},
-				{
-					"command": "drip.removeIndexHere",
-					"when": "view == drip.knowledgeBase && viewItem == dripFolderWithIndex",
-					"group": "dripIndex@2"
 				},
 				{
 					"command": "drip.deleteItem",

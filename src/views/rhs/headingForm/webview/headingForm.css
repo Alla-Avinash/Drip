@@ -63,6 +63,18 @@ html, body {
 	border-color: var(--hf-focus);
 }
 
+.hf-issue-id {
+	flex: 0 0 auto;
+	font-family: var(--vscode-editor-font-family, monospace);
+	font-size: 12px;
+	font-weight: 600;
+	padding: 2px 8px;
+	border-radius: 3px;
+	background: var(--hf-chip-bg);
+	color: var(--hf-chip-fg);
+	letter-spacing: 0.02em;
+}
+
 .hf-icon-btn {
 	flex: 0 0 auto;
 	width: 30px;
@@ -132,6 +144,23 @@ html, body {
 	outline-offset: -1px;
 }
 
+.hf-row input.hf-invalid {
+	border-color: var(--vscode-inputValidation-errorBorder, #f14c4c);
+}
+
+.hf-hint {
+	font-size: 11px;
+	color: var(--hf-muted);
+}
+
+.hf-hint:empty {
+	display: none;
+}
+
+.hf-hint.hf-hint-error {
+	color: var(--vscode-errorForeground, #f14c4c);
+}
+
 .hf-section {
 	margin-top: 6px;
 	padding-top: 8px;
@@ -195,6 +224,41 @@ html, body {
 .hf-dd-item:hover,
 .hf-dd-item.active {
 	background: var(--hf-hover);
+}
+
+.hf-issue-parent {
+	position: relative;
+	width: 100%;
+}
+
+.hf-issue-opt {
+	display: flex;
+	align-items: baseline;
+	gap: 6px;
+	min-width: 0;
+}
+
+.hf-issue-opt-key {
+	flex: 0 0 auto;
+	font-weight: 600;
+}
+
+.hf-issue-opt-title {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.hf-issue-opt-where {
+	flex: 0 1 auto;
+	max-width: 45%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 11px;
+	color: var(--hf-muted);
 }
 
 .hf-dd-empty {

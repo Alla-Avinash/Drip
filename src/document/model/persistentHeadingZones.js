@@ -212,6 +212,19 @@ function findPersistentHeadingZones(text, settings) {
 		const lockEndExclusive = findMetadataBlockEndExclusive(lines, i);
 		const safeLineAfter = lockEndExclusive;
 
+		const rawTitle = rawTitleFromHeadingLine(lines[i]);
+		const split = splitPersistentHeadingTitle(ph.title, rawTitle);
+		// Prefer classified type; fall back to prefix match so RHS gets template fields for `.c` / `.t1` / `.c#`.
+		let typeId = classification.metadataType || null;
+		if (!typeId && matched.typeId && !matched.invalid) {
+			typeId = matched.typeId;
+		}
+		if (!typeId && split.typePrefix && split.typePrefix !== '.') {
+			const again = matchHeadingTitleTypePrefix(split.typePrefix, s);
+			if (again.typeId && !again.invalid) typeId = again.typeId;
+		}
+		const typeIdNorm = typeId ? String(typeId).trim().toLowerCase() : null;
+
 		/** @type {Record<string, string>} */
 		const attributes = {};
 		/** @type {string[]} */
@@ -228,24 +241,15 @@ function findPersistentHeadingZones(text, settings) {
 			} else if (c.kind === 'relation' && c.key) {
 				relations.push({ type: c.key, tags: c.tags || [] });
 			} else if (c.kind === 'kv' && c.key) {
-				if (HEADING_SPECIAL_KEYS.has(c.key)) {
-					special[c.key] = String(c.value || '');
+				const key = String(c.key || '').trim().toLowerCase();
+				// Issue logical parent (`parent: i-N`) is a typed attribute — not workflow special.
+				const asIssueParent = key === 'parent' && typeIdNorm === 'issue';
+				if (HEADING_SPECIAL_KEYS.has(key) && !asIssueParent) {
+					special[key] = String(c.value || '');
 				} else {
-					attributes[c.key] = String(c.value || '');
+					attributes[key] = String(c.value || '');
 				}
 			}
-		}
-
-		const rawTitle = rawTitleFromHeadingLine(lines[i]);
-		const split = splitPersistentHeadingTitle(ph.title, rawTitle);
-		// Prefer classified type; fall back to prefix match so RHS gets template fields for `.c` / `.t1` / `.c#`.
-		let typeId = classification.metadataType || null;
-		if (!typeId && matched.typeId && !matched.invalid) {
-			typeId = matched.typeId;
-		}
-		if (!typeId && split.typePrefix && split.typePrefix !== '.') {
-			const again = matchHeadingTitleTypePrefix(split.typePrefix, s);
-			if (again.typeId && !again.invalid) typeId = again.typeId;
 		}
 
 		out.push({
@@ -260,7 +264,7 @@ function findPersistentHeadingZones(text, settings) {
 			titleDisplay: split.titleDisplay,
 			typePrefix: split.typePrefix,
 			readyForRhs: split.readyForRhs,
-			typeId: typeId ? String(typeId).trim().toLowerCase() : null,
+			typeId: typeIdNorm,
 			persistent: true,
 			identityText: identityLine >= 0 ? String(lines[identityLine] || '').trim() : '',
 			attributes,
@@ -340,6 +344,7 @@ function serializePersistentHeadingBlock(model, settings) {
 	}
 	const special = model.special && typeof model.special === 'object' ? model.special : {};
 	for (const key of Object.keys(special)) {
+		if (typeId === 'issue' && String(key).toLowerCase() === 'parent') continue;
 		const v = String(special[key] || '').trim();
 		if (v) meta.push(`${attrIndent}${key}: ${v}`);
 	}
@@ -375,10 +380,11 @@ function serializePersistentHeadingBlock(model, settings) {
 /**
  * Count persistent headings in text.
  * @param {string} text
+ * @param {{ types?: any[] }} [settings]
  * @returns {number}
  */
-function countPersistentHeadings(text) {
-	return findPersistentHeadingZones(text).length;
+function countPersistentHeadings(text, settings) {
+	return findPersistentHeadingZones(text, settings).length;
 }
 
 module.exports = {

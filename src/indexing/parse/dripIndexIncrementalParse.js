@@ -212,6 +212,10 @@ function headingStructureChanged(previousParse, nextParse) {
 		const b = next[i];
 		if (!a || !b) return true;
 		if (a.heading_id !== b.heading_id) return true;
+		if ((a.tab_depth || 0) !== (b.tab_depth || 0)) return true;
+		if ((a.parent == null ? null : Number(a.parent)) !== (b.parent == null ? null : Number(b.parent))) {
+			return true;
+		}
 	}
 	return false;
 }

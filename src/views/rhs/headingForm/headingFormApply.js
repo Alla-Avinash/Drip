@@ -5,7 +5,7 @@
  */
 
 const vscode = require('vscode');
-const { getMetadataSettings } = require('../../../document/model/dripnoteMetadataTemplates');
+const { getMetadataSettingsForNotePath } = require('../../../document/model/dripnoteMetadataTemplates');
 const { findPersistentZoneAtLine } = require('../../../document/model/persistentHeadingZones');
 const { planPersistentHeadingPatch } = require('../../../document/model/headingBlockPatch');
 const session = require('./headingFormSession');
@@ -37,7 +37,7 @@ async function runAsHeadingFormApply(fn) {
  */
 async function applyHeadingFormModel(editor, model) {
 	const doc = editor.document;
-	const settings = getMetadataSettings();
+	const settings = getMetadataSettingsForNotePath(doc.uri.fsPath);
 	const headingLineHint = Number(model.headingLine);
 	const zone =
 		findPersistentZoneAtLine(doc.getText(), headingLineHint, settings) ||
@@ -46,18 +46,51 @@ async function applyHeadingFormModel(editor, model) {
 		return false;
 	}
 
+	const lockedTypeId = settings.lockedTypeId
+		? String(settings.lockedTypeId).toLowerCase()
+		: null;
+	const typeId = lockedTypeId || (model.typeId ? String(model.typeId).trim().toLowerCase() : null);
+
+	// Issues: keep durable `.i-N` (from model or existing zone). Other typed headings:
+	// force shortcut from typeId (ignore stale typePrefix). Untyped: bare `.`.
+	let typePrefix = typeId ? '' : '.';
+	let issueEntityId = model.issueEntityId;
+	if (typeId === 'issue') {
+		typePrefix = String(model.typePrefix || zone.typePrefix || '').trim();
+		if (!issueEntityId) {
+			try {
+				const { peekIssueEntityId } = require('../../../document/project/issueEntityIdStamp');
+				issueEntityId =
+					peekIssueEntityId(typePrefix, model.titleDisplay || zone.titleDisplay || '') ||
+					undefined;
+			} catch {
+				/* ignore */
+			}
+		}
+	}
+
 	const lines = doc.getText().replace(/\r\n/g, '\n').split('\n');
+	/** @type {Record<string, unknown>} */
+	let attributes = model.attributes && typeof model.attributes === 'object' ? { ...model.attributes } : {};
+	if (typeId === 'issue') {
+		try {
+			const { ensureIssueParentAttribute } = require('../../../document/project/issueParentLink');
+			attributes = ensureIssueParentAttribute(attributes, doc.getText(), zone.headingLine);
+		} catch (err) {
+			console.error('[DRIP] stamp issue parent on apply', err);
+		}
+	}
 	const patch = planPersistentHeadingPatch(
 		lines,
 		zone,
 		{
 			level: model.level || zone.level,
 			tabDepth: model.tabDepth ?? zone.tabDepth,
-			typeId: model.typeId,
-			// Do not reuse zone.typePrefix — RHS type changes must rewrite the heading shortcut.
-			typePrefix: model.typeId ? '' : '.',
+			typeId,
+			typePrefix,
+			issueEntityId,
 			titleDisplay: model.titleDisplay,
-			attributes: model.attributes || {},
+			attributes,
 			tags: model.tags || [],
 			relations: model.relations || [],
 			special: model.special || {}
@@ -109,6 +142,15 @@ async function applyHeadingFormModel(editor, model) {
 
 		const fresh = findPersistentZoneAtLine(editor.document.getText(), zone.headingLine, settings);
 		if (fresh) {
+			let issueEntityId;
+			if (String(fresh.typeId || '').toLowerCase() === 'issue') {
+				try {
+					const { peekIssueEntityId } = require('../../../document/project/issueEntityIdStamp');
+					issueEntityId = peekIssueEntityId(fresh.typePrefix, fresh.titleDisplay) || undefined;
+				} catch {
+					/* ignore */
+				}
+			}
 			session.setBound({
 				uri: editor.document.uri.toString(),
 				headingLine: fresh.headingLine,
@@ -125,7 +167,8 @@ async function applyHeadingFormModel(editor, model) {
 					level: fresh.level,
 					tabDepth: fresh.tabDepth,
 					typePrefix: fresh.typePrefix,
-					typeId: fresh.typeId
+					typeId: fresh.typeId,
+					issueEntityId
 				}
 			});
 		}
@@ -155,7 +198,46 @@ async function applyHeadingFormModelFromMessage(model) {
 		}
 	}
 	if (!editor) return;
-	await applyHeadingFormModel(editor, model || {});
+
+	const next = { ...(model || {}) };
+	const typeId = next.typeId ? String(next.typeId).trim().toLowerCase() : '';
+	if (typeId === 'issue') {
+		try {
+			const { ensureIssueTypePrefixHasEntityId } = require('../../../document/project/issueEntityIdStamp');
+			const { getHeadingFormKbRoot } = require('./headingFormKb');
+			const kbRoot = getHeadingFormKbRoot();
+			if (kbRoot) {
+				const ensured = await ensureIssueTypePrefixHasEntityId(
+					kbRoot,
+					editor.document.uri.fsPath,
+					next.typePrefix || '',
+					next.titleDisplay || ''
+				);
+				if (ensured) {
+					next.typePrefix = ensured.typePrefix;
+					next.titleDisplay = ensured.titleDisplay;
+					next.issueEntityId = ensured.issueId;
+				}
+			}
+		} catch (err) {
+			console.error('[DRIP] stamp issue id on apply', err);
+		}
+		try {
+			const { validateIssueParentForApply } = require('./headingFormIssueParent');
+			const res = await validateIssueParentForApply(editor.document, next);
+			next.attributes = { ...(next.attributes || {}), parent: res.value };
+			if (!res.ok) {
+				await session.postToForm({
+					type: 'headingFormIssueParentError',
+					message: res.error || 'Invalid parent issue.',
+					value: res.value
+				});
+			}
+		} catch (err) {
+			console.error('[DRIP] validate issue parent on apply', err);
+		}
+	}
+	await applyHeadingFormModel(editor, next);
 }
 
 module.exports = {

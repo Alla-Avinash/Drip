@@ -661,8 +661,11 @@ class DripRetrieverPanel {
 		await this.pushSuggestResults(pl);
 	}
 
-	/** Shell from settings + tags from `index.drip` (no note file walk). */
-	async pushLightCatalogInit() {
+	/** Shell from settings + tags from `index.drip` (no note file walk).
+	 * @param {{ post?: boolean }} [opts] — set `post: false` to refresh `this.catalog` only (caller posts once).
+	 */
+	async pushLightCatalogInit(opts) {
+		const shouldPost = !opts || opts.post !== false;
 		const rk =
 			typeof this.state?.getRetrieverKnowledgeBaseRoot === 'function'
 				? this.state.getRetrieverKnowledgeBaseRoot()
@@ -708,6 +711,9 @@ class DripRetrieverPanel {
 			void require('../../../indexing/embeddings/tagEmbeddingSync')
 				.syncMissingTagEmbeddings(kbRoot)
 				.catch(err => console.warn('[DRIP] tag embedding sync', err && err.message));
+		}
+		if (!shouldPost) {
+			return;
 		}
 		const tagGraphs = this.listTagGraphOptions();
 		const c = this.catalog;
@@ -950,44 +956,46 @@ class DripRetrieverPanel {
 
 	/** Refresh metadata/tags from index.drip — never walks the KB tree. */
 	async rebuildAndPushInit() {
-		await this.pushLightCatalogInit();
+		// Load catalog silently, then post a single init (avoids double chip re-render / query).
+		await this.pushLightCatalogInit({ post: false });
 		const kbRoot =
 			typeof this.state?.getRetrieverKnowledgeBaseRoot === 'function'
 				? this.state.getRetrieverKnowledgeBaseRoot().uri
 				: this.state?.getKnowledgeBaseRoot?.();
-		if (!kbRoot) {
-			return;
+		const c = this.catalog;
+		const metadataColors = this.syncCatalogMetadataColorsForWebview();
+		let headingsIndexed = 0;
+		if (kbRoot) {
+			try {
+				const { listHeadingsFromIndex } = require('../../../indexing/embeddings/headingEmbeddingSearch');
+				const listed = await listHeadingsFromIndex(kbRoot, { limit: 1, offset: 0 });
+				headingsIndexed = listed.total;
+			} catch (err) {
+				console.error('[DRIP] rebuild from index.drip failed', err);
+			}
 		}
-		try {
-			const { listHeadingsFromIndex } = require('../../../indexing/embeddings/headingEmbeddingSearch');
-			const listed = await listHeadingsFromIndex(kbRoot, { limit: 1, offset: 0 });
-			const c = this.catalog;
-			const metadataColors = this.syncCatalogMetadataColorsForWebview();
-			await this.panel.webview.postMessage({
-				type: 'retrieverCatalogInit',
-				payload: {
-					shellOnly: false,
-					kbMissing: Boolean(c.kbMissing),
-					metadataTypes: c.metadataTypes || [],
-					allTags: c.allTags || [],
-					tagCounts: Array.isArray(c.tagCounts) ? c.tagCounts.slice(0, 500) : [],
-					relationTypes: Array.isArray(c.relationTypes) ? c.relationTypes : [],
-					tagGraphs: this.listTagGraphOptions(),
-					headingsIndexed: listed.total,
-					kbRootPath: typeof c.kbRootPath === 'string' ? c.kbRootPath : kbRoot.fsPath,
-					noteFilesVisited: 0,
-					usedWorkspaceFallback: Boolean(c.usedWorkspaceFallback),
-					persistedUi:
-						typeof this.state?.getRetrieverPersistedUi === 'function'
-							? this.state.getRetrieverPersistedUi()
-							: null,
-					catalogSource: 'index.drip',
-					metadataColors
-				}
-			});
-		} catch (err) {
-			console.error('[DRIP] rebuild from index.drip failed', err);
-		}
+		await this.panel.webview.postMessage({
+			type: 'retrieverCatalogInit',
+			payload: {
+				shellOnly: false,
+				kbMissing: Boolean(c.kbMissing),
+				metadataTypes: c.metadataTypes || [],
+				allTags: c.allTags || [],
+				tagCounts: Array.isArray(c.tagCounts) ? c.tagCounts.slice(0, 500) : [],
+				relationTypes: Array.isArray(c.relationTypes) ? c.relationTypes : [],
+				tagGraphs: this.listTagGraphOptions(),
+				headingsIndexed,
+				kbRootPath: typeof c.kbRootPath === 'string' ? c.kbRootPath : kbRoot ? kbRoot.fsPath : '',
+				noteFilesVisited: 0,
+				usedWorkspaceFallback: Boolean(c.usedWorkspaceFallback),
+				persistedUi:
+					typeof this.state?.getRetrieverPersistedUi === 'function'
+						? this.state.getRetrieverPersistedUi()
+						: null,
+				catalogSource: 'index.drip',
+				metadataColors
+			}
+		});
 	}
 
 	async pushQueryResult(payload) {

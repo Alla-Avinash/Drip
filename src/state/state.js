@@ -30,7 +30,8 @@ const {
 	splitFileHeaderAndBody,
 	writeTextFile
 } = require('../document/kbNoteOps');
-const { normalizeNoteIdentityFile } = require('../indexing/dripnoteFileIdentity');
+const { normalizeNoteIdentityFile, normalizeNoteIdentityText } = require('../indexing/dripnoteFileIdentity');
+const { runGuardedDocumentEdit } = require('../shared/documentEditGuard');
 const {
 	extractFileIdFromHeader,
 	updateRefsOnRename,
@@ -41,6 +42,26 @@ const { updateNoteInDripIndex } = require('../indexing/sync/dripnoteIndexUpdate'
 const { removeFileFromDripIndex } = require('../indexing/dripIndexDb');
 const { getKbNoteTreeIcon } = require('../views/lhs/knowledgebase/kbTreeIcon');
 const { pickAndBindKnowledgeBase } = require('../startup/selectKnowledgeBase');
+const {
+	isDripFeatureFolderName,
+	isDripFeatureFileName,
+	toFeatureFileName,
+	fromFeatureFileName,
+	stripFolderTypeExt,
+	applyH0TypeMarkerToNoteText,
+	demoteH0TypeToBarePersistent,
+	featureIndexFileName,
+	FEATURE_FOLDER_EXT
+} = require('../document/model/dripFeature');
+const { isDripProjectFolderName, PROJECT_FOLDER_EXT, projectIndexFileName, isProtectedFolderIndexNotePath, isProjectIndexFileName } = require('../document/model/dripProjectFolder');
+const {
+	canPlaceProjectFolder,
+	canPlaceFeature,
+	placementZone,
+	findNestedFeature,
+	findNestedProject,
+	canConvertFolderToFeature
+} = require('../document/model/dripKbFolderRules');
 const {
 	loadDraftsFromDripIndex,
 	saveDraftToDripIndex,
@@ -70,6 +91,148 @@ function kbPathSegments(kbRoot, folderUri) {
 		segments.push({ label: part, folderUri: cursor.toString() });
 	}
 	return segments;
+}
+
+/**
+ * Find an open (non-closed) text document for a file URI.
+ * @param {import('vscode').Uri} uri
+ * @returns {import('vscode').TextDocument | undefined}
+ */
+function findOpenTextDocument(uri) {
+	if (!uri) return undefined;
+	const key = uri.toString();
+	const fsPath = uri.fsPath;
+	return vscode.workspace.textDocuments.find(
+		d => !d.isClosed && (d.uri.toString() === key || d.uri.fsPath === fsPath)
+	);
+}
+
+/**
+ * Rewrite an open note buffer (no rename) via WorkspaceEdit + save.
+ * Falls back to disk write when the file is not open.
+ *
+ * @param {import('vscode').Uri} uri
+ * @param {(text: string) => string | Promise<string>} transformText
+ */
+async function rewriteNotePreferringEditor(uri, transformText) {
+	let doc = findOpenTextDocument(uri);
+	if (!doc) {
+		const text = await readTextFile(uri);
+		const next = await transformText(text);
+		if (next !== text && String(next).replace(/\r\n/g, '\n') !== text.replace(/\r\n/g, '\n')) {
+			await writeTextFile(uri, next);
+		}
+		return;
+	}
+	if (doc.isDirty) {
+		await doc.save();
+	}
+	const before = doc.getText();
+	const after = await transformText(before);
+	const beforeNorm = before.replace(/\r\n/g, '\n');
+	const afterNorm = String(after || '').replace(/\r\n/g, '\n');
+	await runGuardedDocumentEdit(async () => {
+		if (afterNorm !== beforeNorm) {
+			const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length));
+			const we = new vscode.WorkspaceEdit();
+			we.replace(doc.uri, fullRange, String(after ?? ''));
+			await vscode.workspace.applyEdit(we);
+			doc = findOpenTextDocument(uri) || (await vscode.workspace.openTextDocument(uri));
+		}
+		if (doc.isDirty) {
+			await doc.save();
+		}
+	});
+}
+
+/**
+ * Close all editor tabs for a file URI without prompting (revert dirty buffers first).
+ * Callers must already have captured any buffer text they need.
+ * @param {import('vscode').Uri} uri
+ */
+async function closeEditorsForFile(uri) {
+	if (!uri) return;
+	const key = uri.toString();
+	const fsPath = uri.fsPath;
+
+	for (;;) {
+		const doc = vscode.workspace.textDocuments.find(
+			d => !d.isClosed && (d.uri.toString() === key || d.uri.fsPath === fsPath)
+		);
+		if (!doc) break;
+		await vscode.window.showTextDocument(doc, { preview: true, preserveFocus: false });
+		if (doc.isDirty) {
+			await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
+		} else {
+			await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+		}
+		// Safety: if still open after command, force tab close.
+		const still = vscode.workspace.textDocuments.find(
+			d => !d.isClosed && (d.uri.toString() === key || d.uri.fsPath === fsPath)
+		);
+		if (!still) break;
+		const tabs = [];
+		for (const group of vscode.window.tabGroups.all) {
+			for (const tab of group.tabs) {
+				if (
+					tab.input instanceof vscode.TabInputText &&
+					(tab.input.uri.toString() === key || tab.input.uri.fsPath === fsPath)
+				) {
+					tabs.push(tab);
+				}
+			}
+		}
+		if (!tabs.length) break;
+		await vscode.window.tabGroups.close(tabs, true);
+		break;
+	}
+}
+
+/**
+ * Rename + rewrite a note with no open editor, then reopen.
+ * Avoids “content of the file is newer” races between WorkspaceEdit saves and
+ * on-open identity reconcile writeTextFile.
+ *
+ * @param {import('vscode').Uri} oldUri
+ * @param {import('vscode').Uri} newUri
+ * @param {(text: string) => string | Promise<string>} transformText
+ * @returns {Promise<import('vscode').TextDocument>}
+ */
+async function renameAndRewriteOpenNote(oldUri, newUri, transformText) {
+	const openOld = findOpenTextDocument(oldUri);
+	const sourceText = openOld ? openOld.getText() : await readTextFile(oldUri);
+	const next = String((await transformText(sourceText)) ?? '');
+
+	await closeEditorsForFile(oldUri);
+	await closeEditorsForFile(newUri);
+	// Let onDidClose heading-hash flush finish on the old path before rename.
+	await new Promise(resolve => setTimeout(resolve, 150));
+
+	await vscode.workspace.fs.rename(oldUri, newUri, { overwrite: false });
+	await writeTextFile(newUri, next);
+
+	const doc = await vscode.workspace.openTextDocument(newUri);
+	await vscode.window.showTextDocument(doc, { preview: false });
+
+	// Open handlers may writeTextFile (fileid / heading reconcile). Wait briefly, then
+	// revert the buffer to disk so we never leave a “file is newer” conflict.
+	await new Promise(resolve => setTimeout(resolve, 300));
+	const openNow = findOpenTextDocument(newUri);
+	if (openNow && !openNow.isClosed) {
+		try {
+			const disk = await readTextFile(newUri);
+			const buf = openNow.getText().replace(/\r\n/g, '\n');
+			const diskNorm = disk.replace(/\r\n/g, '\n');
+			if (buf !== diskNorm || openNow.isDirty) {
+				await vscode.window.showTextDocument(openNow, { preview: false, preserveFocus: true });
+				await vscode.commands.executeCommand('workbench.action.files.revert');
+			}
+		} catch (err) {
+			console.error('[DRIP] post-convert revert to disk', err);
+		}
+	}
+
+	return findOpenTextDocument(newUri) || doc;
 }
 
 class DripState {
@@ -325,8 +488,30 @@ class DripState {
 				item.kind = 'folder';
 				item.uri = node.uri;
 				item.resourceUri = node.uri;
-				item.contextValue = 'dripFolder';
-				item.iconPath = new vscode.ThemeIcon('folder');
+				const isProject = isDripProjectFolderName(node.label);
+				const isFeature = !isProject && isDripFeatureFolderName(node.label);
+				if (isProject) {
+					item.contextValue = 'dripProjectFolder';
+					item.iconPath = new vscode.ThemeIcon('folder-library');
+				} else if (isFeature) {
+					item.contextValue = 'dripFeatureFolder';
+					item.iconPath = new vscode.ThemeIcon('folder');
+				} else {
+					const zone = placementZone(kbRoot.fsPath, node.uri.fsPath);
+					if (zone === 'inProject') {
+						const okFeature = await canConvertFolderToFeature(
+							kbRoot.fsPath,
+							node.uri,
+							getKbNoteExtensions()
+						);
+						item.contextValue = okFeature ? 'dripFolderInProject' : 'dripFolderInProjectBlocked';
+					} else if (zone === 'inFeature') {
+						item.contextValue = 'dripFolderInFeature';
+					} else {
+						item.contextValue = 'dripFolder';
+					}
+					item.iconPath = new vscode.ThemeIcon('folder');
+				}
 				return item;
 			}
 
@@ -358,8 +543,24 @@ class DripState {
 				title: 'Open File',
 				arguments: [node.uri]
 			};
-			item.contextValue = node.label === '.dripignore' ? 'dripIgnoreFile' : 'dripNoteFile';
-			if (node.label !== '.dripignore') {
+			if (node.label === '.dripignore') {
+				item.contextValue = 'dripIgnoreFile';
+			} else if (isProjectIndexFileName(node.label) || isProtectedFolderIndexNotePath(node.uri.fsPath)) {
+				// Project/feature index notes: open + copy path only (no rename/delete alone).
+				item.contextValue = 'dripFolderIndexNote';
+				item.iconPath = getKbNoteTreeIcon(this.context.extensionUri);
+			} else if (isDripFeatureFileName(node.label, getKbNoteExtensions())) {
+				item.contextValue = 'dripFeatureFile';
+				// Light: same note icon as regular KB notes.
+				item.iconPath = getKbNoteTreeIcon(this.context.extensionUri);
+			} else {
+				const zone = placementZone(kbRoot.fsPath, node.uri.fsPath);
+				item.contextValue =
+					zone === 'inProject'
+						? 'dripNoteFileInProject'
+						: zone === 'inFeature'
+							? 'dripNoteFileInFeature'
+							: 'dripNoteFile';
 				item.iconPath = getKbNoteTreeIcon(this.context.extensionUri);
 			}
 			return item;
@@ -892,8 +1093,8 @@ class DripState {
 
 		const baseUri = await this.resolveTargetFolder(targetUri);
 		const name = await vscode.window.showInputBox({
-			prompt: 'New folder inside the knowledge base',
-			placeHolder: 'Folder name',
+			prompt: 'New folder (.p = project outside other projects; .f = feature only inside a project)',
+			placeHolder: 'Folder name, Project.p, or Feature.f',
 			validateInput(value) {
 				const v = (value || '').trim();
 				if (!v) {
@@ -901,6 +1102,13 @@ class DripState {
 				}
 				if (v !== path.basename(v) || v.includes('/') || v.includes(path.sep)) {
 					return 'Use a single folder name only (no path separators).';
+				}
+				const prospective = path.join(baseUri.fsPath, v);
+				if (isDripProjectFolderName(v) && !canPlaceProjectFolder(kbRoot.fsPath, prospective)) {
+					return 'Project folders cannot be nested inside another project.';
+				}
+				if (isDripFeatureFolderName(v) && !canPlaceFeature(kbRoot.fsPath, prospective)) {
+					return 'Feature folders must be inside a project (.p), and not inside another feature.';
 				}
 				return undefined;
 			}
@@ -913,6 +1121,17 @@ class DripState {
 		const trimmed = name.trim();
 		const folderUri = vscode.Uri.joinPath(baseUri, trimmed);
 
+		if (isDripProjectFolderName(trimmed) && !canPlaceProjectFolder(kbRoot.fsPath, folderUri.fsPath)) {
+			await vscode.window.showErrorMessage('Project folders cannot be nested inside another project.');
+			return undefined;
+		}
+		if (isDripFeatureFolderName(trimmed) && !canPlaceFeature(kbRoot.fsPath, folderUri.fsPath)) {
+			await vscode.window.showErrorMessage(
+				'Feature folders must be inside a project (.p), and not nested inside another feature.'
+			);
+			return undefined;
+		}
+
 		try {
 			await vscode.workspace.fs.stat(folderUri);
 			await vscode.window.showErrorMessage(`A file or folder named "${trimmed}" already exists in this location.`);
@@ -922,7 +1141,257 @@ class DripState {
 		}
 
 		await vscode.workspace.fs.createDirectory(folderUri);
+
+		if (isDripProjectFolderName(trimmed)) {
+			try {
+				const { ensureProjectIndexFile } = require('../startup/dripProjectFolder');
+				await ensureProjectIndexFile(folderUri, {
+					context: this.context,
+					kbRoot,
+					open: true
+				});
+			} catch (err) {
+				console.error('[DRIP] ensure project index after createFolder', err);
+			}
+		} else if (isDripFeatureFolderName(trimmed)) {
+			try {
+				const { ensureFeatureIndexFile } = require('../startup/dripFeatureFolder');
+				await ensureFeatureIndexFile(folderUri, {
+					context: this.context,
+					kbRoot,
+					open: true
+				});
+			} catch (err) {
+				console.error('[DRIP] ensure feature index after createFolder', err);
+			}
+		}
+
 		return folderUri;
+	}
+
+	/**
+	 * Create a project folder `Name.p` (and index note) under the KB root or selected folder.
+	 * @param {import('vscode').Uri | undefined} targetUri
+	 */
+	async createProjectFolder(targetUri) {
+		const kbRoot = await this.ensureKnowledgeBaseRoot();
+		if (!kbRoot) {
+			throw new Error('No knowledge base folder selected.');
+		}
+
+		const baseUri = await this.resolveTargetFolder(targetUri);
+		const name = await vscode.window.showInputBox({
+			prompt: 'New project name (saved as Name.p)',
+			placeHolder: 'MyProject',
+			validateInput(value) {
+				const v = (value || '').trim();
+				if (!v) {
+					return 'Enter a project name.';
+				}
+				if (v !== path.basename(v) || v.includes('/') || v.includes(path.sep)) {
+					return 'Use a single name only (no path separators).';
+				}
+				const folderName = isDripProjectFolderName(v) ? v : `${v}${PROJECT_FOLDER_EXT}`;
+				const prospective = path.join(baseUri.fsPath, folderName);
+				if (!canPlaceProjectFolder(kbRoot.fsPath, prospective)) {
+					return 'Project folders cannot be nested inside another project.';
+				}
+				return undefined;
+			}
+		});
+
+		if (!name) {
+			return undefined;
+		}
+
+		const trimmed = name.trim();
+		const folderName = isDripProjectFolderName(trimmed) ? trimmed : `${trimmed}${PROJECT_FOLDER_EXT}`;
+		const folderUri = vscode.Uri.joinPath(baseUri, folderName);
+
+		if (!canPlaceProjectFolder(kbRoot.fsPath, folderUri.fsPath)) {
+			await vscode.window.showErrorMessage('Project folders cannot be nested inside another project.');
+			return undefined;
+		}
+
+		try {
+			await vscode.workspace.fs.stat(folderUri);
+			await vscode.window.showErrorMessage(`A file or folder named "${folderName}" already exists in this location.`);
+			return undefined;
+		} catch {
+			// Path is free.
+		}
+
+		await vscode.workspace.fs.createDirectory(folderUri);
+		try {
+			const { ensureProjectIndexFile } = require('../startup/dripProjectFolder');
+			await ensureProjectIndexFile(folderUri, {
+				context: this.context,
+				kbRoot,
+				open: true
+			});
+		} catch (err) {
+			console.error('[DRIP] ensure project index after createProjectFolder', err);
+		}
+		return folderUri;
+	}
+
+	/**
+	 * Create a feature folder `Name.f` (and index note) inside a project (or selected folder under a project).
+	 * @param {import('vscode').Uri | undefined} targetUri
+	 */
+	async createFeatureFolder(targetUri) {
+		const kbRoot = await this.ensureKnowledgeBaseRoot();
+		if (!kbRoot) {
+			throw new Error('No knowledge base folder selected.');
+		}
+
+		const baseUri = await this.resolveTargetFolder(targetUri);
+		const name = await vscode.window.showInputBox({
+			prompt: 'New feature name (saved as Name.f inside a project)',
+			placeHolder: 'Auth',
+			validateInput(value) {
+				const v = (value || '').trim();
+				if (!v) {
+					return 'Enter a feature name.';
+				}
+				if (v !== path.basename(v) || v.includes('/') || v.includes(path.sep)) {
+					return 'Use a single name only (no path separators).';
+				}
+				const folderName = isDripFeatureFolderName(v) ? v : `${v}${FEATURE_FOLDER_EXT}`;
+				const prospective = path.join(baseUri.fsPath, folderName);
+				if (!canPlaceFeature(kbRoot.fsPath, prospective)) {
+					return 'Features must live inside a project folder (.p), and cannot nest inside another feature.';
+				}
+				return undefined;
+			}
+		});
+
+		if (!name) {
+			return undefined;
+		}
+
+		const trimmed = name.trim();
+		const folderName = isDripFeatureFolderName(trimmed) ? trimmed : `${trimmed}${FEATURE_FOLDER_EXT}`;
+		const folderUri = vscode.Uri.joinPath(baseUri, folderName);
+
+		if (!canPlaceFeature(kbRoot.fsPath, folderUri.fsPath)) {
+			await vscode.window.showErrorMessage(
+				'Features must live inside a project folder (.p), and cannot nest inside another feature.'
+			);
+			return undefined;
+		}
+
+		try {
+			await vscode.workspace.fs.stat(folderUri);
+			await vscode.window.showErrorMessage(`A file or folder named "${folderName}" already exists in this location.`);
+			return undefined;
+		} catch {
+			// Path is free.
+		}
+
+		await vscode.workspace.fs.createDirectory(folderUri);
+		try {
+			const { ensureFeatureIndexFile } = require('../startup/dripFeatureFolder');
+			await ensureFeatureIndexFile(folderUri, {
+				context: this.context,
+				kbRoot,
+				open: true
+			});
+		} catch (err) {
+			console.error('[DRIP] ensure feature index after createFeatureFolder', err);
+		}
+		return folderUri;
+	}
+
+	/**
+	 * Create a standalone feature note `Name.f.d.txt` inside a project.
+	 * @param {import('vscode').Uri | undefined} targetUri
+	 */
+	async createFeatureFile(targetUri) {
+		const kbRoot = await this.ensureKnowledgeBaseRoot();
+		if (!kbRoot) {
+			throw new Error('No knowledge base folder selected.');
+		}
+
+		const baseUri = await this.resolveTargetFolder(targetUri);
+		const noteExt = '.d.txt';
+		const name = await vscode.window.showInputBox({
+			prompt: 'New feature file name (saved as Name.f.d.txt inside a project)',
+			placeHolder: 'Auth',
+			validateInput(value) {
+				const v = (value || '').trim();
+				if (!v) return 'Enter a feature name.';
+				if (v !== path.basename(v) || v.includes('/') || v.includes(path.sep)) {
+					return 'Use a single name only (no path separators).';
+				}
+				const stem = v.replace(/\.f\.d\.txt$/i, '').replace(/\.f$/i, '');
+				const fileName = toFeatureFileName(`${stem}${noteExt}`, noteExt) || `${stem}.f.d.txt`;
+				const prospective = path.join(baseUri.fsPath, fileName);
+				if (!canPlaceFeature(kbRoot.fsPath, prospective)) {
+					return 'Feature files must live inside a project folder (.p), and cannot nest inside another feature.';
+				}
+				return undefined;
+			}
+		});
+
+		if (!name) return undefined;
+
+		const trimmed = name.trim().replace(/\.f\.d\.txt$/i, '').replace(/\.f$/i, '');
+		const fileName = toFeatureFileName(`${trimmed}${noteExt}`, noteExt) || `${trimmed}.f.d.txt`;
+		const fileUri = vscode.Uri.joinPath(baseUri, fileName);
+
+		if (!canPlaceFeature(kbRoot.fsPath, fileUri.fsPath)) {
+			await vscode.window.showErrorMessage(
+				'Feature files must live inside a project folder (.p), and cannot nest inside another feature.'
+			);
+			return undefined;
+		}
+
+		try {
+			await vscode.workspace.fs.stat(fileUri);
+			await vscode.window.showErrorMessage(`A file named "${fileName}" already exists in this location.`);
+			return undefined;
+		} catch {
+			/* free */
+		}
+
+		let featureEntityId = '';
+		try {
+			const rel = path.relative(kbRoot.fsPath, fileUri.fsPath).replace(/\\/g, '/');
+			const parts = rel.split('/').filter(Boolean);
+			let projectPrefix = '';
+			for (let i = 0; i < parts.length; i++) {
+				if (/\.p$/i.test(parts[i])) {
+					projectPrefix = parts.slice(0, i + 1).join('/') + '/';
+					break;
+				}
+			}
+			if (projectPrefix) {
+				const { allocateNextFeatureEntityId } = require('../document/project/projectEntityIds');
+				featureEntityId = await allocateNextFeatureEntityId(kbRoot, projectPrefix);
+			}
+		} catch (err) {
+			console.error('[DRIP] allocate feature entity id for file', err);
+		}
+
+		const displayName = trimmed;
+		const h0Label = featureEntityId ? `${featureEntityId} ${displayName}` : displayName;
+		const n = await allocateNextEntityNumber(kbRoot);
+		await writeTextFile(
+			fileUri,
+			buildNewNoteFile(
+				{ title: h0Label, content: '', metadataFilename: displayName },
+				{ fileEntityNumber: n, h0TypeMarker: '.f' }
+			)
+		);
+		await normalizeNoteIdentityFile(fileUri, { context: this.context, kbRoot });
+		try {
+			await indexNewNoteImmediately(kbRoot, fileUri, this.context);
+		} catch (err) {
+			console.error('[DRIP] index feature file', err);
+		}
+		await vscode.commands.executeCommand('vscode.open', fileUri);
+		return fileUri;
 	}
 
 	async ensureDripIgnoreFile(targetUri) {
@@ -932,6 +1401,16 @@ class DripState {
 		}
 
 		const baseUri = await this.resolveTargetFolder(targetUri);
+		const baseName = path.basename(baseUri.fsPath);
+		const isKbRoot = path.resolve(baseUri.fsPath) === path.resolve(kbRoot.fsPath);
+		const isProject = isDripProjectFolderName(baseName);
+		if (!isKbRoot && !isProject) {
+			await vscode.window.showWarningMessage(
+				'.dripignore can only be created at the knowledge base root or inside a project folder (.p).'
+			);
+			return undefined;
+		}
+
 		const fileUri = vscode.Uri.joinPath(baseUri, '.dripignore');
 
 		try {
@@ -1093,10 +1572,22 @@ class DripState {
 			return;
 		}
 
+		if (isProtectedFolderIndexNotePath(item.uri.fsPath)) {
+			await vscode.window.showWarningMessage(
+				'Cannot rename the project/feature index note. Rename the project or feature folder instead.'
+			);
+			return;
+		}
+
 		const oldName = path.basename(item.uri.fsPath);
 		const noteExt = getExtensionFromFileName(oldName);
 		const isNoteFile =
-			item.contextValue === 'dripNoteFile' && Boolean(noteExt) && oldName.length > noteExt.length;
+			(item.contextValue === 'dripNoteFile' ||
+				item.contextValue === 'dripNoteFileInProject' ||
+				item.contextValue === 'dripNoteFileInFeature' ||
+				item.contextValue === 'dripFeatureFile') &&
+			Boolean(noteExt) &&
+			oldName.length > noteExt.length;
 
 		// If renaming a knowledge-base note, we must propagate reference updates.
 		// References are stored as: `L. ![file name - @fileid](rel/path)`.
@@ -1159,6 +1650,53 @@ class DripState {
 		const newPath = path.join(parentDir, finalName);
 		const newUri = vscode.Uri.file(newPath);
 
+		const isFolder =
+			item.kind === 'folder' ||
+			item.contextValue === 'dripFolder' ||
+			item.contextValue === 'dripFolderBlocked' ||
+			item.contextValue === 'dripFolderInProject' ||
+			item.contextValue === 'dripFolderInProjectBlocked' ||
+			item.contextValue === 'dripFolderInFeature' ||
+			item.contextValue === 'dripProjectFolder' ||
+			item.contextValue === 'dripFeatureFolder';
+
+		if (isFolder && isDripProjectFolderName(finalName) && !canPlaceProjectFolder(kbRoot.fsPath, newUri.fsPath)) {
+			await vscode.window.showErrorMessage('Project folders cannot be nested inside another project.');
+			return;
+		}
+		if (isFolder && isDripProjectFolderName(finalName)) {
+			const nestedProject = await findNestedProject(item.uri);
+			if (nestedProject) {
+				await vscode.window.showErrorMessage(
+					`Cannot make this a project folder: it already contains a project (“${nestedProject.name}”).`
+				);
+				return;
+			}
+		}
+		if (isFolder && isDripFeatureFolderName(finalName) && !canPlaceFeature(kbRoot.fsPath, newUri.fsPath)) {
+			await vscode.window.showErrorMessage(
+				'Feature folders must be inside a project (.p), and not nested inside another feature.'
+			);
+			return;
+		}
+		if (isFolder && isDripFeatureFolderName(finalName)) {
+			const nestedFeature = await findNestedFeature(item.uri, getKbNoteExtensions());
+			if (nestedFeature) {
+				await vscode.window.showErrorMessage(
+					`Cannot make this a feature folder: it already contains a feature ${nestedFeature.kind} (“${nestedFeature.name}”).`
+				);
+				return;
+			}
+		}
+		if (isNoteFile && isDripFeatureFileName(finalName, getKbNoteExtensions())) {
+			if (!canPlaceFeature(kbRoot.fsPath, newUri.fsPath)) {
+				await vscode.window.showErrorMessage(
+					'Feature files must live inside a project folder (.p), and cannot nest inside another feature.'
+				);
+				return;
+			}
+		}
+
 		try {
 			await vscode.workspace.fs.stat(newUri);
 			await vscode.window.showErrorMessage(`A file or folder named "${finalName}" already exists in this location.`);
@@ -1168,6 +1706,22 @@ class DripState {
 		}
 
 		await vscode.workspace.fs.rename(item.uri, newUri, { overwrite: false });
+		if (isFolder && isDripProjectFolderName(finalName)) {
+			try {
+				const { ensureProjectIndexFile } = require('../startup/dripProjectFolder');
+				await ensureProjectIndexFile(newUri, { context: this.context, kbRoot });
+			} catch (err) {
+				console.error('[DRIP] ensure project index after rename', err);
+			}
+		}
+		if (isFolder && isDripFeatureFolderName(finalName)) {
+			try {
+				const { ensureFeatureIndexFile } = require('../startup/dripFeatureFolder');
+				await ensureFeatureIndexFile(newUri, { context: this.context, kbRoot });
+			} catch (err) {
+				console.error('[DRIP] ensure feature index after rename', err);
+			}
+		}
 		if (isNoteFile) {
 			await normalizeNoteIdentityFile(newUri, { context: this.context, forceRecomputeFileId: true });
 
@@ -1194,6 +1748,226 @@ class DripState {
 			} catch {
 				// Keep rename working even if reference propagation fails.
 			}
+		}
+	}
+
+	/**
+	 * Rename a normal folder to `Name.f` and ensure the feature index note exists.
+	 * Only allowed inside a project, not inside another feature.
+	 * @param {{ uri?: import('vscode').Uri, kind?: string, contextValue?: string }} item
+	 */
+	async convertFolderToFeature(item) {
+		if (!item?.uri) return;
+		const cv = item.contextValue || '';
+		if (
+			item.kind !== 'folder' &&
+			cv !== 'dripFolder' &&
+			cv !== 'dripFolderInProject' &&
+			cv !== 'dripFolderInFeature'
+		) {
+			await vscode.window.showInformationMessage('Select a knowledge base folder to convert.');
+			return;
+		}
+		if (cv === 'dripFeatureFolder' || isDripFeatureFolderName(path.basename(item.uri.fsPath))) {
+			await vscode.window.showInformationMessage('This folder is already a feature folder.');
+			return;
+		}
+		if (cv === 'dripProjectFolder' || isDripProjectFolderName(path.basename(item.uri.fsPath))) {
+			await vscode.window.showInformationMessage(
+				'This folder is already a project folder. Rename it first if you want a feature folder.'
+			);
+			return;
+		}
+
+		const kbRoot = this.getKnowledgeBaseRoot();
+		if (!kbRoot) {
+			await vscode.window.showWarningMessage('Select a knowledge base first.');
+			return;
+		}
+
+		const relative = path.relative(kbRoot.fsPath, item.uri.fsPath);
+		if (relative.startsWith('..') || path.isAbsolute(relative)) {
+			await vscode.window.showWarningMessage('Only folders inside the knowledge base can be converted.');
+			return;
+		}
+
+		if (!canPlaceFeature(kbRoot.fsPath, item.uri.fsPath)) {
+			await vscode.window.showErrorMessage(
+				'Features must live inside a project folder (.p), not at the KB root, and cannot nest inside another feature.'
+			);
+			return;
+		}
+
+		const nestedFeature = await findNestedFeature(item.uri, getKbNoteExtensions());
+		if (nestedFeature) {
+			await vscode.window.showErrorMessage(
+				`Cannot convert to a feature folder: it already contains a feature ${nestedFeature.kind} (“${nestedFeature.name}”). Convert or move that first.`
+			);
+			return;
+		}
+
+		const oldName = path.basename(item.uri.fsPath);
+		const newName = `${oldName}${FEATURE_FOLDER_EXT}`;
+		const newUri = vscode.Uri.file(path.join(path.dirname(item.uri.fsPath), newName));
+
+		try {
+			await vscode.workspace.fs.stat(newUri);
+			await vscode.window.showErrorMessage(`A file or folder named "${newName}" already exists in this location.`);
+			return;
+		} catch {
+			// free
+		}
+
+		await vscode.workspace.fs.rename(item.uri, newUri, { overwrite: false });
+		try {
+			const { ensureFeatureIndexFile } = require('../startup/dripFeatureFolder');
+			await ensureFeatureIndexFile(newUri, {
+				context: this.context,
+				kbRoot,
+				open: true
+			});
+		} catch (err) {
+			console.error('[DRIP] ensure feature index after convert', err);
+		}
+	}
+
+	/**
+	 * Rename a note to `name.f.d.txt` and set h0 to `# .f …` (with durable f-N).
+	 * Only allowed inside a project, not inside a feature folder.
+	 * @param {{ uri?: import('vscode').Uri, kind?: string, contextValue?: string }} item
+	 */
+	async convertFileToFeature(item) {
+		const kbRoot = await this.ensureKnowledgeBaseRoot();
+		if (!kbRoot) throw new Error('No knowledge base folder selected.');
+		if (!item?.uri || item.kind === 'folder') {
+			await vscode.window.showErrorMessage('Select a note file to convert to a feature file.');
+			return;
+		}
+		const base = path.basename(item.uri.fsPath);
+		const ext = getExtensionFromFileName(base) || '.d.txt';
+		if (isDripFeatureFileName(base, getKbNoteExtensions())) {
+			await vscode.window.showInformationMessage('This file is already a feature note.');
+			return;
+		}
+		const nextName = toFeatureFileName(base, ext);
+		if (!nextName) {
+			await vscode.window.showErrorMessage('Could not build a feature file name for this note.');
+			return;
+		}
+		const newUri = vscode.Uri.joinPath(vscode.Uri.file(path.dirname(item.uri.fsPath)), nextName);
+		if (!canPlaceFeature(kbRoot.fsPath, newUri.fsPath)) {
+			await vscode.window.showErrorMessage(
+				'Feature files must live inside a project folder (.p), and cannot nest inside another feature.'
+			);
+			return;
+		}
+		try {
+			await vscode.workspace.fs.stat(newUri);
+			await vscode.window.showErrorMessage(`A file named "${nextName}" already exists.`);
+			return;
+		} catch {
+			/* free */
+		}
+
+		let featureEntityId = '';
+		try {
+			const rel = path.relative(kbRoot.fsPath, newUri.fsPath).replace(/\\/g, '/');
+			const parts = rel.split('/').filter(Boolean);
+			let projectPrefix = '';
+			for (let i = 0; i < parts.length; i++) {
+				if (/\.p$/i.test(parts[i])) {
+					projectPrefix = parts.slice(0, i + 1).join('/') + '/';
+					break;
+				}
+			}
+			if (projectPrefix) {
+				const { allocateNextFeatureEntityId } = require('../document/project/projectEntityIds');
+				featureEntityId = await allocateNextFeatureEntityId(kbRoot, projectPrefix);
+			}
+		} catch (err) {
+			console.error('[DRIP] allocate f-# on convert', err);
+		}
+
+		await vscode.workspace.fs.rename(item.uri, newUri, { overwrite: false });
+		const stem = stripKbNoteExtension(nextName).replace(/\.f$/i, '');
+		const h0Label = featureEntityId ? `${featureEntityId} ${stem}` : stem;
+		try {
+			await rewriteNotePreferringEditor(newUri, async text => {
+				const next = applyH0TypeMarkerToNoteText(text, '.f', h0Label);
+				return normalizeNoteIdentityText(newUri, next, { context: this.context, kbRoot });
+			});
+			await indexNewNoteImmediately(kbRoot, newUri, this.context);
+		} catch (err) {
+			console.error('[DRIP] convert file to feature', err);
+		}
+		await vscode.commands.executeCommand('vscode.open', newUri);
+	}
+
+	/**
+	 * Convert-to-normal removed — delete the project folder instead.
+	 * @param {{ uri?: import('vscode').Uri, contextValue?: string }} _item
+	 */
+	async convertProjectFolderToNormal(_item) {
+		await vscode.window.showInformationMessage(
+			'Convert to normal folder is no longer available. Use "Delete Project" to remove a project.'
+		);
+	}
+
+	/**
+	 * Convert-to-normal removed — delete the feature folder instead.
+	 * @param {{ uri?: import('vscode').Uri, contextValue?: string }} _item
+	 */
+	async convertFeatureFolderToNormal(_item) {
+		await vscode.window.showInformationMessage(
+			'Convert to normal folder is no longer available. Use "Delete Feature" to remove a feature.'
+		);
+	}
+
+	/**
+	 * Feature files are retired.
+	 * @param {{ uri?: import('vscode').Uri, contextValue?: string }} _item
+	 */
+	async convertFeatureFileToNormal(_item) {
+		await vscode.window.showInformationMessage(
+			'Feature files (*.f.d.txt) are not used anymore. Use a feature folder (.f) instead.'
+		);
+	}
+
+	async _renameFolderSimple(oldUri, newName, kbRoot, options = {}) {
+		const newUri = vscode.Uri.file(path.join(path.dirname(oldUri.fsPath), newName));
+		try {
+			await vscode.workspace.fs.stat(newUri);
+			await vscode.window.showErrorMessage(`A file or folder named "${newName}" already exists in this location.`);
+			return;
+		} catch {
+			// free
+		}
+		await vscode.workspace.fs.rename(oldUri, newUri, { overwrite: false });
+
+		const indexName = String(options.indexFileName || '').trim();
+		if (!indexName) return;
+		const indexUri = vscode.Uri.joinPath(newUri, indexName);
+		try {
+			await vscode.workspace.fs.stat(indexUri);
+		} catch {
+			return;
+		}
+		try {
+			const title = String(options.demoteIndexTitle || newName).trim() || newName;
+			await rewriteNotePreferringEditor(indexUri, async text => {
+				const demoted = demoteH0TypeToBarePersistent(text, title);
+				return normalizeNoteIdentityText(indexUri, demoted, {
+					context: this.context,
+					kbRoot
+				});
+			});
+			try {
+				await indexNewNoteImmediately(kbRoot, indexUri, this.context);
+			} catch (err) {
+				console.error('[DRIP] index after demote folder index note', err);
+			}
+		} catch (err) {
+			console.error('[DRIP] demote folder index note on convert to normal', err);
 		}
 	}
 
@@ -1247,10 +2021,32 @@ class DripState {
 			return;
 		}
 
+		if (item.contextValue === 'dripProjectFolder') {
+			await this.deleteProject(item);
+			return;
+		}
+		if (item.contextValue === 'dripFeatureFolder') {
+			await this.deleteFeature(item);
+			return;
+		}
+
 		const label = path.basename(item.uri.fsPath);
+		if (isProtectedFolderIndexNotePath(item.uri.fsPath)) {
+			const parentName = path.basename(path.dirname(item.uri.fsPath));
+			const kind = isDripProjectFolderName(parentName) ? 'project' : 'feature';
+			await vscode.window.showWarningMessage(
+				`Cannot delete the ${kind} index note alone. Use "Delete ${kind}" on the ${kind} folder.`
+			);
+			return;
+		}
+
 		const noteExt = getExtensionFromFileName(label);
 		const isNoteFile =
-			(item.contextValue === 'dripNoteFile' || item.contextValue === 'dripDailyNote') &&
+			(item.contextValue === 'dripNoteFile' ||
+				item.contextValue === 'dripNoteFileInProject' ||
+				item.contextValue === 'dripNoteFileInFeature' ||
+				item.contextValue === 'dripFeatureFile' ||
+				item.contextValue === 'dripDailyNote') &&
 			Boolean(noteExt) &&
 			label.length > noteExt.length;
 		const isDailyFolder =
@@ -1299,6 +2095,66 @@ class DripState {
 			} catch {
 				// proceed
 			}
+		}
+		await vscode.workspace.fs.delete(item.uri, { recursive: true });
+	}
+
+	/**
+	 * Delete an entire project folder (`.p`) and its index rows.
+	 * @param {{ uri?: import('vscode').Uri, contextValue?: string, label?: string }} item
+	 */
+	async deleteProject(item) {
+		const kbRoot = this.getKnowledgeBaseRoot();
+		if (!kbRoot || !item?.uri) {
+			return;
+		}
+		const label = path.basename(item.uri.fsPath);
+		if (!isDripProjectFolderName(label)) {
+			await vscode.window.showInformationMessage('Select a project folder (.p) to delete.');
+			return;
+		}
+		const confirm = await vscode.window.showWarningMessage(
+			`Delete project "${label}" and everything inside it? This cannot be undone.`,
+			{ modal: true },
+			'Delete project'
+		);
+		if (confirm !== 'Delete project') {
+			return;
+		}
+		try {
+			await this._removeDailyNotesFolderFromIndex(kbRoot, item.uri);
+		} catch {
+			// proceed
+		}
+		await vscode.workspace.fs.delete(item.uri, { recursive: true });
+	}
+
+	/**
+	 * Delete an entire feature folder (`.f`) and its index rows.
+	 * @param {{ uri?: import('vscode').Uri, contextValue?: string, label?: string }} item
+	 */
+	async deleteFeature(item) {
+		const kbRoot = this.getKnowledgeBaseRoot();
+		if (!kbRoot || !item?.uri) {
+			return;
+		}
+		const label = path.basename(item.uri.fsPath);
+		if (!isDripFeatureFolderName(label)) {
+			await vscode.window.showInformationMessage('Select a feature folder (.f) to delete.');
+			return;
+		}
+		const confirm = await vscode.window.showWarningMessage(
+			`Delete feature "${label}" and everything inside it? This cannot be undone.`,
+			{ modal: true },
+			'Delete feature'
+		);
+		if (confirm !== 'Delete feature') {
+			return;
+		}
+		try {
+			await this._removeDailyNotesFolderFromIndex(kbRoot, item.uri);
+		} catch {
+			// proceed
 		}
 		await vscode.workspace.fs.delete(item.uri, { recursive: true });
 	}

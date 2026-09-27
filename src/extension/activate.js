@@ -36,7 +36,10 @@ const {
 	registerHeadingFormAutoFlush,
 	setHeadingFormExtensionContext
 } = require('../views/rhs/headingForm/panel');
+const { setHeadingFormKbRootGetter } = require('../views/rhs/headingForm/headingFormKb');
 const { registerPersistentHeadingSoftLock } = require('../views/editor/persistentHeadingSoftLock');
+const { registerDripProjectFolderWatch } = require('../startup/dripProjectFolder');
+const { registerDripFeatureFolderWatch } = require('../startup/dripFeatureFolder');
 const { getSettingsWebviewHtml } = require('../views/settingsWebview');
 const { registerNoteImagePasteAndDrop } = require('../views/editor/noteImagePaste');
 const { registerDripnoteReferenceAssist } = require('../graph/dripnoteReferenceAssist');
@@ -49,6 +52,34 @@ const { parseSelectionForComposer } = require('../views/capturePreprocess');
 const { createKbTreeDragDropController } = require('../views/lhs/knowledgebase/kbTreeDragDrop');
 const { registerDripSidebarViewBehavior } = require('../views/lhs/knowledgebase/dripSidebarViews');
 const { showKbNewMenu } = require('../views/lhs/knowledgebase/kbCreateMenu');
+
+/**
+ * Resolve a folder/file Uri from a tree item, Uri, or `{ uri: string|Uri }` (quick-pick New menu).
+ * @param {unknown} item
+ * @returns {import('vscode').Uri | undefined}
+ */
+function uriFromCommandArg(item) {
+	if (!item) return undefined;
+	if (item instanceof vscode.Uri) return item;
+	if (typeof item === 'string') {
+		try {
+			return vscode.Uri.parse(item);
+		} catch {
+			return undefined;
+		}
+	}
+	const u = /** @type {{ uri?: unknown, kind?: string }} */ (item).uri;
+	if (!u) return undefined;
+	if (u instanceof vscode.Uri) return u;
+	if (typeof u === 'string') {
+		try {
+			return vscode.Uri.parse(u);
+		} catch {
+			return undefined;
+		}
+	}
+	return undefined;
+}
 const { invalidateKbNoteExtensionsCache } = require('../document/model/noteFileTypes');
 const { initializeMultiGraphStorage } = require('../graph/tagGraphStore');
 const {
@@ -72,6 +103,7 @@ const {
 	refreshRetrieverCatalogIfShown,
 	scheduleRetrieverCatalogRebuildIfShown
 } = require('../views/lhs/retriever/panel');
+const { DripProjectViewPanel, refreshProjectViewIfShown } = require('../views/lhs/projects/panel');
 const { runRetrieverHeadingQuickOpen } = require('../retrieval/retrieverQuickOpen');
 const { updateKnowledgeBase } = require('../startup/updateKnowledgeBase');
 const { openKbEditorNote } = require('../startup/kbEditorNote');
@@ -79,13 +111,36 @@ const { getDefaultKnowledgeBaseSettingsObject } = require('../startup/defaultKno
 
 /**
  * @param {import('vscode').Webview} webview
- * @param {import('./state/state').DripState} dripState
+ * @param {import('../state/state').DripState} dripState
+ * @param {import('vscode').ExtensionContext} [extensionContext]
  */
-async function postDripSettingsValuesToWebview(webview, dripState) {
+async function postDripSettingsValuesToWebview(webview, dripState, extensionContext) {
 	const c = vscode.workspace.getConfiguration('drip');
 	const nt = require('../document/model/noteFileTypes');
+	const {
+		migrateFileLevelMetadataTypesIfNeeded,
+		getMetadataSettings,
+		getFileLevelMetadataSettings
+	} = require('../document/model/dripnoteMetadataTemplates');
+	try {
+		await migrateFileLevelMetadataTypesIfNeeded();
+	} catch {
+		/* ignore migration errors */
+	}
 	const kbRoot = dripState.getKnowledgeBaseRoot();
 	const defs = getDefaultKnowledgeBaseSettingsObject();
+	const docTypes = getMetadataSettings().types;
+	const fileTypes = getFileLevelMetadataSettings().types;
+	/** @type {unknown} */
+	let githubBackupStatus = null;
+	if (kbRoot && extensionContext) {
+		try {
+			const { getBackupStatus } = require('../startup/githubBackup');
+			githubBackupStatus = await getBackupStatus(extensionContext, kbRoot);
+		} catch (err) {
+			console.error('[DRIP] github backup status failed', err);
+		}
+	}
 	await webview.postMessage({
 		type: 'settingsValues',
 		autoOpenComposerOnSidebarReveal: c.get('autoOpenComposerOnSidebarReveal', defs.autoOpenComposerOnSidebarReveal),
@@ -100,7 +155,8 @@ async function postDripSettingsValuesToWebview(webview, dripState) {
 		metadataShowIndentErrors: c.get('metadataShowIndentErrors', defs.metadataShowIndentErrors),
 		showHeadingHierarchyIndentErrors: c.get('showHeadingHierarchyIndentErrors', defs.showHeadingHierarchyIndentErrors),
 		metadataUseCustomColors: c.get('metadataUseCustomColors', defs.metadataUseCustomColors),
-		metadataTypes: c.get('metadataTypes', defs.metadataTypes),
+		metadataTypes: docTypes,
+		fileLevelMetadataTypes: fileTypes,
 		metadataTypeColors: c.get('metadataTypeColors', defs.metadataTypeColors),
 		metadataKeyColor: c.get('metadataKeyColor', defs.metadataKeyColor),
 		metadataValueColor: c.get('metadataValueColor', defs.metadataValueColor),
@@ -111,7 +167,8 @@ async function postDripSettingsValuesToWebview(webview, dripState) {
 		embeddingModel: c.get('embeddingModel', defs.embeddingModel),
 		editHeadingsInFile: c.get('editHeadingsInFile', defs.editHeadingsInFile === true),
 		editHeadingsViaRhs: c.get('editHeadingsViaRhs', defs.editHeadingsViaRhs !== false),
-		kbSettingsFilePath: kbRoot ? getSettingsDripFileUri(kbRoot).fsPath : ''
+		kbSettingsFilePath: kbRoot ? getSettingsDripFileUri(kbRoot).fsPath : '',
+		githubBackupStatus
 	});
 }
 
@@ -133,7 +190,10 @@ async function activate(context) {
 	const state = new DripState(context);
 	registerDripnoteIndexSync(context, state);
 	registerPersistentHeadingSoftLock(context);
+	registerDripProjectFolderWatch(context, state);
+	registerDripFeatureFolderWatch(context, state);
 	setHeadingFormExtensionContext(context);
+	setHeadingFormKbRootGetter(() => state.getKnowledgeBaseRoot && state.getKnowledgeBaseRoot());
 	registerHeadingFormAutoFlush(context);
 	registerStartupCheck(context, state);
 	registerRetrieverAutoRefresh(context, state);
@@ -164,6 +224,54 @@ async function activate(context) {
 	function refreshUi() {
 		sidebarRefreshHub.refresh();
 		DripComposerPanel.postState();
+		// Do not rebuild Retriever catalog here — FS events (incl. index.drip WAL) would
+		// loop with open/write from catalog refresh. Retriever refreshes on note save /
+		// KB select / settings via registerRetrieverAutoRefresh + explicit callers.
+		refreshProjectViewIfShown();
+	}
+
+	/** @type {ReturnType<typeof setTimeout> | undefined} */
+	let _kbFsRefreshTimer;
+
+	/**
+	 * Debounced tree/UI refresh for KB disk events. Ignores `.dripindex` (index.drip / WAL)
+	 * so opening the DB cannot re-enter refreshUi.
+	 * @param {import('vscode').Uri} [uri]
+	 */
+	function onKnowledgeBaseFsEvent(uri) {
+		const rel = uri && kbRootFsRel(uri);
+		if (rel != null && isDripIndexArtifactPath(rel)) {
+			return;
+		}
+		clearTimeout(_kbFsRefreshTimer);
+		_kbFsRefreshTimer = setTimeout(() => {
+			_kbFsRefreshTimer = undefined;
+			refreshUi();
+		}, 350);
+	}
+
+	/**
+	 * @param {import('vscode').Uri} uri
+	 * @returns {string | null} posix-ish relative path, or null if outside KB
+	 */
+	function kbRootFsRel(uri) {
+		const kbRoot =
+			state.getKnowledgeBaseRoot() ||
+			(typeof state.getRetrieverKnowledgeBaseRoot === 'function'
+				? state.getRetrieverKnowledgeBaseRoot().uri
+				: undefined);
+		if (!kbRoot || !uri) return null;
+		const rel = require('path').relative(kbRoot.fsPath, uri.fsPath).replace(/\\/g, '/');
+		if (!rel || rel.startsWith('..') || require('path').isAbsolute(rel)) return null;
+		return rel;
+	}
+
+	/** Index DB / WAL / sidecar under `.dripindex` — never drive sidebar refresh. */
+	function isDripIndexArtifactPath(rel) {
+		const p = String(rel || '')
+			.replace(/\\/g, '/')
+			.toLowerCase();
+		return p === '.dripindex' || p.startsWith('.dripindex/');
 	}
 
 	const kbDragDropController = createKbTreeDragDropController(state, refreshUi);
@@ -266,9 +374,9 @@ async function activate(context) {
 		}
 
 		kbWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(kbRoot, '**/*'));
-		kbWatcher.onDidCreate(refreshUi);
-		kbWatcher.onDidChange(refreshUi);
-		kbWatcher.onDidDelete(refreshUi);
+		kbWatcher.onDidCreate(onKnowledgeBaseFsEvent);
+		kbWatcher.onDidChange(onKnowledgeBaseFsEvent);
+		kbWatcher.onDidDelete(onKnowledgeBaseFsEvent);
 		context.subscriptions.push(kbWatcher);
 	}
 
@@ -284,7 +392,7 @@ async function activate(context) {
 			try {
 				switch (message.type) {
 					case 'requestSettings':
-						await postDripSettingsValuesToWebview(webview, state);
+						await postDripSettingsValuesToWebview(webview, state, context);
 						break;
 					case 'updateSetting':
 						{
@@ -315,7 +423,7 @@ async function activate(context) {
 									}
 								);
 								if (result.cancelled) {
-									await postDripSettingsValuesToWebview(webview, state);
+									await postDripSettingsValuesToWebview(webview, state, context);
 								}
 								break;
 							}
@@ -342,7 +450,7 @@ async function activate(context) {
 						const result = await importSettingsToKnowledgeBase(kbRoot);
 						if (result.ok) {
 							invalidateKbNoteExtensionsCache();
-							await postDripSettingsValuesToWebview(webview, state);
+							await postDripSettingsValuesToWebview(webview, state, context);
 						}
 						break;
 					}
@@ -374,6 +482,36 @@ async function activate(context) {
 						break;
 					case 'runEmbeddingBenchmark':
 						await vscode.commands.executeCommand('drip.testEmbeddings');
+						break;
+					case 'githubBackupSaveRemote':
+						await vscode.commands.executeCommand('drip.github.configureRemote', {
+							remoteUrl: message.remoteUrl,
+							branch: message.branch
+						});
+						await postDripSettingsValuesToWebview(webview, state, context);
+						break;
+					case 'githubBackupInit':
+						await vscode.commands.executeCommand('drip.github.initRepo');
+						await postDripSettingsValuesToWebview(webview, state, context);
+						break;
+					case 'githubBackupPush':
+						await vscode.commands.executeCommand('drip.github.pushBackup');
+						await postDripSettingsValuesToWebview(webview, state, context);
+						break;
+					case 'githubBackupPull':
+						await vscode.commands.executeCommand('drip.github.pullBackup');
+						await postDripSettingsValuesToWebview(webview, state, context);
+						break;
+					case 'githubBackupOpen':
+						await vscode.commands.executeCommand('drip.github.openRemote');
+						break;
+					case 'githubBackupSetPat':
+						await vscode.commands.executeCommand('drip.github.setPat');
+						await postDripSettingsValuesToWebview(webview, state, context);
+						break;
+					case 'githubBackupClearPat':
+						await vscode.commands.executeCommand('drip.github.clearPat');
+						await postDripSettingsValuesToWebview(webview, state, context);
 						break;
 				}
 			} catch (error) {
@@ -430,6 +568,9 @@ async function activate(context) {
 			const o = opts && typeof opts === 'object' && !Array.isArray(opts) ? opts : undefined;
 			DripRetrieverPanel.createOrShow(context.extensionUri, state, o);
 		}),
+		vscode.commands.registerCommand('drip.openProjectView', async () => {
+			DripProjectViewPanel.createOrShow(context, state);
+		}),
 		vscode.commands.registerCommand('drip.retrieverQuickOpen', async () => {
 			await runRetrieverHeadingQuickOpen(state);
 		}),
@@ -477,17 +618,173 @@ async function activate(context) {
 		vscode.commands.registerCommand('drip.openDripSettingsView', async () => {
 			createOrShowSettingsPanel();
 		}),
+		vscode.commands.registerCommand('drip.github.configureRemote', async opts => {
+			const kbRoot = state.getKnowledgeBaseRoot();
+			if (!kbRoot) {
+				void vscode.window.showWarningMessage('Select a DRIP knowledge base first.');
+				return;
+			}
+			const { saveRemoteConfig } = require('../startup/githubBackup');
+			const o = opts && typeof opts === 'object' ? opts : {};
+			let remoteUrl = String(o.remoteUrl || '').trim();
+			let branch = String(o.branch || '').trim();
+			if (!remoteUrl) {
+				remoteUrl =
+					(await vscode.window.showInputBox({
+						prompt: 'GitHub remote URL (HTTPS or SSH)',
+						placeHolder: 'https://github.com/you/my-kb.git',
+						ignoreFocusOut: true
+					})) || '';
+			}
+			if (!remoteUrl.trim()) return;
+			if (!branch) {
+				branch =
+					(await vscode.window.showInputBox({
+						prompt: 'Branch name',
+						value: 'main',
+						ignoreFocusOut: true
+					})) || 'main';
+			}
+			await saveRemoteConfig(kbRoot, { remoteUrl: remoteUrl.trim(), branch: branch.trim() || 'main' });
+			void vscode.window.showInformationMessage('DRIP GitHub remote saved.');
+		}),
+		vscode.commands.registerCommand('drip.github.initRepo', async () => {
+			const kbRoot = state.getKnowledgeBaseRoot();
+			if (!kbRoot) {
+				void vscode.window.showWarningMessage('Select a DRIP knowledge base first.');
+				return;
+			}
+			try {
+				const { initBackupRepo, isGitAvailable } = require('../startup/githubBackup');
+				if (!(await isGitAvailable())) {
+					const open = 'Open Git downloads';
+					const pick = await vscode.window.showErrorMessage(
+						'Git is not installed or not on PATH.',
+						open
+					);
+					if (pick === open) {
+						await vscode.env.openExternal(vscode.Uri.parse('https://git-scm.com/downloads'));
+					}
+					return;
+				}
+				await vscode.window.withProgress(
+					{
+						location: vscode.ProgressLocation.Notification,
+						title: 'DRIP: initializing GitHub backup…'
+					},
+					async () => initBackupRepo(context, kbRoot)
+				);
+				void vscode.window.showInformationMessage('DRIP GitHub backup initialized.');
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				void vscode.window.showErrorMessage(`DRIP GitHub init failed: ${msg}`);
+			}
+		}),
+		vscode.commands.registerCommand('drip.github.pushBackup', async () => {
+			const kbRoot = state.getKnowledgeBaseRoot();
+			if (!kbRoot) {
+				void vscode.window.showWarningMessage('Select a DRIP knowledge base first.');
+				return;
+			}
+			try {
+				const { pushBackup } = require('../startup/githubBackup');
+				await vscode.window.withProgress(
+					{
+						location: vscode.ProgressLocation.Notification,
+						title: 'DRIP: pushing KB backup…'
+					},
+					async () => pushBackup(context, kbRoot)
+				);
+				void vscode.window.showInformationMessage('DRIP knowledge base backup pushed.');
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				void vscode.window.showErrorMessage(`DRIP GitHub push failed: ${msg}`);
+			}
+		}),
+		vscode.commands.registerCommand('drip.github.pullBackup', async () => {
+			const kbRoot = state.getKnowledgeBaseRoot();
+			if (!kbRoot) {
+				void vscode.window.showWarningMessage('Select a DRIP knowledge base first.');
+				return;
+			}
+			try {
+				const { pullBackup } = require('../startup/githubBackup');
+				await vscode.window.withProgress(
+					{
+						location: vscode.ProgressLocation.Notification,
+						title: 'DRIP: pulling KB backup…'
+					},
+					async () =>
+						pullBackup(context, kbRoot, {
+							reindex: async () => {
+								await vscode.commands.executeCommand('drip.reindexCurrentKbWorkspace');
+							}
+						})
+				);
+				void vscode.window.showInformationMessage('DRIP knowledge base backup pulled.');
+				refreshUi();
+				refreshProjectViewIfShown();
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				void vscode.window.showErrorMessage(`DRIP GitHub pull failed: ${msg}`);
+			}
+		}),
+		vscode.commands.registerCommand('drip.github.openRemote', async () => {
+			const kbRoot = state.getKnowledgeBaseRoot();
+			if (!kbRoot) {
+				void vscode.window.showWarningMessage('Select a DRIP knowledge base first.');
+				return;
+			}
+			const { getGithubBackupSettings, githubWebUrl } = require('../startup/githubBackup');
+			const cfg = await getGithubBackupSettings(kbRoot);
+			const web = githubWebUrl(cfg.remoteUrl);
+			if (!web) {
+				void vscode.window.showWarningMessage(
+					'Set a github.com remote URL first (HTTPS or git@github.com:…).'
+				);
+				return;
+			}
+			await vscode.env.openExternal(vscode.Uri.parse(web));
+		}),
+		vscode.commands.registerCommand('drip.github.setPat', async () => {
+			const kbRoot = state.getKnowledgeBaseRoot();
+			if (!kbRoot) {
+				void vscode.window.showWarningMessage('Select a DRIP knowledge base first.');
+				return;
+			}
+			const { setStoredPat } = require('../startup/githubBackup');
+			const pat = await vscode.window.showInputBox({
+				prompt: 'GitHub personal access token (stored in VS Code Secret Storage for this KB)',
+				password: true,
+				ignoreFocusOut: true,
+				placeHolder: 'ghp_… or github_pat_…'
+			});
+			if (pat == null) return;
+			if (!String(pat).trim()) {
+				void vscode.window.showWarningMessage('Token was empty — nothing saved.');
+				return;
+			}
+			await setStoredPat(context, kbRoot, pat);
+			void vscode.window.showInformationMessage('DRIP GitHub token saved in Secret Storage.');
+		}),
+		vscode.commands.registerCommand('drip.github.clearPat', async () => {
+			const kbRoot = state.getKnowledgeBaseRoot();
+			if (!kbRoot) {
+				void vscode.window.showWarningMessage('Select a DRIP knowledge base first.');
+				return;
+			}
+			const { clearStoredPat } = require('../startup/githubBackup');
+			await clearStoredPat(context, kbRoot);
+			void vscode.window.showInformationMessage('DRIP GitHub token cleared.');
+		}),
 		vscode.commands.registerCommand('drip.showKbNewMenu', async item => {
-			const uri =
-				item?.uri && typeof item.uri === 'string'
-					? vscode.Uri.parse(item.uri)
-					: item?.uri;
+			const uri = uriFromCommandArg(item);
+			const selected = kbTreeView.selection?.[0];
 			const folderUri =
-				uri && item?.kind === 'folder'
-					? uri
-					: kbTreeView.selection?.[0]?.kind === 'folder'
-						? kbTreeView.selection[0].uri
-						: undefined;
+				uri ||
+				(selected?.uri
+					? selected.uri
+					: undefined);
 			await showKbNewMenu(folderUri);
 			refreshUi();
 		}),
@@ -505,13 +802,13 @@ async function activate(context) {
 				dailyNotesTreeProvider.refresh();
 				refreshRetrieverCatalogIfShown();
 				if (settingsPanel) {
-					await postDripSettingsValuesToWebview(settingsPanel.webview, state);
+					await postDripSettingsValuesToWebview(settingsPanel.webview, state, context);
 				}
 			}
 		}),
 		vscode.commands.registerCommand('drip.createNoteFile', async item => {
 			try {
-				await state.createNoteFile(item?.uri);
+				await state.createNoteFile(uriFromCommandArg(item));
 				refreshUi();
 			} catch (e) {
 				const msg = e instanceof Error ? e.message : String(e);
@@ -520,7 +817,7 @@ async function activate(context) {
 		}),
 		vscode.commands.registerCommand('drip.createMarkdownFile', async item => {
 			try {
-				await state.createMarkdownFile(item?.uri);
+				await state.createMarkdownFile(uriFromCommandArg(item));
 				refreshUi();
 			} catch (e) {
 				const msg = e instanceof Error ? e.message : String(e);
@@ -529,7 +826,34 @@ async function activate(context) {
 		}),
 		vscode.commands.registerCommand('drip.createFolder', async item => {
 			try {
-				await state.createFolder(item?.uri);
+				await state.createFolder(uriFromCommandArg(item));
+				refreshUi();
+			} catch (e) {
+				const msg = e instanceof Error ? e.message : String(e);
+				void vscode.window.showErrorMessage(msg);
+			}
+		}),
+		vscode.commands.registerCommand('drip.createProjectFolder', async item => {
+			try {
+				await state.createProjectFolder(uriFromCommandArg(item));
+				refreshUi();
+			} catch (e) {
+				const msg = e instanceof Error ? e.message : String(e);
+				void vscode.window.showErrorMessage(msg);
+			}
+		}),
+		vscode.commands.registerCommand('drip.createFeatureFolder', async item => {
+			try {
+				await state.createFeatureFolder(uriFromCommandArg(item));
+				refreshUi();
+			} catch (e) {
+				const msg = e instanceof Error ? e.message : String(e);
+				void vscode.window.showErrorMessage(msg);
+			}
+		}),
+		vscode.commands.registerCommand('drip.createFeatureFile', async item => {
+			try {
+				await state.createFeatureFile(uriFromCommandArg(item));
 				refreshUi();
 			} catch (e) {
 				const msg = e instanceof Error ? e.message : String(e);
@@ -537,7 +861,7 @@ async function activate(context) {
 			}
 		}),
 		vscode.commands.registerCommand('drip.createDripIgnore', async item => {
-			await state.ensureDripIgnoreFile(item?.uri);
+			await state.ensureDripIgnoreFile(uriFromCommandArg(item));
 			refreshUi();
 		}),
 		vscode.commands.registerCommand('drip.ignorePath', async item => {
@@ -572,6 +896,18 @@ async function activate(context) {
 		}),
 		vscode.commands.registerCommand('drip.renameItem', async item => {
 			await state.renameItem(item);
+			refreshUi();
+		}),
+		vscode.commands.registerCommand('drip.convertFolderToFeature', async item => {
+			await state.convertFolderToFeature(item);
+			refreshUi();
+		}),
+		vscode.commands.registerCommand('drip.deleteProject', async item => {
+			await state.deleteProject(item);
+			refreshUi();
+		}),
+		vscode.commands.registerCommand('drip.deleteFeature', async item => {
+			await state.deleteFeature(item);
 			refreshUi();
 		}),
 		vscode.commands.registerCommand('drip.deleteItem', async item => {
@@ -622,6 +958,7 @@ async function activate(context) {
 				const retrieverStale =
 					e.affectsConfiguration('drip.knowledgeBaseFileExtensions') ||
 					e.affectsConfiguration('drip.metadataTypes') ||
+					e.affectsConfiguration('drip.fileLevelMetadataTypes') ||
 					e.affectsConfiguration('drip.metadataTemplatesEnabled') ||
 					e.affectsConfiguration('drip.dripnoteCustomTypeMarkers');
 				if (retrieverStale) {

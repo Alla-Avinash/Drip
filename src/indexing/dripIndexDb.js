@@ -9,6 +9,12 @@ const {
 	REMAINING_METADATA_TABLE,
 	ensureDripIndexSchema
 } = require('./dbSchema/dripIndexSchema');
+const {
+	resolveProjectIdForFile,
+	ensureProjectRow,
+	upsertIssueRow,
+	issueKeyFromHeadingTitle
+} = require('./projectIndex');
 const { openDripSqlite } = require('./db/dripSqlite');
 const {
 	deleteFileEmbeddings,
@@ -71,6 +77,7 @@ function deleteFileHeadingScopedRows(db, fileId) {
 	for (const table of TYPED_METADATA_TABLES) {
 		db.run(`DELETE FROM ${table} WHERE file_id = ?`, [fileId]);
 	}
+	db.run(`DELETE FROM issues WHERE file_id = ?`, [fileId]);
 	db.run(`DELETE FROM ${REMAINING_METADATA_TABLE} WHERE file_id = ?`, [fileId]);
 	db.run('DELETE FROM headings WHERE file_id = ?', [fileId]);
 }
@@ -98,6 +105,7 @@ function deleteHeadingScopedRows(db, fileId, headingId, options) {
 	for (const table of TYPED_METADATA_TABLES) {
 		db.run(`DELETE FROM ${table} WHERE file_id = ? AND heading_id = ?`, [fileId, headingId]);
 	}
+	db.run(`DELETE FROM issues WHERE file_id = ? AND heading_id = ?`, [fileId, headingId]);
 	db.run(`DELETE FROM ${REMAINING_METADATA_TABLE} WHERE file_id = ? AND heading_id = ?`, [
 		fileId,
 		headingId
@@ -296,8 +304,15 @@ function loadTypeLookupMaps(db) {
  * @param {number} fileId
  * @param {{ heading_id: number, table: string | null, fields: Record<string, string | number | null>, remaining?: { key: string, value: string | null }[], metadata_type?: string }[]} typedMetadata
  * @param {Map<string, number>} metadataTypeIdByLower
+ * @param {{
+ *   projectId?: number|null,
+ *   titleByHeadingId?: Map<number, string>,
+ *   parentByHeadingId?: Map<number, number|null>,
+ *   issueKeyByHeadingId?: Map<number, string>,
+ *   filePath?: string
+ * }} [ctx]
  */
-function insertTypedMetadataRows(db, fileId, typedMetadata, metadataTypeIdByLower) {
+function insertTypedMetadataRows(db, fileId, typedMetadata, metadataTypeIdByLower, ctx) {
 	const metaMap = metadataTypeIdByLower || new Map();
 	for (const entry of typedMetadata || []) {
 		const table = String(entry.table || '');
@@ -321,6 +336,22 @@ function insertTypedMetadataRows(db, fileId, typedMetadata, metadataTypeIdByLowe
 						fields.deadline != null ? Number(fields.deadline) : null
 					]
 				);
+				if (
+					ctx &&
+					ctx.projectId != null &&
+					Number.isFinite(Number(ctx.projectId)) &&
+					headingId === 0 &&
+					ctx.filePath
+				) {
+					const { projectFolderPrefixFromPath } = require('./projectIndex');
+					ensureProjectRow(db, projectFolderPrefixFromPath(ctx.filePath), {
+						fileId,
+						filePath: ctx.filePath,
+						title: (ctx.titleByHeadingId && ctx.titleByHeadingId.get(0)) || '',
+						status: fields.status != null ? String(fields.status) : null,
+						deadline: fields.deadline != null ? Number(fields.deadline) : null
+					});
+				}
 			} else if (table === 'task_metadata') {
 				db.run(
 					`INSERT INTO task_metadata (file_id, heading_id, status, category, deadline, priority)
@@ -335,18 +366,50 @@ function insertTypedMetadataRows(db, fileId, typedMetadata, metadataTypeIdByLowe
 					]
 				);
 			} else if (table === 'issue_metadata') {
+				const parentRaw = fields.parent != null ? String(fields.parent) : fields.parent_issue_key != null ? String(fields.parent_issue_key) : null;
+				let parentKey = null;
+				if (parentRaw) {
+					const m = parentRaw.trim().match(/^i-(\d+)$/i);
+					if (m) parentKey = `i-${parseInt(m[1], 10)}`;
+				}
+				if (ctx && ctx.parentByHeadingId && ctx.issueKeyByHeadingId) {
+					const { nearestOutlineParentIssueKey } = require('../document/project/issueParentLink');
+					const locked = nearestOutlineParentIssueKey(
+						headingId,
+						ctx.parentByHeadingId,
+						ctx.issueKeyByHeadingId
+					);
+					if (locked) parentKey = locked;
+				}
 				db.run(
-					`INSERT INTO issue_metadata (file_id, heading_id, status, category, deadline, priority)
-					 VALUES (?, ?, ?, ?, ?, ?)`,
+					`INSERT INTO issue_metadata (file_id, heading_id, status, category, deadline, priority, parent_issue_key)
+					 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 					[
 						fileId,
 						headingId,
 						fields.status != null ? String(fields.status) : null,
 						fields.category != null ? String(fields.category) : null,
 						fields.deadline != null ? Number(fields.deadline) : null,
-						fields.priority != null ? String(fields.priority) : null
+						fields.priority != null ? String(fields.priority) : null,
+						parentKey
 					]
 				);
+				if (ctx && ctx.projectId != null && Number.isFinite(Number(ctx.projectId))) {
+					const title =
+						(ctx.titleByHeadingId && ctx.titleByHeadingId.get(headingId)) || '';
+					upsertIssueRow(db, {
+						projectId: Number(ctx.projectId),
+						fileId,
+						headingId,
+						title,
+						issueKey: issueKeyFromHeadingTitle(title),
+						status: fields.status != null ? String(fields.status) : null,
+						category: fields.category != null ? String(fields.category) : null,
+						deadline: fields.deadline != null ? Number(fields.deadline) : null,
+						priority: fields.priority != null ? String(fields.priority) : null,
+						parentIssueKey: parentKey
+					});
+				}
 			} else if (table === 'decision_metadata') {
 				db.run(
 					`INSERT INTO decision_metadata (file_id, heading_id, category) VALUES (?, ?, ?)`,
@@ -457,7 +520,7 @@ function insertSearchTagsAndRelations(db, sourceFileId, parsed, tagIdByLower, re
 /**
  * @param {import('./db/dripSqlite').DripSqliteDatabase} db
  * @param {number} fileId
- * @param {{ headings: object[], references: object[], searchtags?: object[], relations?: object[] }} parsed
+ * @param {{ headings: object[], references: object[], searchtags?: object[], relations?: object[], typedMetadata?: object[], file?: { path?: string } }} parsed
  * @param {Map<string, number>} tagIdByLower
  * @param {Map<string, number>} [metadataTypeIdByLower]
  * @param {Map<string, number>} [relationTypeIdByLower]
@@ -472,6 +535,14 @@ function insertParsedHeadingsAndReferences(
 ) {
 	const metaMap = metadataTypeIdByLower || new Map();
 	const relMap = relationTypeIdByLower || new Map();
+	const filePath = String((parsed.file && parsed.file.path) || '');
+	const projectId = resolveProjectIdForFile(db, filePath, fileId);
+	/** @type {Map<number, string>} */
+	const titleByHeadingId = new Map();
+	/** @type {Map<number, number|null>} */
+	const parentByHeadingId = new Map();
+	/** @type {Map<number, string>} */
+	const issueKeyByHeadingId = new Map();
 	const seenHeadingIds = new Set();
 	for (const heading of parsed.headings || []) {
 		const headingId = heading.heading_id;
@@ -479,7 +550,18 @@ function insertParsedHeadingsAndReferences(
 			continue;
 		}
 		seenHeadingIds.add(headingId);
+		titleByHeadingId.set(headingId, String(heading.title || ''));
+		parentByHeadingId.set(
+			headingId,
+			heading.parent != null && Number.isFinite(Number(heading.parent))
+				? Math.floor(Number(heading.parent))
+				: null
+		);
 		const typeName = normalizeMetadataTypeForIndex(heading.metadata_type);
+		if (typeName === 'issue') {
+			const key = issueKeyFromHeadingTitle(String(heading.title || ''));
+			if (key) issueKeyByHeadingId.set(headingId, key);
+		}
 		const metadataTypeId =
 			typeName == null
 				? null
@@ -492,14 +574,30 @@ function insertParsedHeadingsAndReferences(
 						metaMap
 					);
 		db.run(
-			`INSERT INTO headings (file_id, heading_id, title, metadata_type_id, hash)
-			 VALUES (?, ?, ?, ?, ?)`,
-			[fileId, headingId, heading.title, metadataTypeId, heading.hash]
+			`INSERT INTO headings (file_id, heading_id, title, metadata_type_id, hash, parent, project_id)
+			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			[
+				fileId,
+				headingId,
+				heading.title,
+				metadataTypeId,
+				heading.hash,
+				heading.parent != null && Number.isFinite(Number(heading.parent))
+					? Math.floor(Number(heading.parent))
+					: null,
+				projectId
+			]
 		);
 	}
 	insertHeadingReferences(db, fileId, parsed.references);
 	insertSearchTagsAndRelations(db, fileId, parsed, tagIdByLower, relMap);
-	insertTypedMetadataRows(db, fileId, parsed.typedMetadata, metaMap);
+	insertTypedMetadataRows(db, fileId, parsed.typedMetadata, metaMap, {
+		projectId,
+		titleByHeadingId,
+		parentByHeadingId,
+		issueKeyByHeadingId,
+		filePath
+	});
 }
 
 /**

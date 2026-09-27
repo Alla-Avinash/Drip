@@ -1,0 +1,84 @@
+---
+description: DRIP KB notes vs projects, folder whitelist, f-#/i-# ids, issue parent, mailbox — durable product rules
+alwaysApply: true
+---
+
+# DRIP project / issue structure (durable)
+
+Canonical product rules for notes vs projects. Code lives under `src/document/project/`. Do not invent conflicting folder layouts or renumber `f-#` / `i-#`.
+
+## KB contents
+
+| Zone | Allowed metadata types |
+|------|------------------------|
+| **Notes** (outside any `.p`) | `concept`, `task` only |
+| **Projects** (inside `.p`) | `project`, `feature`, `issue`, `task` |
+| Removed from product defaults | `decision`, `implementation` |
+
+## Project folder whitelist (`Name.p/`)
+
+Only these children:
+
+1. `_Name.p.d.txt` — project index  
+2. `_issues.d.txt` — project issue inbox (create/nest new issues here)  
+3. Feature folders `*.f/` **or** feature files `*.f.d.txt`  
+
+No other files or folders. Enforce on create/drag + diagnostics.
+
+## Stable entity ids (never renumber existing)
+
+- Features: `f-1`, `f-2`, … project-scoped; stamped on create into feature h0; monotonic counter in `index_meta`
+- Issues: `i-1`, `i-2`, … project-scoped; heading type prefix is **`.i-N`** (e.g. `# .i-34 Fix login`). Never put `i-N` in the editable RHS title. **Next id = max(live issues in project) + 1** — deleting the highest (e.g. `i-10`) reuses that number after the index updates; never renumber existing headings; do not fill middle gaps.
+- Storage: live ids from `index.drip` issue headings; `index_meta` key `project_entity_alloc_<prefix>` caches `{ nextIssue, nextFeature }` (feature counter still monotonic). 
+
+## Two parents (do not conflate)
+
+| Kind | Storage | Meaning |
+|------|---------|---------|
+| Outline | tab indent → `headings.parent` (same-file heading_id) | Visual nesting in one file |
+| Issue link | issue attribute `parent: i-N` → `issue_metadata.parent_issue_key` | Logical parent anywhere in the project |
+
+After an issue is **moved** to a feature mailbox, outline parent may be gone; **`parent: i-N` must remain** so Project View can rebuild hierarchy.
+
+## Hierarchy
+
+```
+project
+  ├─ features (f-#)
+  │    └─ issues (after assign/sort) → nested issues → tasks
+  └─ _issues.d.txt
+         └─ issues (i-#) → nested issues → tasks
+```
+
+## Mailbox (assign = move)
+
+1. Create issues in Project View → `_issues.d.txt`, as the **last** child of a plain (non-persistent) `# recents` heading placed 2 blank lines under `---` (one section only). Sub-issues from Project View are indented under their parent heading (in whichever project file it lives) — no `parent:` line.  
+2. Assign to feature → **move** block into:
+   - folder feature → `Feature.f/_recent.d.txt`  
+   - file feature → `# _recent` section (2 blank lines under `---`) in `Feature.f.d.txt`  
+3. Preserve `parent: i-N` and the heading type prefix `.i-N`  
+4. User sorts from `_recent` into feature sections  
+
+Project View: features listed; bottom = remaining `_issues.d.txt` inbox; full tree uses `parent: i-#` across files.
+
+## Index tables (v14)
+
+| Table | Role |
+|-------|------|
+| `projects` | One row per `.p` folder (`project_id`, `folder_prefix`) |
+| `headings` | Shared for notes + projects; `project_id` NULL outside `.p`, set inside (do **not** split into two headings tables — embeddings/refs stay unified) |
+| `issues` | Canonical issue rows: `(project_id, issue_key)`, `parent_issue_key`, status/priority/… |
+| `issue_metadata` | Typed-column mirror on ingest (same hot keys); Project View reads `issues` |
+
+Next issue id = max(live `issues.issue_key`) + 1 for that project.
+
+## Modules
+
+| Concern | Path |
+|---------|------|
+| Constants / whitelist | `src/document/project/projectStructureRules.js` |
+| `f-#` / `i-#` alloc | `src/document/project/projectEntityIds.js` |
+| `_issues` / `_recent` / assign | `src/document/project/projectIssuesMailbox.js` |
+| Folder placement | `src/document/model/dripKbFolderRules.js` |
+| Project index helpers | `src/indexing/projectIndex.js` |
+| Project View UI | `src/views/lhs/projects/panel.js` + `src/indexing/projectViewQuery.js` |
