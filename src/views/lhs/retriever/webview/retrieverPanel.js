@@ -477,8 +477,8 @@
 					sh.checked = false;
 				} else {
 					sf.checked = false;
-					sh.checked = true;
-				}
+				sh.checked = true;
+			}
 			} else {
 				sf.checked = false;
 				sh.checked = true;

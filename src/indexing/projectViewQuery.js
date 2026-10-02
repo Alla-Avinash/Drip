@@ -145,7 +145,10 @@ async function listProjectChildrenFromIndex(kbRootUri, projectFolderPrefix) {
 			const parentBase = path.posix.basename(parentDir);
 			const fileId = Number(row.fileId) || 0;
 
-			if (/\.f\.d\.txt$/i.test(base)) {
+			// Standalone feature files (`Name.f.d.txt`). Folder index notes (`_Name.f.d.txt`) must
+			// fall through to the folder branch below, or the `.f` folder is never detected as a
+			// folder feature and issue assign would target the index file instead of `_recent.d.txt`.
+			if (/\.f\.d\.txt$/i.test(base) && !isProjectIndexFileName(base)) {
 				if (!featuresByKey.has(filePath)) {
 					featuresByKey.set(filePath, {
 						fileId,
@@ -158,9 +161,10 @@ async function listProjectChildrenFromIndex(kbRootUri, projectFolderPrefix) {
 			}
 			if (isDripFeatureFolderName(parentBase)) {
 				const featPrefix = parentDir.endsWith('/') ? parentDir : parentDir + '/';
+				// `_recent.d.txt` is the folder's mailbox, not its identity — never a feature entry.
+				if (/_recent\.d\.txt$/i.test(base)) continue;
 				const existing = featuresByKey.get(featPrefix);
-				const preferIndex =
-					/^_/.test(base) || /_recent\.d\.txt$/i.test(base) || isProjectIndexFileName(base);
+				const preferIndex = isProjectIndexFileName(base);
 				if (!existing || preferIndex) {
 					featuresByKey.set(featPrefix, {
 						fileId,

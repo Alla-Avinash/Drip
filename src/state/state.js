@@ -60,7 +60,8 @@ const {
 	placementZone,
 	findNestedFeature,
 	findNestedProject,
-	canConvertFolderToFeature
+	canConvertFolderToFeature,
+	noteCreationBlockReason
 } = require('../document/model/dripKbFolderRules');
 const {
 	loadDraftsFromDripIndex,
@@ -851,6 +852,10 @@ class DripState {
 		}
 
 		const baseUri = await this.resolveTargetFolder(vscode.Uri.parse(folderUriStr));
+		const blockReason = noteCreationBlockReason(kbRoot.fsPath, baseUri.fsPath);
+		if (blockReason) {
+			throw new Error(blockReason);
+		}
 		const t = String(title || '').trim();
 		if (!t) {
 			throw new Error('Enter a note title.');
@@ -950,6 +955,10 @@ class DripState {
 		} else if (selection?.targetType === 'folder' && selection.uri) {
 			mode = 'create';
 			const targetFolder = vscode.Uri.parse(selection.uri);
+			const blockReason = noteCreationBlockReason(kbRoot.fsPath, targetFolder.fsPath);
+			if (blockReason) {
+				throw new Error(blockReason);
+			}
 
 			let fileName = String(selection.fileName || '').trim();
 			if (!fileName) {
@@ -999,6 +1008,10 @@ class DripState {
 				);
 			} else {
 				mode = 'create';
+				const autoBlockReason = noteCreationBlockReason(kbRoot.fsPath, targetFolder.fsPath);
+				if (autoBlockReason) {
+					throw new Error(autoBlockReason);
+				}
 				targetUri = vscode.Uri.joinPath(targetFolder, buildNoteFileName(draft.title));
 				const n = await allocateNextEntityNumber(kbRoot);
 				await writeTextFile(targetUri, buildNewNoteFile(writeDraft, { fileEntityNumber: n }));
@@ -1029,6 +1042,11 @@ class DripState {
 		}
 
 		const baseUri = await this.resolveTargetFolder(targetUri);
+		const blockReason = noteCreationBlockReason(kbRoot.fsPath, baseUri.fsPath);
+		if (blockReason) {
+			await vscode.window.showErrorMessage(blockReason);
+			return undefined;
+		}
 		const title = await vscode.window.showInputBox({
 			prompt: 'Enter a note title',
 			placeHolder: 'Example: editor architecture'
@@ -1066,6 +1084,11 @@ class DripState {
 		}
 
 		const baseUri = await this.resolveTargetFolder(targetUri);
+		const blockReason = noteCreationBlockReason(kbRoot.fsPath, baseUri.fsPath);
+		if (blockReason) {
+			await vscode.window.showErrorMessage(blockReason);
+			return undefined;
+		}
 		const title = await vscode.window.showInputBox({
 			prompt: 'Enter a Markdown file title',
 			placeHolder: 'Example: architecture notes'

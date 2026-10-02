@@ -3,8 +3,9 @@
 /**
  * Logical issue parent (`parent: i-N`) rules — one place for RHS, diagnostics, index, Project View.
  *
- * - Locked: issue is tab-nested under another issue in the same file → parent is that issue
- *   (nearest outline ancestor issue; plain headings in between are skipped). Implied only:
+ * - Locked: issue sits inside another issue's indented section in the same file → parent is that
+ *   issue (nearest outline ancestor issue; plain headings in between are skipped; sections end as
+ *   in `issueInboxLayout.sectionEnd`, so text at the parent's indent closes it). Implied only:
  *   no `parent:` line is written and the RHS hides the field.
  * - Free: no issue above it in the outline → optional `parent:` may be any existing issue in
  *   the same project (any file / feature / folder), except itself or its own sub-issues.
@@ -42,39 +43,27 @@ function issueIdFromHeadingTitle(title) {
  */
 function findNearestOutlineAncestorIssueId(docText, targetHeadingLine) {
 	const { parseHeadingForValidation } = require('../parse/dripnoteCanvasParse');
+	const { outlineParentsByLine } = require('./issueInboxLayout');
 	const target = Math.floor(Number(targetHeadingLine));
 	if (!Number.isFinite(target) || target < 0) return null;
 	const lines = String(docText || '')
 		.replace(/\r\n/g, '\n')
 		.replace(/\r/g, '\n')
-		.split('\n');
-	/** @type {{ line: number, issueId: string | null, parentIdx: number | null }[]} */
-	const headings = [];
-	/** @type {{ idx: number, tabDepth: number }[]} */
-	const stack = [];
-	for (let i = 0; i < lines.length; i++) {
-		const ph = parseHeadingForValidation(lines[i]);
-		if (!ph || ph.usesNonTabIndent) continue;
-		const depth = Number(ph.tabDepth) || 0;
-		while (stack.length && stack[stack.length - 1].tabDepth >= depth) {
-			stack.pop();
-		}
-		const parentIdx = stack.length ? stack[stack.length - 1].idx : null;
-		const idx = headings.length;
-		headings.push({ line: i, issueId: issueIdFromHeadingTitle(ph.title), parentIdx });
-		stack.push({ idx, tabDepth: depth });
-		if (i > target) break;
-	}
-	const self = headings.find(h => h.line === target);
-	if (!self) return null;
-	let cur = self.parentIdx;
-	const seen = new Set();
-	while (cur != null && !seen.has(cur)) {
-		seen.add(cur);
-		const h = headings[cur];
-		if (!h) break;
-		if (h.issueId) return h.issueId;
-		cur = h.parentIdx;
+		.split('\n')
+		.slice(0, target + 1);
+	/** @type {Map<number, string | null>} heading line → issue id (null for plain headings) */
+	const issueIdByLine = new Map();
+	lines.forEach((line, i) => {
+		const ph = parseHeadingForValidation(line);
+		if (ph && !ph.usesNonTabIndent) issueIdByLine.set(i, issueIdFromHeadingTitle(ph.title));
+	});
+	if (!issueIdByLine.has(target)) return null;
+	const parents = outlineParentsByLine(lines, new Set(issueIdByLine.keys()));
+	let cur = parents.get(target);
+	while (cur != null) {
+		const id = issueIdByLine.get(cur);
+		if (id) return id;
+		cur = parents.get(cur);
 	}
 	return null;
 }

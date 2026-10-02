@@ -35,7 +35,7 @@ No other files or folders. Enforce on create/drag + diagnostics.
 
 | Kind | Storage | Meaning |
 |------|---------|---------|
-| Outline | tab indent → `headings.parent` (same-file heading_id) | Visual nesting in one file |
+| Outline | indented section (rule below) → `headings.parent` (same-file heading_id) | Visual nesting in one file |
 | Issue link | issue attribute `parent: i-N` → `issue_metadata.parent_issue_key` | Logical parent anywhere in the project |
 
 After an issue is **moved** to a feature mailbox, outline parent may be gone; **`parent: i-N` must remain** so Project View can rebuild hierarchy.
@@ -55,9 +55,11 @@ project
 1. Create issues in Project View → `_issues.d.txt`, as the **last** child of a plain (non-persistent) `# recents` heading placed 2 blank lines under `---` (one section only). Sub-issues from Project View are indented under their parent heading (in whichever project file it lives) — no `parent:` line.  
 2. Assign to feature → **move** block into:
    - folder feature → `Feature.f/_recent.d.txt`  
-   - file feature → `# _recent` section (2 blank lines under `---`) in `Feature.f.d.txt`  
+   - file feature → last child (one tab in) of the `# _recent` section (2 blank lines under `---`) in `Feature.f.d.txt`  
 3. Preserve `parent: i-N` and the heading type prefix `.i-N`  
-4. User sorts from `_recent` into feature sections  
+4. User sorts from `_recent` into feature sections
+
+**Where an issue ends (one rule everywhere):** an issue owns every following line indented deeper than its heading; the first non-blank line (text, identity line or heading) at the same or a shallower indent ends it (the `---` header separator never does). Moves, sub-issue inserts and MCP reads use `sectionEnd`; outline parents (index `headings.parent` → `parent_issue_key`, RHS lock, diagnostics) use `outlineParentsByLine` — both in `issueInboxLayout.js`.  
 
 Project View: features listed; bottom = remaining `_issues.d.txt` inbox; full tree uses `parent: i-#` across files.
 

@@ -225,25 +225,6 @@ async function createIssueInProjectInbox(kbRootUri, projectFolderUri, opts = {})
 }
 
 /**
- * Ensure `# _recent` section exists after `---` (+ 2 blank lines) in a feature file note.
- * @param {string} text
- * @returns {string}
- */
-function ensureRecentHeadingInFeatureFile(text) {
-	const normalized = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-	if (/(^|\n)#\s+_recent\b/i.test(normalized)) {
-		return normalized.endsWith('\n') ? normalized : normalized + '\n';
-	}
-	const sep = normalized.indexOf('\n---\n');
-	if (sep < 0) {
-		return normalized.replace(/\s*$/, '') + `\n\n\n# ${FEATURE_RECENT_HEADING_TITLE}\n`;
-	}
-	const before = normalized.slice(0, sep + '\n---\n'.length);
-	const after = normalized.slice(sep + '\n---\n'.length);
-	return before + `\n\n# ${FEATURE_RECENT_HEADING_TITLE}\n` + after.replace(/^\n*/, '');
-}
-
-/**
  * Resolve mailbox target for a feature path (folder `.f` or file `*.f.d.txt`).
  * @param {import('vscode').Uri} featureUri folder or feature note
  * @returns {Promise<{ kind: 'file'|'folder', mailboxUri: import('vscode').Uri, isFolderIndex?: boolean }>}
@@ -302,20 +283,18 @@ async function moveIssueToFeatureMailbox(kbRootUri, projectFolderUri, featureUri
 	const blockLines = found.lines.slice(blockStart, found.end);
 	const startIndentMatch = found.lines[found.start].match(/^(\t*)/);
 	const tabStrip = startIndentMatch ? startIndentMatch[1].length : 0;
-	const dedented =
-		blockLines
-			.map(ln => {
-				if (!tabStrip) return ln;
-				let out = ln;
-				for (let t = 0; t < tabStrip; t++) {
-					if (out.startsWith('\t')) out = out.slice(1);
-					else break;
-				}
-				return out;
-			})
-			.join('\n') + '\n';
+	const dedentedLines = blockLines.map(ln => {
+		let out = ln;
+		for (let t = 0; t < tabStrip && out.startsWith('\t'); t++) out = out.slice(1);
+		return out;
+	});
 
-	const remaining = found.lines.slice(0, blockStart).concat(found.lines.slice(found.end)).join('\n');
+	const before = found.lines.slice(0, blockStart);
+	const after = found.lines.slice(found.end);
+	while (before.length && !String(before[before.length - 1]).trim() && after.length && !String(after[0]).trim()) {
+		after.shift();
+	}
+	const remaining = before.concat(after).join('\n');
 	await writeTextFile(issuesUri, remaining.endsWith('\n') ? remaining : remaining + '\n');
 
 	const target = await resolveFeatureMailboxTarget(featureUri);
@@ -331,12 +310,13 @@ async function moveIssueToFeatureMailbox(kbRootUri, projectFolderUri, featureUri
 			);
 		}
 		if (!mailboxText.endsWith('\n')) mailboxText += '\n';
-		await writeTextFile(target.mailboxUri, mailboxText + dedented);
+		await writeTextFile(target.mailboxUri, `${mailboxText}${dedentedLines.join('\n')}\n`);
 	} else {
-		let fileText = await readTextFile(target.mailboxUri);
-		fileText = ensureRecentHeadingInFeatureFile(fileText);
-		if (!fileText.endsWith('\n')) fileText += '\n';
-		await writeTextFile(target.mailboxUri, fileText + dedented);
+		const fileText = await readTextFile(target.mailboxUri);
+		await writeTextFile(
+			target.mailboxUri,
+			appendIssueToRecents(fileText, dedentedLines, FEATURE_RECENT_HEADING_TITLE)
+		);
 	}
 
 	try {
@@ -355,7 +335,6 @@ module.exports = {
 	formatNewIssueBlock,
 	createIssueInProjectInbox,
 	findIssueHeadingBlock,
-	ensureRecentHeadingInFeatureFile,
 	resolveFeatureMailboxTarget,
 	moveIssueToFeatureMailbox,
 	parseIssueTitleEntityId

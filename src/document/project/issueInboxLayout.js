@@ -1,9 +1,11 @@
 'use strict';
 
 /**
- * Text layout for placing issue blocks (pure — no vscode):
+ * Text layout for issue blocks (pure — no vscode):
+ * - A heading owns every following line indented deeper than itself; the first non-blank line
+ *   (text, identity line or heading) at the same or a shallower indent ends it (`sectionEnd`).
  * - `_issues.d.txt` keeps new issues under a plain `# recents` section (2 blank lines under `---`),
- *   newest last.
+ *   newest last; file features use `# _recent` the same way.
  * - Sub-issues go under their parent heading, one tab deeper, as the parent's last child.
  */
 
@@ -12,8 +14,16 @@ const {
 	normalizeIssueEntityId
 } = require('./projectStructureRules');
 
-const HEADING_LINE_RE = /^(\s*)#{1,6}\s+\S/;
 const IDENTITY_LINE_RE = /^\s*@+\s*f\d+\s*:\s*h\d+\b/i;
+
+/**
+ * Leading whitespace width (tabs in DRIP notes).
+ * @param {string} line
+ * @returns {number}
+ */
+function indentOf(line) {
+	return (String(line).match(/^[ \t]*/) || [''])[0].length;
+}
 
 /**
  * @param {string} text
@@ -37,19 +47,29 @@ function fromLines(lines) {
 }
 
 /**
- * End (exclusive) of the section owned by the heading at `start`: stops before the next heading
- * at same-or-shallower indent, and never swallows that heading's identity line or the blank gap.
+ * Whether `line` closes a heading section at `indent`: any non-blank line indented no deeper.
+ * The `---` file-header separator never closes one (h0 stays the root above it).
+ * @param {string} line
+ * @param {number} indent
+ */
+function closesSection(line, indent) {
+	const tr = String(line).trim();
+	return !!tr && tr !== '---' && indentOf(line) <= indent;
+}
+
+/**
+ * End (exclusive) of the section owned by the heading at `start`: the first line that
+ * `closesSection`. Trailing blank lines stay outside the section.
  *
  * @param {string[]} lines
  * @param {number} start heading line
- * @param {number} indent tab count of that heading
+ * @param {number} indent indent width of that heading
  * @returns {number}
  */
 function sectionEnd(lines, start, indent) {
 	let end = lines.length;
 	for (let j = start + 1; j < lines.length; j++) {
-		const hm = String(lines[j]).match(HEADING_LINE_RE);
-		if (hm && (hm[1] || '').length <= indent) {
+		if (closesSection(lines[j], indent)) {
 			end = j;
 			break;
 		}
@@ -60,6 +80,33 @@ function sectionEnd(lines, start, indent) {
 		else break;
 	}
 	return end;
+}
+
+/**
+ * Outline parent of each heading line under the same rule as `sectionEnd`: the nearest earlier
+ * heading (from `headingLines`) whose section still contains it. Lines not in `headingLines`
+ * (text, identity lines, headings left out by the caller) still close sections.
+ *
+ * @param {string[]} lines
+ * @param {Set<number>} headingLines line indexes that can be parents / children
+ * @returns {Map<number, number | null>} heading line → parent heading line (null = root)
+ */
+function outlineParentsByLine(lines, headingLines) {
+	/** @type {Map<number, number | null>} */
+	const parents = new Map();
+	/** @type {{ line: number, indent: number }[]} */
+	const stack = [];
+	for (let i = 0; i < lines.length; i++) {
+		const line = String(lines[i] || '');
+		const tr = line.trim();
+		if (!tr || tr === '---') continue;
+		const indent = indentOf(line);
+		while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop();
+		if (!headingLines.has(i)) continue;
+		parents.set(i, stack.length ? stack[stack.length - 1].line : null);
+		stack.push({ line: i, indent });
+	}
+	return parents;
 }
 
 /**
@@ -86,25 +133,27 @@ function findIssueHeadingBlock(text, issueId) {
 
 /**
  * @param {string[]} lines
+ * @param {string} title
  * @returns {number}
  */
-function findRecentsHeadingLine(lines) {
-	const esc = PROJECT_ISSUES_RECENTS_HEADING_TITLE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function findRecentsHeadingLine(lines, title) {
+	const esc = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 	const re = new RegExp(`^#\\s+${esc}\\s*$`, 'i');
 	return lines.findIndex(l => re.test(String(l)));
 }
 
 /**
- * Ensure the `# recents` section exists: 2 blank lines under the first `---`, or at the end.
+ * Ensure a top-level `# <title>` section exists: 2 blank lines under the first `---`, or at the end.
  *
  * @param {string[]} lines
+ * @param {string} title
  * @returns {{ lines: string[], headingLine: number }}
  */
-function ensureRecentsSection(lines) {
-	const existing = findRecentsHeadingLine(lines);
+function ensureRecentsSection(lines, title) {
+	const existing = findRecentsHeadingLine(lines, title);
 	if (existing >= 0) return { lines, headingLine: existing };
 	const out = lines.slice();
-	const heading = `# ${PROJECT_ISSUES_RECENTS_HEADING_TITLE}`;
+	const heading = `# ${title}`;
 	const sep = out.findIndex(l => /^---\s*$/.test(String(l)));
 	if (sep < 0) {
 		while (out.length && !String(out[out.length - 1]).trim()) out.pop();
@@ -146,14 +195,16 @@ function indentBlock(block, prefix) {
 }
 
 /**
- * Append an issue block (lines at indent 0) as the last child of `# recents`.
+ * Append an issue block (lines at indent 0) as the last child of `# recents`
+ * (or another top-level section, e.g. a file feature's `# _recent`).
  *
  * @param {string} text
  * @param {string[]} block
+ * @param {string} [sectionTitle]
  * @returns {string}
  */
-function appendIssueToRecents(text, block) {
-	const ensured = ensureRecentsSection(toLines(text));
+function appendIssueToRecents(text, block, sectionTitle = PROJECT_ISSUES_RECENTS_HEADING_TITLE) {
+	const ensured = ensureRecentsSection(toLines(text), sectionTitle);
 	const end = sectionEnd(ensured.lines, ensured.headingLine, 0);
 	return fromLines(insertBlock(ensured.lines, end, ensured.headingLine, indentBlock(block, '\t')));
 }
@@ -175,6 +226,9 @@ function appendSubIssueUnderParent(text, parentIssueId, block) {
 }
 
 module.exports = {
+	indentOf,
+	sectionEnd,
+	outlineParentsByLine,
 	findIssueHeadingBlock,
 	appendIssueToRecents,
 	appendSubIssueUnderParent

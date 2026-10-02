@@ -5,7 +5,11 @@
  */
 
 const vscode = require('vscode');
-const { getMetadataSettingsForNotePath } = require('../../../document/model/dripnoteMetadataTemplates');
+const {
+	getMetadataSettingsForNotePath,
+	getTypeRule
+} = require('../../../document/model/dripnoteMetadataTemplates');
+const { normalizeDateTimeValue } = require('../../../document/parse/dripnoteDatetime');
 const { findPersistentZoneAtLine } = require('../../../document/model/persistentHeadingZones');
 const { planPersistentHeadingPatch } = require('../../../document/model/headingBlockPatch');
 const session = require('./headingFormSession');
@@ -80,6 +84,17 @@ async function applyHeadingFormModel(editor, model) {
 			console.error('[DRIP] stamp issue parent on apply', err);
 		}
 	}
+
+	// Normalize datetime attributes ("2 days" / "45 min" → "YYYY-MM-DD HH:mm") the same way
+	// the editor's quick-fix does, so the buffer never stores a raw relative value.
+	for (const [key, value] of Object.entries(attributes)) {
+		const rule = getTypeRule(settings, typeId || '', key);
+		if (rule && rule.kind === 'datetime' && value) {
+			const normalized = normalizeDateTimeValue(String(value), new Date());
+			if (normalized && normalized !== String(value)) attributes[key] = normalized;
+		}
+	}
+
 	const patch = planPersistentHeadingPatch(
 		lines,
 		zone,

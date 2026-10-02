@@ -33,8 +33,8 @@ Grep/read only files relevant to your task.
 | Note parse / ingest / ranking | `src/document/kbNoteOps.js` |
 | Note extensions | `src/document/model/noteFileTypes.js` |
 | **Project folders (`.p`)** | `src/document/model/dripProjectFolder.js`; `src/startup/dripProjectFolder.js`. Index note `_Name.p.d.txt` with h0 `# .p Title`. Create: `drip.createProjectFolder` / New menu (or New Folder named `Name.p`). Delete: `drip.deleteProject` (index note cannot be deleted alone). |
-| **Feature / project placement** | `src/document/model/dripKbFolderRules.js` — project folder whitelist: `_Name.p.d.txt`, `_issues.d.txt`, feature folders `*.f` **and** feature files `*.f.d.txt`. Create: `drip.createFeatureFolder` / `drip.createFeatureFile` / New menu. |
-| **Project structure / ids / mailbox** | Rules: `.cursor/rules/context/drip-project-structure.mdc`. Code: `src/document/project/projectStructureRules.js`, `projectEntityIds.js` (`f-#`/`i-#` alloc in `index_meta`), `projectIssuesMailbox.js` (create in `_issues`, **move** to feature `_recent`), `issueInboxLayout.js` (pure text placement: new issues as last child of plain `# recents` in `_issues`; sub-issues indented under their parent heading), `issueParentLink.js` (issue parent rules: nested under an issue in the same file → parent **implied** by indentation, no `parent:` line; else **optional** `parent: i-N` = any project issue except self/sub-issues; validation, cycle sanitize, line write — used by RHS, diagnostics, index, Project View, mailbox move). |
+| **Feature / project placement** | `src/document/model/dripKbFolderRules.js` — project folder whitelist: `_Name.p.d.txt`, `_issues.d.txt`, feature folders `*.f` **and** feature files `*.f.d.txt`. Create: `drip.createFeatureFolder` / `drip.createFeatureFile` / New menu. `noteCreationBlockReason` blocks plain note creation anywhere inside a `.p` project unless the target is inside a feature folder (`.f`) — so the `.p` root and its plain subfolders are note-free. |
+| **Project structure / ids / mailbox** | Rules: `.cursor/rules/context/drip-project-structure.mdc`. Code: `src/document/project/projectStructureRules.js`, `projectEntityIds.js` (`f-#`/`i-#` alloc in `index_meta`), `projectIssuesMailbox.js` (create in `_issues`, **move** to feature `_recent`), `issueInboxLayout.js` (pure text layout; **`sectionEnd` = the one rule for where an issue ends**: first non-blank line indented no deeper than its heading — used by move, sub-issue insert, MCP read/edit; **`outlineParentsByLine`** = same rule for outline parents — used by the index (`dripIndexParse.assignHeadingParentsFromIndent`) and `issueParentLink.findNearestOutlineAncestorIssueId`; new issues as last child of plain `# recents` in `_issues`, moved issues as last child of `# _recent` in file features; sub-issues indented under their parent heading), `issueParentLink.js` (issue parent rules: nested under an issue in the same file → parent **implied** by indentation, no `parent:` line; else **optional** `parent: i-N` = any project issue except self/sub-issues; validation, cycle sanitize, line write — used by RHS, diagnostics, index, Project View, mailbox move). |
 | **Special vs document metadata** | Notes: concept+task. Projects: project+feature+issue+task. Issue attribute `parent: i-N` → `issues.parent_issue_key` (and `issue_metadata` mirror). No decision in defaults. |
 | **Project View** | `src/views/lhs/projects/panel.js` + `webview/projectView.js` / `projectView.css`; `src/indexing/projectViewQuery.js` (`projects` + `issues` by `project_id`). |
 | **Project index helpers** | `src/indexing/projectIndex.js` — ensure `projects` row, resolve `project_id`, upsert `issues`. |
@@ -161,6 +161,25 @@ Grep/read only files relevant to your task.
 | Embeddings | `src/retrieval/embeddings.js` — Transformers.js; weights in `<extension>/.cache/transformers` |
 | Embedding benchmarks | `benchmarks/` — field recipes + exact vs FAISS (`npm run bench:embeddings`) |
 | Embedding benchmarks | `benchmarks/` — field recipes + exact vs FAISS (`node benchmarks/run.js`) |
+
+## MCP (AI agents → DRIP, `src/integrations/mcp/`)
+
+Router pattern: a few high-value tools are advertised directly in `tools/list` (`STANDARD_TOOL_NAMES` in `metaTools.js`); everything else is a hidden catalog found via `search_tools` + `call_tool`.
+
+| Concern | Files |
+|---------|-------|
+| Lifecycle, settings (`drip.mcp.enabled/port`), token (SecretStorage `drip.mcp.token`), `drip.mcp.*` commands, client-agnostic connection details / config snippets (`getMcpStatus`, `copyMcpValue`) | `mcpBridge.js` (`registerDripMcp`, called from `src/extension/activate.js`) |
+| Settings UI: DRIP Settings → **MCP connection** (on/off, port, status, URL/header/token copy, config snippets) | `src/views/settingsWebview.js` (`panel-mcp`, `applyMcpStatus`); host messages `mcp*` in `activate.js` `wireSettingsWebviewMessageHandler` |
+| HTTP server on `127.0.0.1:<port>/mcp`, JSON-RPC, auth / Host / Origin checks; optional SSE stream for server→client notifications (`notifications/tools/list_changed` on settings change) | `mcpServer.js` (`DripMcpServer.handleRpc`) |
+| `search_tools` / `call_tool`, argument validation, "did you mean" errors; `STANDARD_TOOL_NAMES` = tools advertised directly in `tools/list`; `buildMetaToolDefs()` rebuilds schemas live and enriches issue `status`/`priority`/`category` enums from `drip.metadataTypes` | `metaTools.js` |
+| Cheap router prompt (initialize `instructions`, `drip://guide`) | `routerGuide.js` |
+| Tool registry (cards: summary, keywords, schema, handler) | `toolCatalog.js` |
+| Tool-card embeddings (same model as the KB; persisted in `<globalStorage>/mcp/tool-embeddings.json`, rebuilt on model change, per-card on text change) | `toolEmbeddings.js` |
+| GraphQL-style response projection: per-tool `FIELD_CATALOG` (fields + lean defaults), `parseFields` (validates `fields` arg), `project` (trims the result, incl. row arrays via `arrayKey`), `fieldsPropFor` (injects `fields` into a tool's `inputSchema`) | `responseSchema.js` |
+| Tool handlers | `tools/projectTools.js`, `tools/issueTools.js`, `tools/systemTools.js`; shared helpers `tools/toolShared.js` |
+| Pure issue block read/edit (title, attributes, notes); `readIssueContent` = an issue's **body** (heading + `.issue` block excluded), bounded by indentation, sub-issues collapsed to titles (MCP `get_issue`) | `src/document/project/issueBlockEdit.js` |
+
+**Add a tool:** add a card to the right `tools/*.js` array (name, category, summary, keywords, `inputSchema`, example, handler). It is embedded automatically on next search. Mention it in `routerGuide.js` only if it opens a new capability area.
 
 ## Spec cross-reference
 

@@ -10,6 +10,7 @@
 	},
 	"main": "./extension.js",
 	"activationEvents": [
+		"onStartupFinished",
 		"onLanguage:dripnote",
 		"onCommand:drip.openComposer",
 		"onCommand:drip.openKbEditor",
@@ -229,6 +230,21 @@
 				"category": "DRIP"
 			},
 			{
+				"command": "drip.mcp.openSettings",
+				"title": "Open MCP connection settings",
+				"category": "DRIP"
+			},
+			{
+				"command": "drip.mcp.restart",
+				"title": "Restart MCP server",
+				"category": "DRIP"
+			},
+			{
+				"command": "drip.mcp.regenerateToken",
+				"title": "Regenerate MCP access token",
+				"category": "DRIP"
+			},
+			{
 				"command": "drip.selectKnowledgeBase",
 				"title": "Select Knowledge Base Folder",
 				"category": "DRIP",
@@ -423,6 +439,16 @@
 					"type": "boolean",
 					"default": true,
 					"description": "Use Transformers.js (ONNX) sentence embeddings for Suggestions (top folders + next folder/file picks) and AI deep-match in DRIP Storage, instead of token overlap. First use downloads the model into the DRIP extension folder (.cache/transformers), not the system Hugging Face cache."
+				},
+				"drip.mcp.enabled": {
+					"type": "boolean",
+					"default": false,
+					"description": "Run the DRIP MCP server on 127.0.0.1 so any MCP-capable AI app can manage project issues. Connection details: DRIP Settings → MCP connection."
+				},
+				"drip.mcp.port": {
+					"type": "number",
+					"default": 39217,
+					"description": "Local port for the DRIP MCP server (http://127.0.0.1:<port>/mcp). Only one DRIP window can serve a port."
 				},
 				"drip.embeddingModel": {
 					"type": "string",

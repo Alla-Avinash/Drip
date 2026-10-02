@@ -412,6 +412,14 @@ class DripHeadingFormWebviewProvider {
 					case 'headingFormApply':
 						await applyHeadingFormModelFromMessage(message.model || {});
 						break;
+					case 'headingFormNormalizeDatetime': {
+						const key = String(message.key || '');
+						const raw = String(message.value || '');
+						const { normalizeDateTimeValue } = require('../../../document/parse/dripnoteDatetime');
+						const value = normalizeDateTimeValue(raw, new Date());
+						await session.postToForm({ type: 'headingFormDatetimeNormalized', key, value });
+						break;
+					}
 					case 'headingFormDelete': {
 						const model = message.model || {};
 						const uriStr = String(model.documentUri || (session.getBound() && session.getBound().uri) || '');

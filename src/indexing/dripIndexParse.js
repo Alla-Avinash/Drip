@@ -21,6 +21,7 @@ const {
 	resolveReparsedNodeIndices
 } = require('./parse/dripIndexIncrementalParse');
 const { splitRefListRespectingParens } = require('../document/parse/dripnoteRefLinks');
+const { outlineParentsByLine } = require('../document/project/issueInboxLayout');
 
 /**
  * @param {string} text
@@ -411,32 +412,31 @@ function parseHeadingNodeForIndex(lines, node, knownTagsLower, nextAutoHeadingId
 }
 
 /**
- * Set `heading.parent` from tab indent: nearest preceding indexed heading with smaller tab_depth.
- * Document order = `nodes` order; only nodes present in `headingIdByNodeIndex` participate.
+ * Set `heading.parent` = nearest earlier indexed heading whose indented section still contains
+ * this heading (same rule as issue blocks: text or plain headings at the same or a shallower
+ * indent close a section — see `outlineParentsByLine`).
  *
+ * @param {string[]} lines
  * @param {import('../document/parse/dripnoteCanvasParse').HeadingNodeFlat[]} nodes
  * @param {Map<number, number>} headingIdByNodeIndex
- * @param {{ heading_id: number, tab_depth?: number, parent?: number | null }[]} headings
+ * @param {{ heading_id: number, parent?: number | null }[]} headings
  */
-function assignHeadingParentsFromIndent(nodes, headingIdByNodeIndex, headings) {
+function assignHeadingParentsFromIndent(lines, nodes, headingIdByNodeIndex, headings) {
 	/** @type {Map<number, { heading_id: number, parent?: number | null }>} */
 	const byId = new Map();
 	for (const h of headings || []) {
 		if (h && h.heading_id != null) byId.set(Number(h.heading_id), h);
 	}
-	/** @type {{ heading_id: number, tab_depth: number }[]} */
-	const stack = [];
-	for (let i = 0; i < (nodes || []).length; i++) {
-		const headingId = headingIdByNodeIndex.get(i);
-		if (headingId == null) continue;
-		const h = byId.get(Number(headingId));
-		if (!h) continue;
-		const depth = Number(nodes[i].tabDepth) || 0;
-		while (stack.length && stack[stack.length - 1].tab_depth >= depth) {
-			stack.pop();
-		}
-		h.parent = stack.length ? stack[stack.length - 1].heading_id : null;
-		stack.push({ heading_id: Number(headingId), tab_depth: depth });
+	/** @type {Map<number, number>} line index → heading_id */
+	const headingIdByLine = new Map();
+	for (const [nodeIndex, headingId] of headingIdByNodeIndex) {
+		const node = nodes[nodeIndex];
+		if (node && byId.has(Number(headingId))) headingIdByLine.set(node.lineIndex, Number(headingId));
+	}
+	const parentLines = outlineParentsByLine(lines, new Set(headingIdByLine.keys()));
+	for (const [line, parentLine] of parentLines) {
+		const h = byId.get(/** @type {number} */ (headingIdByLine.get(line)));
+		if (h) h.parent = parentLine == null ? null : /** @type {number} */ (headingIdByLine.get(parentLine));
 	}
 }
 
@@ -512,7 +512,7 @@ function parseAllHeadingNodesForIndex(lines, nodes, knownTagsLower, options) {
 		typedMetadata.push(...parsed.typedMetadata);
 	}
 
-	assignHeadingParentsFromIndent(nodes, headingIdByNodeIndex, headings);
+	assignHeadingParentsFromIndent(lines, nodes, headingIdByNodeIndex, headings);
 
 	return { headings, references, searchtags, relations, typedMetadata, headingIdByNodeIndex };
 }

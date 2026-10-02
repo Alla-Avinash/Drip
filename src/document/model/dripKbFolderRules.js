@@ -219,6 +219,31 @@ function projectFolderChildRejectReason(childBasename, fileType) {
 	);
 }
 
+/**
+ * Plain note files (`*.d.txt` / `*.md`) must not be created directly inside a project folder
+ * (`Name.p/`) nor in any non-feature folder nested under it. The project root and its plain
+ * subfolders are reserved for the index note, `_issues.d.txt`, and feature folders/files.
+ * Notes are only allowed inside a feature folder (`.f`) or outside any project.
+ *
+ * @param {string} kbRootFs knowledge base root path
+ * @param {string} folderFsPath target folder path
+ * @returns {string | null} block reason, or null when creation is allowed here
+ */
+function noteCreationBlockReason(kbRootFs, folderFsPath) {
+	// Nearest-first basenames of the target folder and all its ancestors up to the KB root.
+	const names = ancestorFolderBasenames(kbRootFs, folderFsPath);
+	for (const name of names) {
+		if (isDripFeatureFolderName(name)) return null; // inside a feature folder → allowed
+		if (isDripProjectFolderName(name)) {
+			return (
+				'Notes can only be created inside a feature folder (.f). ' +
+				'They are not allowed directly in a project folder (.p) or its plain subfolders.'
+			);
+		}
+	}
+	return null; // outside any project → allowed
+}
+
 module.exports = {
 	ancestorFolderBasenames,
 	getPathPlacement,
@@ -230,5 +255,6 @@ module.exports = {
 	canConvertFolderToFeature,
 	canConvertFolderToProject,
 	isAllowedProjectFolderChild,
-	projectFolderChildRejectReason
+	projectFolderChildRejectReason,
+	noteCreationBlockReason
 };

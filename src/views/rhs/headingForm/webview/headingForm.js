@@ -296,23 +296,43 @@
 				const input = document.createElement('input');
 				input.type = 'text';
 				input.dataset.key = key;
+				if (kind === 'datetime') input.dataset.kind = 'datetime';
 				input.value = val;
 				input.placeholder =
 					(rule && rule.placeholder) ||
 					(kind === 'datetime'
-						? 'YYYY-MM-DD HH:mm'
+						? 'YYYY-MM-DD HH:mm or "2 days"'
 						: kind === 'duration'
 							? 'e.g. 2h'
 							: kind === 'issue_parent'
 								? 'i-N'
 								: '');
 				wireSave(input);
+				if (kind === 'datetime') {
+					input.addEventListener('blur', () => requestDatetimeNormalize(input));
+					input.addEventListener('keydown', e => {
+						if (e.key === 'Enter') input.blur();
+					});
+				}
 				valWrap.appendChild(input);
 			}
 			row.appendChild(span);
 			row.appendChild(valWrap);
 			attrsEl.appendChild(row);
 		}
+	}
+
+	/**
+	 * Ask the extension to normalize a relative datetime ("2 days") into "YYYY-MM-DD HH:mm".
+	 * Already-normalized absolute values are left alone (no round-trip churn).
+	 * @param {HTMLInputElement} input
+	 */
+	function requestDatetimeNormalize(input) {
+		const raw = String(input.value || '').trim();
+		if (!raw || /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(raw)) return;
+		const key = input.getAttribute('data-key');
+		if (!key) return;
+		vscode.postMessage({ type: 'headingFormNormalizeDatetime', key, value: raw });
 	}
 
 	/** `I-04` → `i-4`; returns '' for empty, null for malformed. */
@@ -775,6 +795,19 @@
 				saveTimer = null;
 			}
 			saveIfChanged();
+		}
+		if (msg.type === 'headingFormDatetimeNormalized') {
+			const key = String(msg.key || '');
+			const value = String(msg.value || '');
+			if (!key || !value) return;
+			const input = /** @type {HTMLInputElement|null} */ (
+				attrsEl.querySelector('[data-key="' + key + '"]')
+			);
+			if (input && input.dataset.kind === 'datetime' && input.value !== value) {
+				input.value = value;
+				scheduleSave();
+			}
+			return;
 		}
 		if (msg.type === 'headingFormIssueParentError') {
 			const input = /** @type {HTMLInputElement|null} */ (

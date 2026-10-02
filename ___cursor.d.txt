@@ -1,0 +1,185 @@
+drip application what to work on next : 
+    project view modifications which are to be similar to linear 
+    build proper skills for the workflows for the tasks that has to be done in drip when you have certain specific tasks that you are asking to be done in drip 
+    ship it properly and put it in github and push it as maketplace to ask dk about how the application is working 
+
+    create proper skills for using in cursor based on how you want to develop this.. drip application 
+
+
+next promt to give 
+    "
+        now i want to develop the current project view even further to have it properly designed to be more like in the case with the features of how linear structures to have filters and sort options.. and i also want the assign button to not be present in the features as the issues in the features are already assigned to the features, you can have something like a button to change the affiliation to another feature or just list it in the project issues directly.. and for the project issues you can have the assign but they have to be like a small button rather than a big one.. 
+        and when i click the assign button.. I don't want the dropbox to appear at the very top near the menu bar.. I want it where we clicked the button so that the user can easily know what is happening.. and the same goes for the 'sub' button.. where i want the user to click on this button and have a sub section created where he can type in the name of the sub issue rather than it goint to the top of the section for creating a sub issue.. there is no visual cue for the user in understanding what is happening.. also i need to have a search bar at the top of the project view to search for the projects when we open the project view with all the relevant filters, sort options and other things which we usually had in the retriever and when the user opens up a project, in the project view, I need to have a search bar here too with searching for the issues present in the current project in the same format of having them in different sections like in the project issues, and varous features present..  
+    "
+
+
+
+About: 
+    this file is all about how to best use cursor 
+        to save the tokens and also 
+        to understand how to work best as a software developer 
+            to ship ai generated code much faster and 
+            be optimal with the usuage and 
+            reveiw the generated code in a structured manner, with the industry best practices 
+
+        
+Cursor measures actual API token and compute costs rather than a flat number of requests or token count  
+long running models are very costly so try to give out a specific model to use.. 
+
+
+Cursor Pricing and understanding what you are paying for:
+
+    Cursor Pro does not give you a fixed number of tokens.
+    Instead, it gives you $20/month of model usage, and your token consumption is simply converted into dollars based on the model’s API pricing.
+
+    So the real question isn’t:
+        “How many tokens am I using?”
+    It’s:
+        “Which mode am I using, how much context am I sending, and how often?”
+
+
+Token Cost Ranking (From Cheapest to Most Expensive)
+
+    1. Ask 
+        Perfect for
+        - Understanding code
+        - Asking “why” questions
+        - Getting suggestions without auto-editing
+        Why it’s cheap
+        - Single-turn responses
+        - Minimal context
+        - No project-wide scanning
+
+    2. Inline 
+        Perfect for
+        - Writing functions
+        - Refactoring small blocks
+        - Fixing obvious issues
+        Why it’s cheap
+        - Only the current file is sent
+        - No global project understanding required
+
+    Long running models are used for the below tasks 
+
+    3. Debug 
+        Perfect for
+        - Error messages
+        - Runtime bugs
+        - Logic issues
+        Why it costs a bit more
+        - Slightly more context
+        - Some reasoning steps
+    
+    4. Plan Mode (Use Sparingly)
+        Perfect for
+        - Designing solutions
+        - Architectural decisions
+        - Breaking down tasks
+        Why it costs more
+        - Longer responses
+        - Broader context
+        - Multi-step reasoning
+    
+    5. Agent Mode (Most Expensive)
+        Perfect for
+        - Large refactors
+        - Multi-step automation
+        - “Do everything for me” tasks
+        Why it’s expensive
+        - Multiple model calls
+        - Repeated context injection
+        - File scanning and retries
+
+    One Agent run can cost more than **20 Ask questions combined**.
+
+
+Why initial spike in compute cost when we first start a project in cursor? 
+    Cursor is:
+    - Loading context
+    - Understanding your project
+    - Building mental models
+    After that, usage drops sharply if you stay focused.
+
+
+Cursor Cost Saving Strategies
+    
+    Token saving strategies:
+
+        Reduce the context: by specifically scoping the necessary files 
+            The Biggest Token Saver: Scope Everything
+                ❌ Bad prompt
+                “Review this project and optimize it.”
+                ✅ Good prompt
+                - “Only analyze src/utils/date.ts.
+                - Do not scan other files.
+                - Suggest improvements in under 50 lines.”
+            Less context = fewer tokens. Always.
+            Limit active context (@-mention selectively): 
+                Avoid pinning dozens of files or entire folders "just in case." Only include files strictly relevant to the task.
+                    Situation	                     What I'd use
+                Small change in known file	            @file
+                Specific function/class	                @code
+                Change involving 2–4 known files	    @file each
+                Need to understand an entire module	    @folder
+                Don't know where relevant code is	    Don't add @ context → let Agent search
+
+        keep limited open files in the cursor editor 
+            ✅ Keep only 1–3 files open
+
+    Using the optimal model instead of using high end model as it costs more per token and also per api call
+        - ✅ Default to Auto model
+        - ❌ Avoid Agent unless it saves real time
+        - Use cheaper modes for basic tasks: Default to lighter/cheaper modes (like Ask Mode or inline edits) and reserve heavy Agent or Plan modes strictly for complex multi-file refactoring
+        
+    Prompting Strategies
+        - ❌ Never ask for “entire project” analysis
+        - ✅ Start fresh chats often:
+            Long conversation histories resend old context with every single prompt, compounding token burn exponentially
+        - ✅ Rely on .cursor/rules: 
+            Define your project coding styles and preferences in global or local rule files instead of re-explaining conventions in every chat.
+
+
+
+
+My Most Cost-Efficient Workflow
+    Instead of jumping straight to Agent, I now follow this flow:
+
+    Ask → Ask → Inline → Debug
+
+    Example:
+    1. Ask: “What’s wrong with this logic?”
+    2. Ask: “What’s the cleanest fix?”
+    3. Inline: Apply the change
+    4. Debug: Verify edge cases
+
+    ✅ Check usage once per day (not obsessively)
+
+
+
+Designing a new application entirely using cursor and how to get it up to speed with proper understanding and what prompts to give to this.. 
+        
+    designing the application using cursor 
+        firstly say what you want to build and ask for the specs document, as cursor is designed with a specs driven development approach SDD 
+        Once you get a detailed plan of what the application build specs is like.. 
+        go into depth on the architecture and the project folder structure 
+        understand the components and the modules present in this, and make modifications if necessary  
+        once you are satisfied with this specs, then make the ai code this implementation.. 
+        and try to run and test out the areas.. and debug if any issues present.. 
+
+    prompts to give?? 
+        give the llm a real good description on what the application that you are building is about and the main usecase of it is and what all features will it have..  
+        I want a really simple application application specs, with it specifing the components and also 
+
+
+
+Agentic AI Engineer 
+    trace model behaviour back to the knowledge and data layers
+    building the eval harness and telemetry to show what is working, improve tool calls and retrieval, build continual learning 
+    let users challenge results so their corrections make the system better. 
+    kubernetes, cloud infra, strong python, sql beyond orm defaults 
+    agent frameworks and workflow orchestration - retries, state, human handoff 
+    rag and document extraction in projection including the unglamorous: chunking, retreival quality, index maintenance 
+    you build evals instead of trusting vibes 
+    model fine tuning and browser automation 
+
+

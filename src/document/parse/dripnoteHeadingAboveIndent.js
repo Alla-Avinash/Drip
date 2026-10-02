@@ -27,8 +27,9 @@ function leadingWhitespaceIndentWidth(line) {
 
 /**
  * First non-empty line strictly above `headingLineIndex`, scanning up to line `minLine` (use 0 for whole file).
- * Only blank lines and standalone `---` are skipped — everything else (metadata, headings, tabbed text)
- * counts as the reference line.
+ * Blank lines, standalone `---`, and heading identity lines (`@fN:hM`, incl. in-progress `@…` slots) are
+ * skipped — everything else (metadata, headings, tabbed text) counts as the reference line. Identity lines
+ * are structural companions of the heading, not content, so they must not gate its indent.
  * @returns {number} line index or -1
  */
 function findFirstNonEmptyLineAbove(lines, headingLineIndex, minLine) {
@@ -36,6 +37,10 @@ function findFirstNonEmptyLineAbove(lines, headingLineIndex, minLine) {
 	while (j >= minLine) {
 		const t = String(lines[j] || '').trim();
 		if (!t || t === '---') {
+			j--;
+			continue;
+		}
+		if (/^@+/.test(t)) {
 			j--;
 			continue;
 		}

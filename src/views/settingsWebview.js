@@ -3,8 +3,13 @@
 const { getNonce } = require('../shared/utils');
 const { DEFAULT_METADATA_TYPES, DEFAULT_FILE_LEVEL_METADATA_TYPES } = require('../document/model/dripnoteMetadataTemplates');
 
-function getSettingsWebviewHtml(webview) {
+/**
+ * @param {import('vscode').Webview} webview
+ * @param {{ initialPanel?: string }} [opts]
+ */
+function getSettingsWebviewHtml(webview, opts = {}) {
 	const nonce = getNonce();
+	const initialPanelJson = JSON.stringify(/^[a-z-]+$/.test(String(opts.initialPanel || '')) ? opts.initialPanel : 'kb');
 	const defaultTypesJson = JSON.stringify(DEFAULT_METADATA_TYPES).replace(/</g, '\\u003c');
 	const defaultFileTypesJson = JSON.stringify(DEFAULT_FILE_LEVEL_METADATA_TYPES).replace(/</g, '\\u003c');
 
@@ -62,6 +67,16 @@ function getSettingsWebviewHtml(webview) {
 		.colorPatch { width: 42px; height: 30px; border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 0; background: transparent; margin: 0; cursor: pointer; }
 		.saved-settings-path-line { margin: 8px 0 12px; word-break: break-all; }
 		.saved-settings-path-line code { display: block; padding: 8px 10px; border-radius: 6px; background: var(--vscode-textCodeBlock-background); border: 1px solid var(--vscode-panel-border); font-size: 12px; }
+		.mcp-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; background: var(--vscode-descriptionForeground); vertical-align: middle; }
+		.mcp-dot.on { background: var(--vscode-testing-iconPassed, #3fb950); }
+		.mcp-dot.err { background: var(--vscode-errorForeground); }
+		.mcp-kv { display: grid; grid-template-columns: 130px 1fr auto; gap: 6px 10px; align-items: center; margin-top: 6px; }
+		.mcp-kv code { word-break: break-all; }
+		.mcp-kv button { margin-top: 0; padding: 4px 10px; }
+		pre.mcp-snippet { margin: 6px 0 0; padding: 8px 10px; border-radius: 6px; background: var(--vscode-textCodeBlock-background); border: 1px solid var(--vscode-panel-border); font-family: var(--vscode-editor-font-family); font-size: 11px; white-space: pre; overflow-x: auto; }
+		.mcp-port-row { display: flex; gap: 8px; align-items: center; }
+		.mcp-port-row input { max-width: 8em; }
+		.mcp-port-row button { margin-top: 0; }
 	</style>
 </head>
 <body>
@@ -80,6 +95,7 @@ function getSettingsWebviewHtml(webview) {
 			<button class="navBtn" data-panel="metadata">Markdown</button>
 			<button class="navBtn" data-panel="embedding">Embedding model</button>
 			<button class="navBtn" data-panel="github-backup">GitHub backup</button>
+			<button class="navBtn" data-panel="mcp">MCP connection</button>
 			<button class="navBtn" data-panel="saved-settings">Saved Settings</button>
 			<button class="navBtn" data-panel="shortcuts">Keyboard Shortcuts</button>
 		</aside>
@@ -303,6 +319,61 @@ function getSettingsWebviewHtml(webview) {
 				</div>
 			</section>
 
+			<section id="panel-mcp" class="panel">
+				<h3>MCP connection</h3>
+				<p class="meta">Let AI apps (Cursor, Claude, VS Code Copilot, Windsurf, …) read and manage your DRIP projects and issues. DRIP runs one local MCP server; every MCP-capable app connects to the same address with the same token — no per-app integration. The server only listens on this computer (<code>127.0.0.1</code>) and DRIP must stay open while an app uses it.</p>
+				<div class="card">
+					<h3 style="margin-top:0;">Server</h3>
+					<label class="row">
+						<input type="checkbox" id="mcp-enabled">
+						<span>Turn on the DRIP MCP server</span>
+					</label>
+					<p class="meta"><span id="mcp-dot" class="mcp-dot"></span><span id="mcp-status-line">Off</span></p>
+					<p id="mcp-error" style="color:var(--vscode-errorForeground);"></p>
+					<div class="mcp-port-row">
+						<span>Port</span>
+						<input type="text" id="mcp-port" inputmode="numeric" autocomplete="off" spellcheck="false" />
+						<button id="btn-mcp-save-port" class="secondary" type="button">Save port</button>
+						<button id="btn-mcp-restart" class="secondary" type="button">Restart server</button>
+					</div>
+					<p class="meta" style="margin-top:8px;">Change the port only if another program already uses it. Only one DRIP window can run the server on a port.</p>
+				</div>
+				<div class="card">
+					<h3 style="margin-top:0;">Connection details</h3>
+					<p class="meta">Everything an MCP app asks for. The token is shortened in this list; Copy and the config snippets below use the full token — keep them private.</p>
+					<div class="mcp-kv">
+						<span>Server name</span><code id="mcp-name">drip</code><span></span>
+						<span>Server URL</span><code id="mcp-url"></code><button class="secondary" type="button" data-mcp-copy="url">Copy</button>
+						<span>Transport</span><code id="mcp-transport"></code><span></span>
+						<span>Auth header</span><code id="mcp-header"></code><button class="secondary" type="button" data-mcp-copy="header">Copy</button>
+						<span>Token</span><code id="mcp-token"></code><button class="secondary" type="button" data-mcp-copy="token">Copy</button>
+						<span>Tools</span><code id="mcp-tools"></code><span></span>
+					</div>
+					<div class="actions">
+						<button id="btn-mcp-regenerate" class="secondary" type="button">Regenerate token…</button>
+						<button id="btn-mcp-health" class="secondary" type="button">Test in browser</button>
+					</div>
+					<p class="meta" style="margin-top:8px;">The token is kept in VS Code Secret Storage (never in <code>settings.drip.json</code>). Regenerating it disconnects every app until you paste the new token.</p>
+				</div>
+				<div class="card">
+					<h3 style="margin-top:0;">Option A — apps that accept a server URL (most apps)</h3>
+					<p class="meta">Cursor, Claude Code, VS Code Copilot, Windsurf, Cline, Continue… Paste into the app’s MCP config file or “Add MCP server” form.</p>
+					<pre class="mcp-snippet" id="mcp-http-config"></pre>
+					<div class="actions"><button type="button" data-mcp-copy="httpConfig">Copy config</button></div>
+					<p class="meta" style="margin-top:8px;">A few apps use slightly different key names (VS Code: <code>"servers"</code> + <code>"type": "http"</code>; Windsurf: <code>"serverUrl"</code>). The URL and <code>Authorization</code> header are always the same.</p>
+				</div>
+				<div class="card">
+					<h3 style="margin-top:0;">Option B — apps that can only start a command</h3>
+					<p class="meta">E.g. Claude Desktop. Uses the small <code>mcp-remote</code> bridge (needs Node.js; downloaded automatically by <code>npx</code>).</p>
+					<pre class="mcp-snippet" id="mcp-stdio-config"></pre>
+					<div class="actions"><button type="button" data-mcp-copy="stdioConfig">Copy config</button></div>
+				</div>
+				<div class="card">
+					<h3 style="margin-top:0;">How an app uses DRIP</h3>
+					<p class="meta">Apps see two tools: <code>search_tools</code> (describe what you want, get the matching DRIP tools and their exact inputs) and <code>call_tool</code> (run one). This keeps prompts small while the AI can still reach every DRIP tool. A knowledge base must be open in DRIP.</p>
+				</div>
+			</section>
+
 			<section id="panel-saved-settings" class="panel">
 				<h3>Saved Settings</h3>
 				<div class="card">
@@ -349,6 +420,7 @@ function getSettingsWebviewHtml(webview) {
 			metadata: document.getElementById('panel-metadata'),
 			embedding: document.getElementById('panel-embedding'),
 			'github-backup': document.getElementById('panel-github-backup'),
+			mcp: document.getElementById('panel-mcp'),
 			'saved-settings': document.getElementById('panel-saved-settings'),
 			shortcuts: document.getElementById('panel-shortcuts')
 		};
@@ -968,14 +1040,52 @@ function getSettingsWebviewHtml(webview) {
 				savedSettingsPathEl.textContent = p || '(no knowledge base selected — bind a .driplock folder first)';
 			}
 			applyGithubBackupStatus(message.githubBackupStatus || null);
+			applyMcpStatus(message.mcpStatus || null);
 		});
 
 		window.addEventListener('message', function (event) {
 			var message = event.data;
 			if (message.type === 'githubBackupStatus') {
 				applyGithubBackupStatus(message.status || null);
+			} else if (message.type === 'mcpStatus') {
+				applyMcpStatus(message.status || null);
+			} else if (message.type === 'showPanel' && panels[message.panel]) {
+				showPanel(message.panel);
 			}
 		});
+
+		function setText(id, value) {
+			var el = document.getElementById(id);
+			if (el) el.textContent = value == null ? '' : String(value);
+		}
+
+		function applyMcpStatus(st) {
+			if (!st) return;
+			var enabledEl = document.getElementById('mcp-enabled');
+			var portEl = document.getElementById('mcp-port');
+			var dot = document.getElementById('mcp-dot');
+			if (enabledEl) enabledEl.checked = !!st.enabled;
+			if (portEl && document.activeElement !== portEl) portEl.value = String(st.port || '');
+			var line = !st.enabled
+				? 'Off — turn it on to let AI apps connect.'
+				: st.running
+					? 'Running at ' + st.url
+					: 'Turned on, but not running.';
+			setText('mcp-status-line', line);
+			setText('mcp-error', st.enabled && st.error ? st.error : '');
+			if (dot) {
+				dot.classList.toggle('on', !!(st.enabled && st.running));
+				dot.classList.toggle('err', !!(st.enabled && !st.running));
+			}
+			setText('mcp-name', st.serverName);
+			setText('mcp-url', st.url);
+			setText('mcp-transport', st.transport);
+			setText('mcp-header', st.authHeader);
+			setText('mcp-token', st.hasToken ? st.tokenPreview : 'created when the server first starts');
+			setText('mcp-tools', 'search_tools + call_tool (' + st.toolCount + ' DRIP tools behind them)');
+			setText('mcp-http-config', st.httpConfigPreview);
+			setText('mcp-stdio-config', st.stdioConfigPreview);
+		}
 
 		function fmtTime(iso) {
 			if (!iso) return 'never';
@@ -1583,7 +1693,43 @@ function getSettingsWebviewHtml(webview) {
 				vscode.postMessage({ type: 'githubBackupClearPat' });
 			});
 		}
-		showPanel('kb');
+		var mcpEnabledEl = document.getElementById('mcp-enabled');
+		if (mcpEnabledEl) {
+			mcpEnabledEl.addEventListener('change', function () {
+				vscode.postMessage({ type: 'mcpSetEnabled', value: !!mcpEnabledEl.checked });
+			});
+		}
+		var btnMcpSavePort = document.getElementById('btn-mcp-save-port');
+		if (btnMcpSavePort) {
+			btnMcpSavePort.addEventListener('click', function () {
+				var portEl = document.getElementById('mcp-port');
+				vscode.postMessage({ type: 'mcpSetPort', value: Number(String((portEl && portEl.value) || '').trim()) });
+			});
+		}
+		var btnMcpRestart = document.getElementById('btn-mcp-restart');
+		if (btnMcpRestart) {
+			btnMcpRestart.addEventListener('click', function () {
+				vscode.postMessage({ type: 'mcpRestart' });
+			});
+		}
+		var btnMcpRegenerate = document.getElementById('btn-mcp-regenerate');
+		if (btnMcpRegenerate) {
+			btnMcpRegenerate.addEventListener('click', function () {
+				vscode.postMessage({ type: 'mcpRegenerateToken' });
+			});
+		}
+		var btnMcpHealth = document.getElementById('btn-mcp-health');
+		if (btnMcpHealth) {
+			btnMcpHealth.addEventListener('click', function () {
+				vscode.postMessage({ type: 'mcpOpenHealth' });
+			});
+		}
+		Array.prototype.forEach.call(document.querySelectorAll('[data-mcp-copy]'), function (btn) {
+			btn.addEventListener('click', function () {
+				vscode.postMessage({ type: 'mcpCopy', kind: btn.getAttribute('data-mcp-copy') });
+			});
+		});
+		showPanel(${initialPanelJson});
 	</script>
 </body>
 </html>`;

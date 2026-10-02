@@ -168,7 +168,8 @@ async function postDripSettingsValuesToWebview(webview, dripState, extensionCont
 		editHeadingsInFile: c.get('editHeadingsInFile', defs.editHeadingsInFile === true),
 		editHeadingsViaRhs: c.get('editHeadingsViaRhs', defs.editHeadingsViaRhs !== false),
 		kbSettingsFilePath: kbRoot ? getSettingsDripFileUri(kbRoot).fsPath : '',
-		githubBackupStatus
+		githubBackupStatus,
+		mcpStatus: await require('../integrations/mcp/mcpBridge').getMcpStatus()
 	});
 }
 
@@ -214,6 +215,9 @@ async function activate(context) {
 	};
 	state.setDraftsRefreshListener(() => sidebarRefreshHub.refresh());
 	state.setRecentsRefreshListener(() => recentsTreeProvider.refresh());
+	require('../integrations/mcp/mcpBridge').registerDripMcp(context, state, {
+		refreshUi: () => kbTreeProvider.refresh()
+	});
 	/** Newly created daily notes: uri → initial text (discard on close if unchanged). */
 	const newDailyNoteInitialText = new Map();
 	let hasAutoOpenedComposer = false;
@@ -513,6 +517,26 @@ async function activate(context) {
 						await vscode.commands.executeCommand('drip.github.clearPat');
 						await postDripSettingsValuesToWebview(webview, state, context);
 						break;
+					case 'mcpSetEnabled':
+						await require('../integrations/mcp/mcpBridge').setMcpEnabled(message.value === true);
+						break;
+					case 'mcpSetPort':
+						await require('../integrations/mcp/mcpBridge').setMcpPort(message.value);
+						break;
+					case 'mcpCopy':
+						await require('../integrations/mcp/mcpBridge').copyMcpValue(message.kind);
+						break;
+					case 'mcpRestart':
+						await vscode.commands.executeCommand('drip.mcp.restart');
+						break;
+					case 'mcpRegenerateToken':
+						await vscode.commands.executeCommand('drip.mcp.regenerateToken');
+						break;
+					case 'mcpOpenHealth':
+						await vscode.env.openExternal(
+							vscode.Uri.parse((await require('../integrations/mcp/mcpBridge').getMcpStatus()).healthUrl)
+						);
+						break;
 				}
 			} catch (error) {
 				console.error(error);
@@ -520,10 +544,12 @@ async function activate(context) {
 		});
 	}
 
-	function createOrShowSettingsPanel() {
+	/** @param {string} [panelId] settings nav id to show (e.g. `mcp`) */
+	function createOrShowSettingsPanel(panelId) {
 		const column = vscode.window.activeTextEditor?.viewColumn || vscode.ViewColumn.One;
 		if (settingsPanel) {
 			settingsPanel.reveal(column, false);
+			if (panelId) void settingsPanel.webview.postMessage({ type: 'showPanel', panel: panelId });
 			return settingsPanel;
 		}
 		settingsPanel = vscode.window.createWebviewPanel(
@@ -535,9 +561,15 @@ async function activate(context) {
 				retainContextWhenHidden: true
 			}
 		);
-		settingsPanel.webview.html = getSettingsWebviewHtml(settingsPanel.webview);
+		settingsPanel.webview.html = getSettingsWebviewHtml(settingsPanel.webview, { initialPanel: panelId });
 		wireSettingsWebviewMessageHandler(settingsPanel.webview);
+		const mcpBridge = require('../integrations/mcp/mcpBridge');
+		const panelWebview = settingsPanel.webview;
+		const mcpStatusSub = mcpBridge.onMcpStatusChange(async () => {
+			void panelWebview.postMessage({ type: 'mcpStatus', status: await mcpBridge.getMcpStatus() });
+		});
 		settingsPanel.onDidDispose(() => {
+			mcpStatusSub.dispose();
 			settingsPanel = null;
 		});
 		return settingsPanel;
@@ -615,8 +647,8 @@ async function activate(context) {
 			await DripComposerPanel.createOrShow(context.extensionUri, state, sidebarRefreshHub, undefined, capture);
 			await revealDripStorageView();
 		}),
-		vscode.commands.registerCommand('drip.openDripSettingsView', async () => {
-			createOrShowSettingsPanel();
+		vscode.commands.registerCommand('drip.openDripSettingsView', async opts => {
+			createOrShowSettingsPanel(opts && typeof opts.panel === 'string' ? opts.panel : undefined);
 		}),
 		vscode.commands.registerCommand('drip.github.configureRemote', async opts => {
 			const kbRoot = state.getKnowledgeBaseRoot();
