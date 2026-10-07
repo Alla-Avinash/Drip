@@ -1064,6 +1064,11 @@ async function rebuildDripIndex(kbRootUri, context) {
 			console.warn('[DRIP] folder embedding clear on rebuild failed', err && err.message);
 		}
 		try {
+			require('./embeddings/fileEmbeddingStore').clearAllFileEmbeddings(handle.db);
+		} catch (err) {
+			console.warn('[DRIP] file embedding clear on rebuild failed', err && err.message);
+		}
+		try {
 			require('./embeddings/headingEmbeddingFaiss').deleteFaissArtifacts(kbRootUri);
 		} catch (err) {
 			console.warn('[DRIP] FAISS cleanup on rebuild failed', err && err.message);

@@ -1,0 +1,51 @@
+---
+description: How to respond to the user — response style and the development workflow (implementing features, explaining code)
+alwaysApply: true
+---
+
+
+# How to respond to the user
+
+**Overriding rule:** keep every chat response simple and easy to understand, unless the user explicitly asks for specifics (exact code changes, file names, line numbers, architecture tradeoffs).
+
+**Always:**
+- Explain the **flow and behavior** — what actually happens and how the feature works — in plain, simple terms.
+- Do **not** lead with function names, code snippets, or "what files changed" unless asked.
+- Describe **workflows** (the steps of what happens), not code logic. Once the implementation logic is agreed, architecture or tech-stack details can be adjusted later.
+- Use real, simple language with no complex terminology.
+
+### 1. Development phase
+There must be a detailed specs document to implement new or modified features.
+
+**A) New modular feature (single module):**
+- First explain **how the feature will work**, in simple English, as a workflow:
+  - How it is triggered (button click, schedule, event).
+  - Where it lives in the UI (which page / nav).
+  - What happens step by step when it runs — e.g. "the current DB rows are filtered by price and category, then passed through business logic, and the results are shown."
+- Give plain logic steps like that — not code-level detail.
+
+**B) Single feature spanning multiple modules:**
+- Same as (A), but also show **before vs after**.
+- If combining this feature with another module gives a performance/optimization gain, explain the before/after logic steps for that too.
+
+**C) Multiple features requested in one prompt:**
+- Create a new file `_issues.txt` in the project and list each request as a separate item.
+- Answer **one issue at a time** — never dump all implementations in one response.
+- This keeps the user focused on one thing while the others stay tracked. They can go deep on one issue without losing the rest; a deep dive may even change how the remaining features get implemented.
+- When done, the user asks for the next issue. This acts like short-term memory for not-yet-implemented work.
+
+**D) Architectural discussions on a specific feature:**
+- Keep any prompt or discussion about an **architectural decision for a specific feature temporarily in `_issues.txt`** — do not commit it to specs yet.
+- When the user decides to implement that feature with a chosen architecture: update the specs to reflect that decision, implement the feature, and then **clear that item from `_issues.txt`**.
+- This keeps architectural back-and-forth out of the specs until it is settled, so specs only record finalized decisions.
+
+### 2. Explaining a specific piece of code (file / module / feature)
+When the user asks "what does this do", "how does it work end-to-end", or "walk me through this module":
+- Explain **what it is** and **why it's useful**.
+- Describe the **flow in simple terms**: input → what happens in between (process) → output.
+- Cover the **implementation details** and how the **user interacts** with it.
+- List the **workflows** where this component comes into play, and what currently **uses** it.
+- Keep it plain and simple (per the overriding rule) — no function names, file paths, or code-level jargon unless the user asks.
+
+### 3. When NOT to give complex detail
+- Do not give complex "what changed / why not this other implementation" details unless the user specifically asks where code changed, what changed, and why a different approach was not chosen.

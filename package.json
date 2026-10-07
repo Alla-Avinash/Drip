@@ -37,6 +37,9 @@
 		"onView:drip.dailyNotes",
 		"onView:drip.storage",
 		"onView:drip.headingForm",
+		"onView:drip.chat",
+		"onCommand:drip.focusChat",
+		"onCommand:drip.addSelectionToChat",
 		"onCommand:drip.copyPath",
 		"onCommand:drip.renameItem",
 		"onCommand:drip.createFolder",
@@ -117,6 +120,12 @@
 					"type": "webview",
 					"icon": "$(folder)",
 					"when": "!drip.rhsHideStorage"
+				},
+				{
+					"id": "drip.chat",
+					"name": "Chat",
+					"type": "webview",
+					"icon": "$(comment)"
 				}
 			]
 		},
@@ -341,6 +350,18 @@
 				"title": "DRIP: Run Embedding Benchmark"
 			},
 			{
+				"command": "drip.focusChat",
+				"title": "Open DRIP Chat",
+				"category": "DRIP",
+				"icon": "$(comment)"
+			},
+			{
+				"command": "drip.addSelectionToChat",
+				"title": "Add Selection to DRIP Chat",
+				"category": "DRIP",
+				"icon": "$(comment-discussion)"
+			},
+			{
 				"command": "drip.rebuildKbIndexNow",
 				"title": "DRIP: Update index",
 				"category": "DRIP",
@@ -454,6 +475,21 @@
 					"type": "string",
 					"default": "Xenova/all-MiniLM-L6-v2",
 					"description": "Sentence embedding model id (Xenova ONNX build). Changing this deletes and rebuilds heading and folder embeddings only (not note IDs or metadata). Example: Xenova/all-MiniLM-L6-v2"
+				},
+				"drip.llm.enabled": {
+					"type": "boolean",
+					"default": false,
+					"description": "Enable the lightweight LLM used by DRIP Quick Capture to decide where a note belongs (merge / append / new heading). The API key is stored securely in VS Code Secret Storage, not in settings."
+				},
+				"drip.llm.baseUrl": {
+					"type": "string",
+					"default": "https://api.openai.com/v1",
+					"description": "OpenAI-compatible chat completions base URL for DRIP's lightweight LLM. Examples: https://api.openai.com/v1, https://api.groq.com/openai/v1, or a local http://localhost:11434/v1 (Ollama)."
+				},
+				"drip.llm.model": {
+					"type": "string",
+					"default": "gpt-4o-mini",
+					"description": "Model id for DRIP's lightweight LLM. Examples: gpt-4o-mini, claude-3-haiku, llama-3.1-8b-instant, or a local model name."
 				},
 				"drip.dripnoteAllowedMetadataKeys": {
 					"type": "array",

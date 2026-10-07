@@ -1,9 +1,0 @@
----
-description: A leading `drip:` (or DRIP concepts: `.p` projects, `i-N` issues, `f-N` features, `.d.txt` notes, KB) scopes the user's message to the DRIP app.
-alwaysApply: false
----
-
-# `drip:` namespace
-
-- `drip:` scopes a message to the DRIP app; the prefix is optional — DRIP concepts (`.p`, `i-N`, `f-N`, `.d.txt`, KB) imply DRIP scope too.
-- `drip:` is a scope marker, not a tool name or a Cursor `@` / `/` / `#` reference.

@@ -102,6 +102,7 @@ textarea { min-height: 120px; resize: vertical; font-family: var(--vscode-editor
 .heading-tree-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
 .heading-tree-toolbar button { padding: 3px 8px; font-size: 11px; border-radius: 4px; background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); cursor: pointer; border: none; }
 .heading-tree-toolbar button:hover { filter: brightness(1.08); }
+.heading-tree-toolbar .ht-persistent-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; cursor: pointer; margin-left: auto; }
 .ht-tree-resize-wrap {
 border: 1px solid var(--vscode-panel-border);
 border-radius: 6px;
@@ -215,6 +216,12 @@ background: transparent;
 .heading-tree .ht-chev:disabled { visibility: hidden; cursor: default; }
 .heading-tree .ht-label { flex: 1; min-width: 0; cursor: pointer; }
 .heading-tree .ht-label:hover { color: var(--vscode-textLink-foreground); }
+.heading-tree .ht-file-root > .ht-label { font-weight: 600; }
+.heading-tree .ht-file-root > .ht-label::before { content: '📄 '; font-weight: normal; }
+.no-title-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 6px; font-size: 12px; }
+.no-title-choice .ntc-opt { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.no-title-choice .ntc-opt.ntc-disabled { opacity: 0.5; cursor: default; }
+.no-title-choice #no-title-heading { flex: 1 1 100%; }
 .heading-tree.ht-placement-mode {
 cursor: default;
 }
@@ -265,4 +272,32 @@ display: none;
 .picker-item { padding: 6px 8px; cursor: pointer; border-radius: 4px; display: flex; align-items: center; gap: 6px; }
 .picker-item:hover { background: var(--vscode-list-hoverBackground); }
 .picker-item .sym { opacity: 0.8; font-size: 11px; }
+.llm-plan-panel { --llm-accent: var(--vscode-focusBorder); margin: 4px 0 10px; border: 1px solid var(--llm-accent); border-left-width: 4px; border-radius: 8px; padding: 10px; background: var(--vscode-sideBar-background); font-size: 12px; }
+.llm-plan-panel.llm-act-append { --llm-accent: var(--vscode-charts-green, #89d185); }
+.llm-plan-panel.llm-act-heading { --llm-accent: var(--vscode-charts-blue, #3794ff); }
+.llm-plan-panel.llm-act-file { --llm-accent: var(--vscode-charts-orange, #d18616); }
+.llm-plan-panel.llm-act-folder { --llm-accent: var(--vscode-charts-purple, #b180d7); }
+.llm-plan-panel p { margin: 0 0 6px; line-height: 1.45; }
+.llm-plan-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.llm-act-icon { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 6px; background: var(--llm-accent); color: var(--vscode-editor-background); flex: none; }
+.llm-act-icon .llm-icon { width: 15px; height: 15px; }
+.llm-act-title { font-size: 13px; font-weight: 600; color: var(--llm-accent); flex: 1; }
+.llm-badge { font-size: 10px; padding: 1px 6px; border-radius: 8px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+.llm-icon { flex: none; opacity: 0.85; }
+.llm-dest { margin: 0 0 8px; padding: 6px 8px; border-radius: 6px; background: var(--vscode-editor-background); font-family: var(--vscode-editor-font-family); font-size: 12px; }
+.llm-dest-row { display: flex; align-items: center; gap: 6px; min-height: 20px; word-break: break-all; }
+.llm-dest-root { color: var(--vscode-descriptionForeground); }
+.llm-dest-target, .llm-dest-new { color: var(--llm-accent); font-weight: 600; }
+.llm-dest-new > span[data-llm-bind] { border: 1px dashed var(--llm-accent); border-radius: 4px; padding: 0 5px; }
+.llm-dest-tag { font-family: var(--vscode-font-family); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; padding: 0 5px; border-radius: 4px; background: var(--llm-accent); color: var(--vscode-editor-background); flex: none; }
+.llm-plan-reason { font-style: italic; color: var(--vscode-descriptionForeground); }
+.llm-plan-timing { margin: 8px 0 0 !important; font-size: 11px; color: var(--vscode-descriptionForeground); }
+.llm-plan-field { margin: 8px 0; }
+.llm-plan-field input { padding: 6px 8px; font-size: 12px; }
+.llm-plan-split { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--vscode-panel-border); }
+.llm-plan-split ol { margin: 4px 0 8px; padding-left: 18px; }
+.llm-plan-split li { margin-bottom: 4px; }
+.llm-plan-preview { color: var(--vscode-descriptionForeground); }
+.llm-plan-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.llm-plan-actions button { padding: 5px 10px; font-size: 12px; }
 

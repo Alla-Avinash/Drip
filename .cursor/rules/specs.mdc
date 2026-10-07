@@ -1,0 +1,55 @@
+---
+description: The specs folder — how to write and maintain the project's context/documentation layer
+alwaysApply: true
+---
+
+
+# The specs folder (project documentation)
+
+- The specs folder is the **context/documentation layer** of the project — it captures how the app works so the AI (and any developer) always has accurate context. It is separate from any progress/decision tracking.
+- It is the documentation of the whole project: real implementation logic in simple language, tracking each feature and its functionality, and preserving important feature goals and user prompts without polluting context with noise.
+- Keep it **short and informative** — no unnecessary file names or file paths, just the real implementation details.
+- **Update the specs after any edit** that changes a feature — new feature, changed implementation, or a fix that alters behavior.
+
+---
+
+## Specs folder structure
+
+```
+specs/
+├── README.md              ← short intro + the "keep it short" rule only (no index)
+├── project-overview.md    ← what the app is, the problem it solves, core goal/theme
+├── tech-stack.md          ← languages/frameworks/libs + WHY each was chosen
+├── app-startup.md         ← run & test commands + entry points + main flow
+├── architecture.md        ← architectural decisions (short notes) + module/folder layout
+└── features/              ← one file per feature
+    ├── auth.md
+    ├── billing.md
+    └── ...
+```
+
+### What each file holds
+
+- **README.md** — a short intro plus the "keep it short" rule only. Do **not** add a table of contents or an index of files: file names are already descriptive and Cursor indexes them for retrieval, so a manual index would just need constant maintenance and confuse retrieval.
+- **project-overview.md** — what the app is, the problem it solves, the core goal/theme. Written once, rarely changes.
+- **project-overview.md** — what the app is, the problem it solves, the core goal/theme. Written once, rarely changes.
+- **tech-stack.md** — the stack and why each piece was chosen (framework, DB, libraries). One short note per choice.
+- **app-startup.md** — run/test commands + entry points + how the main flow starts.
+- **architecture.md** — one short note per architectural decision, plus a brief module/folder layout.
+- **features/&lt;name&gt;.md** — one file per feature, listing its sub-features and the implementation logic in simple terms. For features the user can see or trigger, include a short "where to access it / how to activate it" note (which UI area it lives in and what the user does to reach it). For background-only features, say so plainly (e.g. "runs automatically in the background"). Keep the step-by-step flow as the most important part.
+
+### Writing feature files (features/&lt;name&gt;.md)
+- **Describe how the feature works now, not what was fixed.** A spec is not a changelog. No "fixed…", "now…", "so it no longer…", or bug stories. If a fix changes behavior, update the description of that behavior so it reads as if it always worked that way.
+- **Never use a term the file hasn't explained.** If a change touches a sub-behavior the spec doesn't cover yet (e.g. a placement option, a mode, a setting), document the whole sub-behavior first — all its options in plain words — then put the detail where it belongs inside it.
+- **Integrate, don't append.** Put new information in the section it belongs to (or add a small sub-section). Don't tack a one-off bullet onto an unrelated list.
+- **Explain the rule, not just the outcome.** When behavior follows a rule, state the rule in one short clause so the reader understands why.
+- **Before saving, reread the whole feature file as a new developer would.** Every bullet should make sense on its own, without knowing the code or the chat that led to it.
+
+### app-startup.md
+- If specs has no app-startup document, create one. It records the **basic commands** (run, test) and the app's **entry points** — how the app starts and where its main flow begins.
+- Keep it short and simple: what a new developer must run to start and test the project, and where execution begins.
+
+### Architecture decisions (architecture.md)
+- Record each decision as a **short note** — no rigid template.
+- Cover what was decided and why. Include the extras **only when the info is actually there and useful**: the current implementation, alternatives that were rejected, and the criteria that made this win.
+- If the user asks to switch tech stack, use these notes (and the original reasons) to judge whether switching now is better.

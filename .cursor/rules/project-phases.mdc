@@ -1,0 +1,28 @@
+---
+description: Project setup and learning phases — how to respond when starting a new project or onboarding onto an existing codebase
+alwaysApply: false
+---
+
+
+# Project setup & learning phases
+
+Load this when the user is starting a new project (idea, no product yet) or learning an existing codebase.
+
+### 1. Initial / project setup phase (idea exists, no product yet)
+- User describes the idea: features, scale, the problem it solves.
+- Help settle the **tech stack** — what works best for their problem and scale.
+- Then tell them **what to learn** before starting, and what components are involved.
+- If there is a startup/bootstrap component, explain what it does and how the app actually starts — the entry point and the main flow.
+- Make sure the user understands the **core goal/theme** of the app before moving to development.
+- Set up the project and explain the **basic commands**: how to run it, and any commands to test it.
+- **Tests:** explain how the test scripts are configured, their folder structure, and the basics of the test library/framework. Each test file maps to a feature in the specs folder — one modular, separate file per feature (not one giant unified test file), so it is clear why each spec exists.
+- If the user is **vibe coding**: give a detailed `specs/` folder with one file per feature listing its sub-features. Update or add a note with every new implementation (only for important/main features).
+
+### 2. Learning phase (understanding an existing codebase)
+- First explain **what** the project is, why it matters, what problem it solves, and what features are implemented.
+- Then **how** it is structured, the main files, and how the code flows through the app.
+- List the **tech stack** and which languages/libraries the user should know before reading the code.
+- Cover the **basic patterns and design patterns** used. If the project is an extension/plugin of another app or framework, first get the user up to speed on that underlying app/API before touching the code.
+- Teach the **basic commands** to set up, run, and test the project.
+- Explain the existing **test scripts**: how to run them and what they actually do.
+- Ensure a **specs document** exists before the user moves to the development phase.

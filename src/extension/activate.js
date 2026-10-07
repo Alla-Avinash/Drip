@@ -4,6 +4,8 @@ const vscode = require('vscode');
 const {
 	DRIP_COMMAND_ID,
 	DRIP_CAPTURE_SELECTION_COMMAND_ID,
+	DRIP_FOCUS_CHAT_COMMAND_ID,
+	DRIP_ADD_SELECTION_TO_CHAT_COMMAND_ID,
 	DRIP_SELECT_KB_COMMAND_ID,
 	DRIP_OPEN_KB_EDITOR_COMMAND_ID,
 	DRIP_COMPONENTS_VIEW_ID,
@@ -12,7 +14,8 @@ const {
 	DRIP_RECENTS_VIEW_ID,
 	DRIP_OPEN_RECENT_FILE_COMMAND_ID,
 	DRIP_DAILY_NOTES_VIEW_ID,
-	DRIP_OPEN_TODAY_DAILY_NOTE_COMMAND_ID
+	DRIP_OPEN_TODAY_DAILY_NOTE_COMMAND_ID,
+	DRIP_CHAT_VIEW_ID
 } = require('../shared/constants');
 const {
 	ensureTodayDailyNote,
@@ -104,6 +107,7 @@ const {
 	scheduleRetrieverCatalogRebuildIfShown
 } = require('../views/lhs/retriever/panel');
 const { DripProjectViewPanel, refreshProjectViewIfShown } = require('../views/lhs/projects/panel');
+const { DripChatWebviewProvider } = require('../views/rhs/chat/panel');
 const { runRetrieverHeadingQuickOpen } = require('../retrieval/retrieverQuickOpen');
 const { updateKnowledgeBase } = require('../startup/updateKnowledgeBase');
 const { openKbEditorNote } = require('../startup/kbEditorNote');
@@ -141,6 +145,22 @@ async function postDripSettingsValuesToWebview(webview, dripState, extensionCont
 			console.error('[DRIP] github backup status failed', err);
 		}
 	}
+	/** @type {unknown} */
+	let llmStatus = null;
+	if (extensionContext) {
+		try {
+			const { getLlmConfig, getLlmApiKey } = require('../llm/llmSettings');
+			const llmCfg = getLlmConfig();
+			llmStatus = {
+				enabled: llmCfg.enabled,
+				model: llmCfg.model,
+				baseUrl: llmCfg.baseUrl,
+				hasKey: !!(await getLlmApiKey(extensionContext))
+			};
+		} catch (err) {
+			console.error('[DRIP] llm status failed', err);
+		}
+	}
 	await webview.postMessage({
 		type: 'settingsValues',
 		autoOpenComposerOnSidebarReveal: c.get('autoOpenComposerOnSidebarReveal', defs.autoOpenComposerOnSidebarReveal),
@@ -169,6 +189,7 @@ async function postDripSettingsValuesToWebview(webview, dripState, extensionCont
 		editHeadingsViaRhs: c.get('editHeadingsViaRhs', defs.editHeadingsViaRhs !== false),
 		kbSettingsFilePath: kbRoot ? getSettingsDripFileUri(kbRoot).fsPath : '',
 		githubBackupStatus,
+		llmStatus,
 		mcpStatus: await require('../integrations/mcp/mcpBridge').getMcpStatus()
 	});
 }
@@ -391,6 +412,23 @@ async function activate(context) {
 	registerDripnoteLinkDropInsert(context);
 	registerDripnoteDocumentSymbols(context);
 
+	/**
+	 * @param {import('vscode').Webview} webview
+	 * @param {string} [error]
+	 */
+	async function postDripShortcutsToWebview(webview, error) {
+		try {
+			const data = await require('../startup/dripKeybindings').getDripShortcuts(context);
+			await webview.postMessage({ type: 'shortcutsData', ...data, error: error || '' });
+		} catch (err) {
+			await webview.postMessage({
+				type: 'shortcutsData',
+				rows: [],
+				error: error || (err instanceof Error ? err.message : String(err))
+			});
+		}
+	}
+
 	function wireSettingsWebviewMessageHandler(webview) {
 		webview.onDidReceiveMessage(async message => {
 			try {
@@ -472,6 +510,27 @@ async function activate(context) {
 					case 'openKeyboardShortcuts':
 						await vscode.commands.executeCommand('workbench.action.openGlobalKeybindings');
 						break;
+					case 'openKeybindingsFile':
+						await require('../startup/dripKeybindings').openUserKeybindingsFile(context);
+						break;
+					case 'requestShortcuts':
+						await postDripShortcutsToWebview(webview);
+						break;
+					case 'updateShortcut': {
+						let error = '';
+						try {
+							await require('../startup/dripKeybindings').updateDripShortcut(
+								context,
+								String(message.command || ''),
+								message.mode,
+								message.key
+							);
+						} catch (err) {
+							error = err instanceof Error ? err.message : String(err);
+						}
+						await postDripShortcutsToWebview(webview, error);
+						break;
+					}
 					case 'selectKnowledgeBase':
 						await vscode.commands.executeCommand('drip.selectKnowledgeBase');
 						break;
@@ -537,6 +596,19 @@ async function activate(context) {
 							vscode.Uri.parse((await require('../integrations/mcp/mcpBridge').getMcpStatus()).healthUrl)
 						);
 						break;
+					case 'llmSetApiKey':
+						{
+							const key = String(message.value || '').trim();
+							if (key) {
+								await require('../llm/llmSettings').setLlmApiKey(context, key);
+							}
+							await postDripSettingsValuesToWebview(webview, state, context);
+						}
+						break;
+					case 'llmClearApiKey':
+						await require('../llm/llmSettings').clearLlmApiKey(context);
+						await postDripSettingsValuesToWebview(webview, state, context);
+						break;
 				}
 			} catch (error) {
 				console.error(error);
@@ -590,6 +662,13 @@ async function activate(context) {
 		)
 	);
 
+	const dripChatProvider = new DripChatWebviewProvider(context, state);
+	context.subscriptions.push(
+		vscode.window.registerWebviewViewProvider(DRIP_CHAT_VIEW_ID, dripChatProvider, {
+			webviewOptions: { retainContextWhenHidden: true }
+		})
+	);
+
 	context.subscriptions.push(
 		kbTreeView,
 		draftsTreeView,
@@ -633,19 +712,46 @@ async function activate(context) {
 			}
 		}),
 		vscode.commands.registerCommand(DRIP_CAPTURE_SELECTION_COMMAND_ID, async () => {
+			// Selection → cut it into the Composer; no selection → use the clipboard text.
 			const editor = vscode.window.activeTextEditor;
-			if (!editor) {
-				vscode.window.showInformationMessage('Open a file and select text to capture into the composer.');
-				return;
-			}
-			const text = editor.document.getText(editor.selection);
+			const selections = editor ? editor.selections.filter(s => !s.isEmpty) : [];
+			const text = selections.length
+				? selections.map(s => editor.document.getText(s)).join('\n')
+				: await vscode.env.clipboard.readText();
 			if (!text.trim()) {
-				vscode.window.showInformationMessage('Select some text in the editor first.');
+				vscode.window.showInformationMessage('Select some text in the editor (or copy it) first.');
 				return;
 			}
 			const capture = parseSelectionForComposer(text);
+			if (selections.length) {
+				await vscode.env.clipboard.writeText(text);
+				await editor.edit(edit => {
+					for (const s of selections) edit.delete(s);
+				});
+			}
 			await DripComposerPanel.createOrShow(context.extensionUri, state, sidebarRefreshHub, undefined, capture);
 			await revealDripStorageView();
+		}),
+		vscode.commands.registerCommand(DRIP_FOCUS_CHAT_COMMAND_ID, () => {
+			dripChatProvider.reveal();
+		}),
+		vscode.commands.registerCommand(DRIP_ADD_SELECTION_TO_CHAT_COMMAND_ID, async () => {
+			const editor = vscode.window.activeTextEditor;
+			let text = '';
+			if (editor && editor.selections.some(s => !s.isEmpty)) {
+				text = editor.selections
+					.filter(s => !s.isEmpty)
+					.map(s => editor.document.getText(s))
+					.join('\n');
+				await vscode.env.clipboard.writeText(text);
+			} else {
+				text = await vscode.env.clipboard.readText();
+			}
+			if (!text.trim()) {
+				void vscode.window.showInformationMessage('Select some text (or copy it) first, then add it to DRIP Chat.');
+				return;
+			}
+			dripChatProvider.appendToInput(text);
 		}),
 		vscode.commands.registerCommand('drip.openDripSettingsView', async opts => {
 			createOrShowSettingsPanel(opts && typeof opts.panel === 'string' ? opts.panel : undefined);

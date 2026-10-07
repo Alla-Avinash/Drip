@@ -81,6 +81,7 @@ async function applyEmbeddingModelChange(kbRootUri, newModelId) {
 		meta = setEmbeddingModelMeta(handle.db, model);
 		clearAllHeadingEmbeddings(handle.db);
 		clearAllFolderEmbeddings(handle.db);
+		require('./fileEmbeddingStore').clearAllFileEmbeddings(handle.db);
 	} finally {
 		handle.close();
 	}
@@ -103,6 +104,9 @@ async function applyEmbeddingModelChange(kbRootUri, newModelId) {
 	} catch (err) {
 		console.error('[DRIP] folder embedding rebuild after model change failed', err);
 	}
+	void require('./fileEmbeddingSync').repairFileEmbeddingsInBackground(kbRootUri).catch(err => {
+		console.error('[DRIP] file embedding rebuild after model change failed', err);
+	});
 	// Vectors are empty until drain finishes; lock will become exact/faiss on later search/startup.
 	void lockHeadingEmbeddingSearchMethod(kbRootUri, { force: true }).catch(() => {});
 

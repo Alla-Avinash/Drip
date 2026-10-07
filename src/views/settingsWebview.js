@@ -77,6 +77,13 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 		.mcp-port-row { display: flex; gap: 8px; align-items: center; }
 		.mcp-port-row input { max-width: 8em; }
 		.mcp-port-row button { margin-top: 0; }
+		.shortcut-table td { vertical-align: middle; }
+		.shortcut-table button { margin-top: 0; padding: 4px 10px; }
+		.shortcut-table .sc-actions { display: flex; gap: 6px; white-space: nowrap; }
+		.shortcut-table input.sc-record { cursor: pointer; }
+		.shortcut-table input.sc-record:focus { outline: 1px solid var(--vscode-focusBorder); }
+		kbd { font-family: var(--vscode-editor-font-family); font-size: 11px; padding: 1px 5px; border-radius: 4px; border: 1px solid var(--vscode-panel-border); background: var(--vscode-textCodeBlock-background); margin-right: 4px; }
+		.sc-conflict { color: var(--vscode-editorWarning-foreground); font-size: 11px; margin-top: 3px; }
 	</style>
 </head>
 <body>
@@ -94,6 +101,7 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 			<button class="navBtn" data-panel="ref-links">Ref Links</button>
 			<button class="navBtn" data-panel="metadata">Markdown</button>
 			<button class="navBtn" data-panel="embedding">Embedding model</button>
+			<button class="navBtn" data-panel="llm">Lightweight LLM</button>
 			<button class="navBtn" data-panel="github-backup">GitHub backup</button>
 			<button class="navBtn" data-panel="mcp">MCP connection</button>
 			<button class="navBtn" data-panel="saved-settings">Saved Settings</button>
@@ -275,6 +283,42 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 				</div>
 			</section>
 
+			<section id="panel-llm" class="panel">
+				<h3>Lightweight LLM</h3>
+				<p class="meta">DRIP runs its own small LLM (separate from VS Code Copilot) to decide where a Quick Capture note belongs: merge into the best matching heading, append as a new section, or start a new heading. Only the note plus a short snippet of the top matching headings is sent, keeping tokens low. The API key lives in VS Code Secret Storage — never in settings.</p>
+				<div class="card">
+					<label class="row">
+						<input type="checkbox" id="llm-enabled">
+						<span>Enable the lightweight LLM for Quick Capture</span>
+					</label>
+					<label class="row" style="display:block;margin-top:10px;">
+						<span>Base URL (OpenAI-compatible)</span>
+						<input type="text" id="llm-base-url" placeholder="https://api.openai.com/v1" autocomplete="off" spellcheck="false" />
+					</label>
+					<label class="row" style="display:block;margin-top:10px;">
+						<span>Model</span>
+						<input type="text" id="llm-model" placeholder="gpt-4o-mini" autocomplete="off" spellcheck="false" style="max-width:18em;" />
+					</label>
+					<div class="actions">
+						<button id="btn-llm-save" type="button">Save</button>
+					</div>
+					<p class="meta" style="margin-top:8px;">Works with any OpenAI-compatible endpoint (OpenAI, Groq, Ollama, LM Studio, …). Examples: <code>https://api.openai.com/v1</code>, <code>https://api.groq.com/openai/v1</code>, <code>http://localhost:11434/v1</code>.</p>
+				</div>
+				<div class="card">
+					<h3 style="margin-top:0;">API key</h3>
+					<p class="meta">Entered below, then stored only in VS Code Secret Storage — never in settings and never shown again. Characters stay masked.</p>
+					<p id="llm-key-status" class="meta">API key: not set</p>
+					<label class="row" style="display:block;margin-top:8px;">
+						<span>API key</span>
+						<input type="password" id="llm-api-key" placeholder="sk-…" autocomplete="off" spellcheck="false" />
+					</label>
+					<div class="actions">
+						<button id="btn-llm-set-key" type="button">Save API key</button>
+						<button id="btn-llm-clear-key" class="secondary" type="button">Clear API key</button>
+					</div>
+				</div>
+			</section>
+
 			<section id="panel-github-backup" class="panel">
 				<h3>GitHub backup</h3>
 				<p class="meta">Back up this knowledge base’s notes to a GitHub remote. The regenerable <code>.dripindex/</code> folder is ignored. Never store a GitHub password here — use HTTPS + Git Credential Manager / <code>gh auth</code>, SSH keys, or an optional PAT (Secret Storage).</p>
@@ -390,17 +434,16 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 			<section id="panel-shortcuts" class="panel">
 				<h3>Keyboard Shortcuts</h3>
 				<div class="card">
-					<p class="meta">To change shortcuts, use Keyboard Shortcuts and search by command id.</p>
-					<table>
-						<thead><tr><th>Command</th><th>Id</th><th>Default</th></tr></thead>
-						<tbody>
-							<tr><td>Open Composer</td><td><code>drip.openComposer</code></td><td>Ctrl+U / Cmd+U</td></tr>
-							<tr><td>Capture Selection to Composer</td><td><code>drip.captureSelectionToComposer</code></td><td>Ctrl+Shift+U / Cmd+Shift+U</td></tr>
-							<tr><td>Select Knowledge Base Folder</td><td><code>drip.selectKnowledgeBase</code></td><td>(none)</td></tr>
-						</tbody>
+					<p class="meta">Click a shortcut box, press the key combination you want, then Save. Changes are written to your VS Code <code>keybindings.json</code> and apply immediately. Reset brings back the DRIP default; Remove leaves the command without a shortcut.</p>
+					<table class="shortcut-table">
+						<thead><tr><th>Command</th><th>Current</th><th>New shortcut</th><th></th></tr></thead>
+						<tbody id="shortcut-rows"><tr><td colspan="4" class="meta">Loading…</td></tr></tbody>
 					</table>
+					<p id="shortcut-error" style="color:var(--vscode-errorForeground);"></p>
+					<p class="meta">Shortcuts already used by built-in VS Code commands are not detected here — if a new shortcut does nothing, pick another combination.</p>
 					<div class="actions">
-						<button id="btn-keys">Open Keyboard Shortcuts</button>
+						<button id="btn-keys" class="secondary">Open VS Code Keyboard Shortcuts</button>
+						<button id="btn-keys-file" class="secondary">Open keybindings.json</button>
 					</div>
 				</div>
 			</section>
@@ -419,6 +462,7 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 			'ref-links': document.getElementById('panel-ref-links'),
 			metadata: document.getElementById('panel-metadata'),
 			embedding: document.getElementById('panel-embedding'),
+			llm: document.getElementById('panel-llm'),
 			'github-backup': document.getElementById('panel-github-backup'),
 			mcp: document.getElementById('panel-mcp'),
 			'saved-settings': document.getElementById('panel-saved-settings'),
@@ -428,6 +472,9 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 		const optEditHeadingsFile = document.getElementById('opt-edit-headings-file');
 		const optExperimentalEmbeddings = document.getElementById('opt-experimental-embeddings');
 		const embeddingModelIdEl = document.getElementById('embedding-model-id');
+		const llmEnabledEl = document.getElementById('llm-enabled');
+		const llmBaseUrlEl = document.getElementById('llm-base-url');
+		const llmModelEl = document.getElementById('llm-model');
 		const autoOpenEl = document.getElementById('opt-auto-open');
 		const kbExtDtxt = document.getElementById('kb-ext-dtxt');
 		const kbExtMd = document.getElementById('kb-ext-md');
@@ -898,6 +945,9 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 					if (panelId === 'saved-settings') {
 						vscode.postMessage({ type: 'requestSettings' });
 					}
+					if (panelId === 'shortcuts') {
+						vscode.postMessage({ type: 'requestShortcuts' });
+					}
 				});
 			})(navButtons[iNav]);
 		}
@@ -1041,6 +1091,7 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 			}
 			applyGithubBackupStatus(message.githubBackupStatus || null);
 			applyMcpStatus(message.mcpStatus || null);
+			applyLlmStatus(message.llmStatus || null);
 		});
 
 		window.addEventListener('message', function (event) {
@@ -1085,6 +1136,14 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 			setText('mcp-tools', 'search_tools + call_tool (' + st.toolCount + ' DRIP tools behind them)');
 			setText('mcp-http-config', st.httpConfigPreview);
 			setText('mcp-stdio-config', st.stdioConfigPreview);
+		}
+
+		function applyLlmStatus(st) {
+			if (!st) return;
+			if (llmEnabledEl) llmEnabledEl.checked = !!st.enabled;
+			if (llmBaseUrlEl && document.activeElement !== llmBaseUrlEl) llmBaseUrlEl.value = String(st.baseUrl || '');
+			if (llmModelEl && document.activeElement !== llmModelEl) llmModelEl.value = String(st.model || '');
+			setText('llm-key-status', st.hasKey ? 'API key: saved (Secret Storage)' : 'API key: not set');
 		}
 
 		function fmtTime(iso) {
@@ -1602,6 +1661,113 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 		document.getElementById('btn-keys').addEventListener('click', function () {
 			vscode.postMessage({ type: 'openKeyboardShortcuts' });
 		});
+		document.getElementById('btn-keys-file').addEventListener('click', function () {
+			vscode.postMessage({ type: 'openKeybindingsFile' });
+		});
+
+		var shortcutRowsEl = document.getElementById('shortcut-rows');
+		var IS_MAC = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+		var CODE_TO_KEY = {
+			Space: 'space', Enter: 'enter', Tab: 'tab', Backspace: 'backspace', Delete: 'delete', Insert: 'insert',
+			Home: 'home', End: 'end', PageUp: 'pageup', PageDown: 'pagedown',
+			ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down',
+			Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']', Backslash: '\\\\',
+			Semicolon: ';', Quote: "'", Comma: ',', Period: '.', Slash: '/', Backquote: '\`'
+		};
+		function keyFromEvent(e) {
+			var code = e.code || '';
+			var base = '';
+			if (/^Key[A-Z]$/.test(code)) base = code.slice(3).toLowerCase();
+			else if (/^Digit[0-9]$/.test(code)) base = code.slice(5);
+			else if (/^Numpad[0-9]$/.test(code)) base = 'numpad' + code.slice(6);
+			else if (/^F([1-9]|1[0-9])$/.test(code)) base = code.toLowerCase();
+			else if (CODE_TO_KEY[code]) base = CODE_TO_KEY[code];
+			if (!base) return '';
+			var parts = [];
+			if (e.ctrlKey) parts.push('ctrl');
+			if (e.shiftKey) parts.push('shift');
+			if (e.altKey) parts.push('alt');
+			if (e.metaKey) parts.push(IS_MAC ? 'cmd' : 'win');
+			parts.push(base);
+			return parts.join('+');
+		}
+		function prettyKey(k) {
+			return String(k || '').split(' ').map(function (chord) {
+				return chord.split('+').map(function (p) {
+					return p.length === 1 ? p.toUpperCase() : p.charAt(0).toUpperCase() + p.slice(1);
+				}).join('+');
+			}).join(' ');
+		}
+		function renderShortcuts(data) {
+			var rows = (data && data.rows) || [];
+			setText('shortcut-error', data && data.error ? data.error : '');
+			if (!rows.length) {
+				shortcutRowsEl.innerHTML = '<tr><td colspan="4" class="meta">No DRIP commands found.</td></tr>';
+				return;
+			}
+			var html = '';
+			for (var i = 0; i < rows.length; i++) {
+				var r = rows[i];
+				var current = r.keys.length
+					? r.keys.map(function (k) { return '<kbd>' + escapeHtml(prettyKey(k)) + '</kbd>'; }).join('')
+					: '<span class="meta">(none)</span>';
+				var def = r.defaultKey ? 'Default: ' + prettyKey(r.defaultKey) : 'No default';
+				var conflict = r.conflicts && r.conflicts.length
+					? '<div class="sc-conflict">Also bound: ' + escapeHtml(r.conflicts.map(prettyKey).join(', ')) + '</div>'
+					: '';
+				html += '<tr data-command="' + escapeHtml(r.id) + '">' +
+					'<td>' + escapeHtml(r.title) + '<div class="meta"><code>' + escapeHtml(r.id) + '</code></div></td>' +
+					'<td>' + current + conflict + '</td>' +
+					'<td><input type="text" class="sc-record" readonly placeholder="Click, then press keys" title="' + escapeHtml(def) + '"></td>' +
+					'<td><div class="sc-actions">' +
+						'<button type="button" data-sc="set">Save</button>' +
+						'<button type="button" class="secondary" data-sc="reset"' + (r.customized ? '' : ' disabled') + ' title="' + escapeHtml(def) + '">Reset</button>' +
+						'<button type="button" class="secondary" data-sc="remove"' + (r.keys.length ? '' : ' disabled') + '>Remove</button>' +
+					'</div></td>' +
+				'</tr>';
+			}
+			shortcutRowsEl.innerHTML = html;
+		}
+		shortcutRowsEl.addEventListener('keydown', function (e) {
+			var input = e.target;
+			if (!input || !input.classList || !input.classList.contains('sc-record')) return;
+			// Keep the keystroke inside this box so VS Code does not also run the shortcut.
+			e.preventDefault();
+			e.stopPropagation();
+			if (e.key === 'Escape') {
+				input.value = '';
+				input.blur();
+				return;
+			}
+			if (e.key === 'Backspace' && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && input.value) {
+				input.value = '';
+				return;
+			}
+			var k = keyFromEvent(e);
+			if (!k) return;
+			input.dataset.key = k;
+			input.value = prettyKey(k);
+		});
+		shortcutRowsEl.addEventListener('click', function (e) {
+			var btn = e.target && e.target.closest ? e.target.closest('button[data-sc]') : null;
+			if (!btn) return;
+			var row = btn.closest('tr[data-command]');
+			if (!row) return;
+			var mode = btn.getAttribute('data-sc');
+			var input = row.querySelector('input.sc-record');
+			var key = input && input.value ? String(input.dataset.key || '') : '';
+			if (mode === 'set' && !key) {
+				setText('shortcut-error', 'Click the "New shortcut" box and press a key combination first.');
+				if (input) input.focus();
+				return;
+			}
+			setText('shortcut-error', '');
+			vscode.postMessage({ type: 'updateShortcut', command: row.getAttribute('data-command'), mode: mode, key: key });
+		});
+		window.addEventListener('message', function (event) {
+			if (event.data && event.data.type === 'shortcutsData') renderShortcuts(event.data);
+		});
+		vscode.postMessage({ type: 'requestShortcuts' });
 		document.getElementById('btn-select-kb').addEventListener('click', function () {
 			vscode.postMessage({ type: 'selectKnowledgeBase' });
 		});
@@ -1729,6 +1895,32 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 				vscode.postMessage({ type: 'mcpCopy', kind: btn.getAttribute('data-mcp-copy') });
 			});
 		});
+		var btnLlmSave = document.getElementById('btn-llm-save');
+		if (btnLlmSave) {
+			btnLlmSave.addEventListener('click', function () {
+				vscode.postMessage({ type: 'updateSetting', key: 'llm.enabled', value: !!llmEnabledEl.checked });
+				vscode.postMessage({ type: 'updateSetting', key: 'llm.baseUrl', value: String((llmBaseUrlEl && llmBaseUrlEl.value) || '').trim() });
+				vscode.postMessage({ type: 'updateSetting', key: 'llm.model', value: String((llmModelEl && llmModelEl.value) || '').trim() });
+			});
+		}
+		var btnLlmSetKey = document.getElementById('btn-llm-set-key');
+		if (btnLlmSetKey) {
+			btnLlmSetKey.addEventListener('click', function () {
+				var keyEl = document.getElementById('llm-api-key');
+				var key = keyEl ? String(keyEl.value || '').trim() : '';
+				if (!key) return;
+				vscode.postMessage({ type: 'llmSetApiKey', value: key });
+				if (keyEl) keyEl.value = '';
+			});
+		}
+		var btnLlmClearKey = document.getElementById('btn-llm-clear-key');
+		if (btnLlmClearKey) {
+			btnLlmClearKey.addEventListener('click', function () {
+				vscode.postMessage({ type: 'llmClearApiKey' });
+				var keyEl = document.getElementById('llm-api-key');
+				if (keyEl) keyEl.value = '';
+			});
+		}
 		showPanel(${initialPanelJson});
 	</script>
 </body>

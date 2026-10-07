@@ -156,6 +156,10 @@ async function runStartupCheckInner(context, state) {
 		void repairFolderEmbeddingsInBackground(kbRoot).catch(err => {
 			console.error('[DRIP] startup folder embedding repair failed', err);
 		});
+		const { repairFileEmbeddingsInBackground } = require('../indexing/embeddings/fileEmbeddingSync');
+		void repairFileEmbeddingsInBackground(kbRoot).catch(err => {
+			console.error('[DRIP] startup file embedding repair failed', err);
+		});
 
 		// Lock exact vs FAISS once for this KB session (does not re-check on every search).
 		const { lockHeadingEmbeddingSearchMethod } = require('../indexing/embeddings/headingEmbeddingSearchMethod');

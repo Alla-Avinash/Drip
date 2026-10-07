@@ -236,6 +236,9 @@ async function renameAndRewriteOpenNote(oldUri, newUri, transformText) {
 	return findOpenTextDocument(newUri) || doc;
 }
 
+/** Storage "AI" button: how many folder / file / heading suggestions to show. */
+const AI_SUGGESTION_LIMIT = 4;
+
 class DripState {
 	constructor(context) {
 		this.context = context;
@@ -671,29 +674,70 @@ class DripState {
 			};
 		}
 
-		const { normalizeCorpusOptions } = require('../indexing/kbFilesystem');
-		const corpusOpts = normalizeCorpusOptions(corpusRaw);
+		let paths = [];
+		try {
+			paths = await this.deepAiSuggestionsFromIndex(kbRoot, noteInput, corpusRaw);
+		} catch (err) {
+			console.warn('[DRIP] AI suggestions from stored embeddings failed; using keyword ranking', err);
+		}
+		if (!paths.length) {
+			paths = await this.deepAiSuggestionsByKeywords(kbRoot, noteInput, corpusRaw);
+		}
 
-		const normalizedNoteInput = {
-			...noteInput,
-			headings: noteInput?.headings || ''
+		return {
+			kbRootPath: kbRoot.fsPath,
+			paths,
+			warning: paths.length ? '' : 'No matches found. Try adding title or headings to your draft.'
 		};
+	}
 
-		const cfg = vscode.workspace.getConfiguration('drip');
-		const useEmbeddings = cfg.get('experimentalEmbeddings', false);
-		const embeddingModelId = cfg.get('embeddingModel', 'Xenova/all-MiniLM-L6-v2');
+	/**
+	 * AI button: top 4 folders / files / headings from the stored vectors (one encode for the note,
+	 * no re-encoding of the KB). Heading score already mixes in its file's path score.
+	 * @returns {Promise<Array<Record<string, unknown>>>}
+	 */
+	async deepAiSuggestionsFromIndex(kbRoot, noteInput, corpusRaw) {
+		const { findIngestCandidates } = require('../ingest/ingestCandidates');
+		const { fileStoragePath, folderStoragePath } = require('../ingest/ingestPlanner');
+		const query = [noteInput?.title, noteInput?.content].filter(Boolean).join('\n');
+		const c = await findIngestCandidates(kbRoot, query, corpusRaw);
+		const ranked = [
+			...c.folders.map(item => ({ kind: 'folder', item })),
+			...c.files.map(item => ({ kind: 'file', item })),
+			...c.headings.map(item => ({ kind: 'heading', item }))
+		].sort((a, b) => b.item.score - a.item.score);
 
-		const raw = await rankDeepStorageCandidates(kbRoot, normalizedNoteInput, 3, {
-			useEmbeddings,
-			embeddingModelId,
-			...corpusOpts
-		});
+		const paths = [];
+		for (const { kind, item } of ranked) {
+			if (paths.length >= AI_SUGGESTION_LIMIT) break;
+			try {
+				const p =
+					kind === 'folder'
+						? folderStoragePath(kbRoot, item.path)
+						: await fileStoragePath(kbRoot, item.path, kind === 'heading' ? item : null);
+				paths.push({ ...p, kind, score: item.score.toFixed(2) });
+			} catch {
+				/* file moved or heading gone since the last index update */
+			}
+		}
+		return paths;
+	}
 
-		const paths = raw.map(entry => {
+	/** Fallback when no vectors exist yet: the old walk with keyword similarity only (no live encoding). */
+	async deepAiSuggestionsByKeywords(kbRoot, noteInput, corpusRaw) {
+		const { normalizeCorpusOptions } = require('../indexing/kbFilesystem');
+		const raw = await rankDeepStorageCandidates(
+			kbRoot,
+			{ ...noteInput, headings: noteInput?.headings || '' },
+			AI_SUGGESTION_LIMIT,
+			{ useEmbeddings: false, ...normalizeCorpusOptions(corpusRaw) }
+		);
+		return raw.map(entry => {
 			if (entry.targetType === 'folder') {
 				const folderUri = vscode.Uri.parse(entry.folderUri);
 				return {
 					targetType: 'folder',
+					kind: 'folder',
 					score: entry.scoreValue.toFixed(2),
 					uri: entry.folderUri,
 					label: entry.label,
@@ -701,13 +745,11 @@ class DripState {
 					pathSegments: kbPathSegments(kbRoot, folderUri)
 				};
 			}
-
 			const parentUri = vscode.Uri.parse(entry.parentFolderUri);
 			const parentRel = path.relative(kbRoot.fsPath, parentUri.fsPath).replace(/\\/g, '/');
-			const parentDisplay = parentRel && parentRel !== '.' ? parentRel : '(root)';
-
 			return {
 				targetType: 'file',
+				kind: entry.headingPath ? 'heading' : 'file',
 				score: entry.scoreValue.toFixed(2),
 				uri: entry.fileUri,
 				label: entry.label,
@@ -716,16 +758,10 @@ class DripState {
 				headingTree: entry.headingTree || [],
 				displayPath: entry.displayPath,
 				parentFolderUri: entry.parentFolderUri,
-				parentDisplayPath: parentDisplay,
+				parentDisplayPath: parentRel && parentRel !== '.' ? parentRel : '(root)',
 				pathSegments: kbPathSegments(kbRoot, parentUri)
 			};
 		});
-
-		return {
-			kbRootPath: kbRoot.fsPath,
-			paths,
-			warning: paths.length ? '' : 'No matches found. Try adding title or headings to your draft.'
-		};
 	}
 
 	async getFileHeadingMeta(fileUriStr, noteInput) {
@@ -918,6 +954,11 @@ class DripState {
 			metadata,
 			content: bodyOnly
 		};
+		// LLM ingest proposal: heading / file title chosen (and editable) in Storage.
+		const llmTitle = String(selection?.noteTitle || '').trim();
+		if (llmTitle) {
+			normalizedNoteInput.title = llmTitle;
+		}
 
 		const kbRoot = await this.ensureKnowledgeBaseRoot();
 		if (!kbRoot) {
@@ -934,7 +975,23 @@ class DripState {
 		let mode;
 
 		// If the user picked an explicit file/folder, follow that.
-		if (selection?.targetType === 'file' && selection.uri) {
+		if (selection?.targetType === 'file' && selection.uri && selection.appendTo) {
+			// LLM ingest "append": add the text to the heading's own body (no new heading).
+			mode = 'append';
+			targetUri = vscode.Uri.parse(selection.uri);
+			const { appendToHeading } = require('../capture/headingContent');
+			const existingContent = await readTextFile(targetUri);
+			const next = appendToHeading(
+				existingContent,
+				selection.appendTo.fileId,
+				selection.appendTo.headingId,
+				bodyOnly
+			);
+			if (next == null) {
+				throw new Error('Could not find that heading in the file any more. Run Suggest with LLM again.');
+			}
+			await writeTextFile(targetUri, next.endsWith('\n') ? next : `${next}\n`);
+		} else if (selection?.targetType === 'file' && selection.uri) {
 			mode = 'append';
 			targetUri = vscode.Uri.parse(selection.uri);
 
@@ -954,7 +1011,16 @@ class DripState {
 			);
 		} else if (selection?.targetType === 'folder' && selection.uri) {
 			mode = 'create';
-			const targetFolder = vscode.Uri.parse(selection.uri);
+			let targetFolder = vscode.Uri.parse(selection.uri);
+			const newFolderName = String(selection.newFolderName || '').trim();
+			if (newFolderName) {
+				// LLM ingest "new_folder": create it only now, on the user's Ingest click.
+				const parentBlock = noteCreationBlockReason(kbRoot.fsPath, targetFolder.fsPath);
+				if (parentBlock) {
+					throw new Error(parentBlock);
+				}
+				targetFolder = vscode.Uri.parse(await this.createSubfolderFromPicker(selection.uri, newFolderName));
+			}
 			const blockReason = noteCreationBlockReason(kbRoot.fsPath, targetFolder.fsPath);
 			if (blockReason) {
 				throw new Error(blockReason);

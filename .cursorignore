@@ -1,27 +1,15 @@
 
+# Ignore node_modules so Cursor does not see its contents
+# node_modules/
 
 # other files/
-
 # understanding/
-
-# vscode-drip/node_modules/
-
 
 # # Ignore everything
 # *
-
 # !vscode\extensions\drip\** 
 
-
-
-
-
-
-
-
-
-
-
+.cursor/not_imp_context/**
 
 
 

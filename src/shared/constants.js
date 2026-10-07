@@ -7,6 +7,8 @@ const DRIP_TAGS_GRAPH_PANEL_ID = 'drip.tagsGraph';
 const DRIP_RETRIEVER_PANEL_ID = 'drip.retriever';
 /** Editor-area webview panel for Project View (Linear-style) */
 const DRIP_PROJECT_VIEW_PANEL_ID = 'drip.projectView';
+/** RHS secondary-sidebar: chat capture inbox (notes without a heading) */
+const DRIP_CHAT_VIEW_ID = 'drip.chat';
 /** Separate editor panel for a tag with many sub-tags (≥ threshold) */
 const DRIP_SUBGRAPH_PANEL_ID = 'drip.subGraphEditor';
 const DRIP_COMPONENTS_VIEW_ID = 'drip.components';
@@ -24,6 +26,8 @@ const DRIP_HEADING_FORM_VIEW_ID = 'drip.headingForm';
 const DRIP_COMMAND_ID = 'drip.openComposer';
 const DRIP_OPEN_KB_EDITOR_COMMAND_ID = 'drip.openKbEditor';
 const DRIP_CAPTURE_SELECTION_COMMAND_ID = 'drip.captureSelectionToComposer';
+const DRIP_FOCUS_CHAT_COMMAND_ID = 'drip.focusChat';
+const DRIP_ADD_SELECTION_TO_CHAT_COMMAND_ID = 'drip.addSelectionToChat';
 const DRIP_SELECT_KB_COMMAND_ID = 'drip.selectKnowledgeBase';
 const DRIP_OPEN_RECENT_FILE_COMMAND_ID = 'drip.openRecentFile';
 const DRIP_DAILY_NOTES_VIEW_ID = 'drip.dailyNotes';
@@ -45,6 +49,7 @@ module.exports = {
 	DRIP_TAGS_GRAPH_PANEL_ID,
 	DRIP_RETRIEVER_PANEL_ID,
 	DRIP_PROJECT_VIEW_PANEL_ID,
+	DRIP_CHAT_VIEW_ID,
 	DRIP_SUBGRAPH_PANEL_ID,
 	DRIP_COMPONENTS_VIEW_ID,
 	DRIP_KB_VIEW_ID,
@@ -58,6 +63,8 @@ module.exports = {
 	DRIP_COMMAND_ID,
 	DRIP_OPEN_KB_EDITOR_COMMAND_ID,
 	DRIP_CAPTURE_SELECTION_COMMAND_ID,
+	DRIP_FOCUS_CHAT_COMMAND_ID,
+	DRIP_ADD_SELECTION_TO_CHAT_COMMAND_ID,
 	DRIP_SELECT_KB_COMMAND_ID,
 	DRIP_OPEN_RECENT_FILE_COMMAND_ID,
 	DRIP_DAILY_NOTES_VIEW_ID,

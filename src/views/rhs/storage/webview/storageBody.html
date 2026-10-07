@@ -25,10 +25,12 @@
 			</div>
 			<div class="storage-toolbar-actions">
 				<button id="suggestions-btn" type="button">Suggestions</button>
-				<button type="button" class="secondary" id="ai-paths-btn" title="Deep match: top 3 paths across the selected corpus">AI</button>
+				<button type="button" class="secondary" id="ai-paths-btn" title="Top 4 folders, files or headings from the stored embeddings">AI</button>
 				<button type="button" class="secondary" id="btn-custom-select">Browse</button>
+				<button type="button" class="secondary" id="llm-suggest-btn" title="Let your LLM (DRIP Settings → Lightweight LLM) choose where this note goes">Suggest with LLM</button>
 			</div>
 			<div id="error" class="error"></div>
+			<div id="llm-plan-panel" class="llm-plan-panel" hidden></div>
 			<div id="storage-main-panel">
 			<div id="storage-path-bar" class="storage-path-bar" aria-label="Storage path"></div>
 			<div id="selection-controls" class="selection-inline"></div>
@@ -44,6 +46,7 @@
 						<button type="button" id="ht-expand-flow">Expand all</button>
 						<button type="button" id="ht-collapse-flow">Collapse all</button>
 						<button type="button" id="ht-refresh-flow" class="secondary">Refresh</button>
+						<label class="ht-persistent-toggle" title="Show only persistent (# .…) headings"><input type="checkbox" class="ht-persistent-only" /> Persistent only</label>
 					</div>
 					<div class="ht-tree-resize-wrap">
 					<div id="heading-tree" class="heading-tree"></div>
@@ -67,6 +70,7 @@
 						<button type="button" id="ht-expand-picker">Expand all</button>
 						<button type="button" id="ht-collapse-picker">Collapse all</button>
 						<button type="button" id="ht-refresh-picker" class="secondary">Refresh</button>
+						<label class="ht-persistent-toggle" title="Show only persistent (# .…) headings"><input type="checkbox" class="ht-persistent-only" /> Persistent only</label>
 					</div>
 					<div class="ht-tree-resize-wrap">
 					<div id="picker-heading-tree" class="heading-tree"></div>

@@ -1054,6 +1054,8 @@ async function revealDripStorageView() {
 /** @param {*} sidebarProvider */
 async function notifyDraftSaved(sidebarProvider, draft, statusMessage) {
 	await sidebarProvider.refresh();
+	// The saved draft replaces any earlier capture, or the Composer would show the capture again.
+	lastComposerCapture = null;
 	if (DripComposerPanel.currentPanel) {
 		await DripComposerPanel.currentPanel.loadState(draft.id, statusMessage);
 	} else {
@@ -1081,6 +1083,7 @@ async function notifyAfterIngest(sidebarProvider, summary) {
 	await sidebarProvider.refresh();
 	lastStorageSelection = undefined;
 	lastComposerNote = null;
+	lastComposerCapture = null;
 	postToStorage({
 		type: 'storageReset',
 		summaryText: 'No target selected. Use Suggestions.'
@@ -1156,6 +1159,15 @@ class DripStorageWebviewProvider {
 							customCorpusPaths: message.customCorpusPaths
 						});
 						await w.postMessage({ type: 'deepAiSuggestionsResult', ...result });
+						break;
+					}
+					case 'llmIngestPlan': {
+						const note = message.note || lastComposerNote || {};
+						await w.postMessage({ type: 'llmIngestPlanResult', ...(await this.runLlmIngestPlan(note, message)) });
+						break;
+					}
+					case 'llmIngestSplit': {
+						await this.splitNoteIntoDrafts(w, message);
 						break;
 					}
 					case 'previewFolderFiles': {
@@ -1305,6 +1317,63 @@ class DripStorageWebviewProvider {
 				storageWebviewRef = null;
 			}
 		});
+	}
+
+	/**
+	 * LLM ingest proposal for a note (nothing is written; Ingest applies it).
+	 * @param {{ title?: string, content?: string }} note
+	 * @param {{ corpus?: unknown, customCorpusPaths?: unknown }} corpus
+	 */
+	async runLlmIngestPlan(note, corpus) {
+		const kbRoot = await this.state.ensureKnowledgeBaseRoot();
+		if (!kbRoot) {
+			return { ok: false, message: 'Select a knowledge base folder first.' };
+		}
+		try {
+			const { planLlmIngest } = require('../ingest/ingestPlanner');
+			return await planLlmIngest({
+				kbRoot,
+				note: { title: note.title || '', content: note.content || '' },
+				context: this.state.context,
+				corpus: { corpus: corpus.corpus, customCorpusPaths: corpus.customCorpusPaths }
+			});
+		} catch (err) {
+			return { ok: false, message: err instanceof Error ? err.message : String(err) };
+		}
+	}
+
+	/**
+	 * User accepted the LLM's split: part 1 replaces the Composer note, the rest become drafts,
+	 * then part 1 is planned again on its own.
+	 * @param {import('vscode').Webview} w
+	 * @param {{ note?: any, parts?: { title?: string, text?: string }[], corpus?: unknown, customCorpusPaths?: unknown }} message
+	 */
+	async splitNoteIntoDrafts(w, message) {
+		const parts = (Array.isArray(message.parts) ? message.parts : [])
+			.map(p => ({ title: String((p && p.title) || '').trim(), text: String((p && p.text) || '').trim() }))
+			.filter(p => p.text);
+		if (parts.length < 2) {
+			await w.postMessage({ type: 'llmIngestPlanResult', ok: false, message: 'Nothing to split.' });
+			return;
+		}
+		const note = message.note || lastComposerNote || {};
+		const stamp = Date.now();
+		for (let i = parts.length - 1; i >= 1; i--) {
+			await this.state.saveDraft({ id: `draft-${stamp}-${i}`, title: parts[i].title, content: parts[i].text });
+		}
+		const first = await this.state.saveDraft({
+			id: note.id || `draft-${stamp}-0`,
+			title: parts[0].title,
+			metadata: '',
+			content: parts[0].text,
+			metadataFilename: note.metadataFilename || ''
+		});
+		await notifyDraftSaved(
+			this.sidebarProvider,
+			first,
+			`Split into ${parts.length} notes. Note 1 is loaded; the others are in Drafts.`
+		);
+		await w.postMessage({ type: 'llmIngestPlanResult', ...(await this.runLlmIngestPlan(first, message)) });
 	}
 }
 

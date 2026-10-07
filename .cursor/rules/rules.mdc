@@ -1,0 +1,114 @@
+---
+description: Generic coding & project structure rules — apply to every codebase
+alwaysApply: true
+---
+
+
+# Development & Codebase Change Rules
+
+These rules apply to anyone developing the project and changing the codebase. Their purpose is to keep the codebase easy to navigate, change, and reason about — for both frequent contributors and brand-new developers. They are stack-agnostic and apply throughout development.
+
+**Goal:**
+- Anyone opening this repo — veteran or new — can **find where to change behavior quickly** without long searches in the codebase
+- The codebase exists for humans who change it often — frequent contributors and new developers.
+- Cursor agents and human contributors should follow it when implementing, refactoring, or documenting.
+- Optimize for **finding the right file in seconds** and maintaining a structured project folders
+
+
+---
+
+## 1. One obvious entry point
+- The app/entry file only **wires things together** (command registration, route mounting, provider setup, bootstrap).
+- All real behavior lives in named domain modules — never hidden in the entry file or in random helper files.
+
+---
+
+## 2. Obvious location
+- Code for a feature lives where a developer would look first: group by **domain** or **UI area**, not by file type dumps or "misc".
+- Example grouping (adapt to your stack): `auth/`, `billing/`, `api/`, `components/`, `models/`, `services/`.
+- If the right folder doesn't exist yet, **propose one** before inventing another flat filename.
+- If the right folder does not exist yet, **propose** a target path
+
+---
+
+## 3. Names tell the story
+- File, folder, function, and class names match the **product language** and the module's responsibility.
+- Avoid cryptic prefixes, duplicate naming, or a jumbled flat namespace.
+- Keep naming **consistent** — the same concept gets the same name everywhere.
+
+---
+
+## 4. Small, focused files
+- Prefer splitting god files (1000+ lines) over scroll hunts.
+- One primary concern per module. When a file does two things, it's time to split.
+- Export one primary responsibility per file where possible, and don't mix up unrelated modules and keep the module clean.
+- Related code for one feature sits in **one folder or 2–3 adjacent files** in most of the cases when possible
+- Prefer **vertical slices** that keep related code together over scattered one-liners across ten files.
+
+---
+
+## 5. Shared logic in one place
+- Don't copy-paste the same regex, validation, parsing, or formatting logic across multiple files — fix bugs once, not four times.
+- Stateless shared helpers live in a single `shared/`/`utils/`/`common/` module.
+
+---
+
+## 6. Smallest viable diff
+- Only change the files needed for the task.
+- No global reformatting, no mass renames, no drive-by lint fixes, no unrelated "cleanup" bundled into a feature change.
+- Preserve existing patterns. Reuse existing helpers before writing new ones.
+
+---
+
+## 7. Keep the specs up to date
+- When you add, move, or rename a module, update the specs folder in the **same change** so the docs never lie.
+- Keep the architecture decisions in specs recording **why** key choices were made (stack, patterns, rejected alternatives) to prevent conflicting suggestions later.
+
+---
+
+## 8. Change discipline
+- Read the relevant specs before any feature development or planning.
+- Break work into small, numbered slices; ship the thinnest vertical slice first.
+- Ask before large or ambiguous changes (module boundaries, data formats).
+- No automated tests unless explicitly requested — the user verifies manually.
+- Explain non-trivial moves in one line if necessary: **where** the code went and **why**.
+- **Debugging:** touch only the minimal required files — don't fix unrelated code.
+- **Automated tests:** after a fix, give a short (3-line) note on whether an automated test is worth adding — only if absolutely necessary.
+- **Refactoring:** if a pattern becomes cluttered after many edits and no longer fits the goal of an easy-to-understand codebase, tell the user — propose the changes, why they're needed, and the benefits — rather than continuing the old format. Refactors and merges must follow standard coding conventions and best practices so the code stays clean and simple.
+
+---
+
+## 9. Code readability (comments & structure)
+
+**Write code for humans first.** It must read top-to-bottom as one clean flow that a new developer can follow without hunting.
+
+### Comments
+- Add a **top-of-file comment (1–3 lines)** when the module's role is not obvious from its name.
+- Comment **"why", not "what"** — explain the reason and intent behind non-obvious logic, not what the line literally does.
+- Comment **only when it adds value**. If the code is self-explanatory, leave it clean instead of over-commenting.
+
+### Structure
+- Organize code into clearly separated **logical sections** within a file (e.g. setup, helpers, main flow, exports).
+- Keep **one concern per section/function** — don't mix unrelated logic in one block.
+- Order code so it reads naturally **top to bottom**: definitions before use, the main flow clearly visible.
+- Use **consistent naming and spacing** so the file looks uniform and predictable.
+
+---
+
+## Anti-patterns (avoid these)
+| Avoid | Why |
+|-------|-----|
+| New behavior only in the entry file | Hides logic from search and the specs |
+| One flat folder of unrelated files | Namespace becomes unsearchable |
+| Copy-paste logic across files | Multiple places to fix the same bug |
+| Mega-files without a split plan | New developers can't onboard |
+| Moves without updating docs | Docs lie; search fails |
+| Scattered one-liner changes across ten files | Hard to review, easy to break |
+| Dead code / unused exports left behind | Clutters search and suggestions |
+
+
+---
+
+## 10. How to respond to the user
+
+For how to phrase chat responses and the phase-by-phase workflow (setup, learning, development, specs), see the on-demand rule: `response-workflow.md`.

@@ -21,6 +21,16 @@ const vscode = acquireVsCodeApi();
 	const suggestionsFlowEl = document.getElementById('suggestions-flow');
 	const aiPathsPanelEl = document.getElementById('ai-paths-panel');
 	const aiPathsListEl = document.getElementById('ai-paths-list');
+	const llmPlanPanelEl = document.getElementById('llm-plan-panel');
+	/** Active LLM ingest proposal; its extras ride on the selection only while its target stays selected. */
+	let llmProposal = null;
+	/** Tree path of the file's own top row: anchoring it places a new heading at the file's top level. */
+	const FILE_ROOT_PATH = '::file-root::';
+	/** Note without a heading, file target: 'append' to the chosen heading's text, or 'new_heading' with a typed title. */
+	let noTitleMode = 'append';
+	let noTitleHeading = '';
+	/** Heading trees show only persistent (`# .…`) headings; children of hidden headings move up to the nearest shown one. */
+	let persistentOnly = !!(vscode.getState() || {}).persistentOnly;
 	const sharedFolderActionsEl = document.getElementById('shared-folder-actions');
 	const sharedNewFolderNameEl = document.getElementById('shared-new-folder-name');
 	const sharedNewFileNameEl = document.getElementById('shared-new-file-name');
@@ -457,16 +467,42 @@ const vscode = acquireVsCodeApi();
 		return null;
 	}
 
+	function isFileRoot(p) {
+		return p === FILE_ROOT_PATH;
+	}
+
+	/** Nodes as displayed: with "Persistent only", hidden headings are dropped and their children promoted. Paths stay real. */
+	function visibleHeadingNodes(nodes) {
+		if (!persistentOnly) return nodes || [];
+		const out = [];
+		(nodes || []).forEach(function (n) {
+			const kids = visibleHeadingNodes(n.children);
+			if (String(n.title || '').trim().startsWith('.')) out.push(Object.assign({}, n, { children: kids }));
+			else out.push.apply(out, kids);
+		});
+		return out;
+	}
+
+	function visibleTreeRoots() {
+		const raw =
+			(lastFlowTreeContext && lastFlowTreeContext.nodes) ||
+			(lastPickerTreeContext && lastPickerTreeContext.nodes) ||
+			[];
+		return visibleHeadingNodes(raw);
+	}
+
+	/** Heading path as the host expects it ('' for the file's top level). */
+	function realHeadingPath(p) {
+		return isFileRoot(p) ? '' : String(p || '');
+	}
+
 	function setDefaultIngestToBottomOfAnchor() {
 		const anchor = placementAnchorPath;
 		if (!anchor) {
 			return;
 		}
-		const roots =
-			(lastFlowTreeContext && lastFlowTreeContext.nodes) ||
-			(lastPickerTreeContext && lastPickerTreeContext.nodes) ||
-			[];
-		const anchorNode = findHeadingTreeNodeByPath(roots, anchor);
+		const roots = visibleTreeRoots();
+		const anchorNode = isFileRoot(anchor) ? { children: roots } : findHeadingTreeNodeByPath(roots, anchor);
 		if (!anchorNode || !anchorNode.children || !anchorNode.children.length) {
 			ingestDropRefPath = anchor;
 			ingestPosition = 'sectionEnd';
@@ -621,7 +657,7 @@ const vscode = acquireVsCodeApi();
 		chev.style.flexShrink = '0';
 		const label = document.createElement('span');
 		label.className = 'ht-label';
-		const rawTitle = (remoteNote.title || '').trim() || 'New note';
+		const rawTitle = (remoteNote.title || '').trim() || noTitleHeadingValue() || 'New note';
 		label.textContent = rawTitle.length > 50 ? rawTitle.slice(0, 50) + '...' : rawTitle;
 		label.title = rawTitle + ' — drag up or down to choose position in this section';
 		row.appendChild(chev);
@@ -691,6 +727,14 @@ const vscode = acquireVsCodeApi();
 	function isDirectChildOfAnchorPath(path, anchorPath) {
 		if (!anchorPath || !path || path === anchorPath) {
 			return false;
+		}
+		if (persistentOnly) {
+			const roots = visibleTreeRoots();
+			const anchor = isFileRoot(anchorPath) ? { children: roots } : findHeadingTreeNodeByPath(roots, anchorPath);
+			return !!(anchor && (anchor.children || []).some(function (c) { return c.path === path; }));
+		}
+		if (isFileRoot(anchorPath)) {
+			return !path.includes('/');
 		}
 		const prefix = anchorPath + '/';
 		if (!path.startsWith(prefix)) {
@@ -765,9 +809,9 @@ const vscode = acquireVsCodeApi();
 			selectedTarget &&
 			selectedTarget.targetType === 'file' &&
 			storageFlowStage === 'heading' &&
-			selectedTarget.headingPath
+			realHeadingPath(selectedTarget.headingPath)
 		) {
-			const trail = selectedTarget.headingPath.split('/').filter(Boolean).join(' › ');
+			const trail = realHeadingPath(selectedTarget.headingPath).split('/').filter(Boolean).join(' › ');
 			placement = trail + ' › ' + t;
 		}
 		remoteNote.headings = placement;
@@ -1045,8 +1089,8 @@ const vscode = acquireVsCodeApi();
 		if (!(selectedTarget && selectedTarget.targetType === 'file' && storageFlowStage === 'heading')) {
 			return;
 		}
-		const pathForBar = placementAnchorPath || selectedTarget.headingPath || '';
-		const leaf = headingPathLeafTitle(pathForBar);
+		const pathForBar = realHeadingPath(placementAnchorPath || selectedTarget.headingPath || '');
+		const leaf = isFileRoot(placementAnchorPath) ? 'top level' : headingPathLeafTitle(pathForBar);
 		const hasAnyHeadingList = (selectedTarget.headingPaths || []).length > 0;
 		if (!leaf && !hasAnyHeadingList) {
 			return;
@@ -1435,6 +1479,7 @@ const vscode = acquireVsCodeApi();
 			(lastFlowTreeContext && lastFlowTreeContext.container) ||
 			(lastPickerTreeContext && lastPickerTreeContext.container);
 		const canReorder =
+			!persistentOnly &&
 			selectedTarget &&
 			selectedTarget.targetType === 'file' &&
 			nodes &&
@@ -1505,6 +1550,10 @@ const vscode = acquireVsCodeApi();
 			const fullTitle = String(node.title || '');
 			label.textContent = fullTitle.length > 50 ? fullTitle.slice(0, 50) + '...' : fullTitle;
 			label.title = fullTitle;
+			if (isFileRoot(node.path)) {
+				row.classList.add('ht-file-root');
+				label.title = fullTitle + ' — double-click to place the note at the top level of this file';
+			}
 			row.appendChild(chev);
 			row.appendChild(label);
 
@@ -1527,7 +1576,7 @@ const vscode = acquireVsCodeApi();
 					}
 					rerenderHeadingTrees();
 					renderStoragePathBar();
-					postSelection();
+					renderSelectionUI();
 					return;
 				}
 				expandAncestorsForPath(node.path);
@@ -1551,7 +1600,7 @@ const vscode = acquireVsCodeApi();
 				}
 				rerenderHeadingTrees();
 				renderStoragePathBar();
-				postSelection();
+				renderSelectionUI();
 			});
 
 			row.addEventListener('click', function (e) {
@@ -1609,7 +1658,7 @@ const vscode = acquireVsCodeApi();
 				vscode.postMessage({
 					type: 'reorderHeadingSiblings',
 					fileUri: selectedTarget.uri,
-					parentPath: parentPath || '',
+					parentPath: realHeadingPath(parentPath),
 					orderedPaths: next,
 					note: notePayload()
 				});
@@ -1658,7 +1707,8 @@ const vscode = acquireVsCodeApi();
 			placementAnchorPath &&
 			parentPath === placementAnchorPath &&
 			selectedTarget &&
-			selectedTarget.fromTreeFlow
+			selectedTarget.fromTreeFlow &&
+			!noTitleAppendActive()
 		) {
 			const slotIdx = computeSlotIndexFromIngest(
 				placementAnchorPath,
@@ -1687,7 +1737,11 @@ const vscode = acquireVsCodeApi();
 		}
 		clearHeadingTreeDynamic(container);
 		ensureIngestLineLayer(container);
-		if (!nodes || !nodes.length) {
+		const treeNodes =
+			selectedTarget && selectedTarget.targetType === 'file'
+				? [{ path: FILE_ROOT_PATH, title: displayFileLabel(selectedTarget.label), children: visibleHeadingNodes(nodes) }]
+				: visibleHeadingNodes(nodes);
+		if (!treeNodes || !treeNodes.length) {
 			const empty = document.createElement('p');
 			empty.className = 'meta';
 			empty.textContent = 'No headings in this file.';
@@ -1699,7 +1753,7 @@ const vscode = acquireVsCodeApi();
 		}
 		const ul = document.createElement('ul');
 		ul.className = 'ht-tree ht-tree-root';
-		appendHeadingTreeNodes(ul, nodes, '', selectedPath, onPick);
+		appendHeadingTreeNodes(ul, treeNodes, '', selectedPath, onPick);
 		container.appendChild(ul);
 		requestAnimationFrame(function () {
 			syncCommittedIngestLines();
@@ -1729,10 +1783,26 @@ const vscode = acquireVsCodeApi();
 			}
 		}
 		bindExpandCollapse('ht-expand-flow', 'ht-collapse-flow', function () {
-			return lastFlowTreeContext && lastFlowTreeContext.nodes ? lastFlowTreeContext.nodes : [];
+			return visibleHeadingNodes(lastFlowTreeContext && lastFlowTreeContext.nodes);
 		});
 		bindExpandCollapse('ht-expand-picker', 'ht-collapse-picker', function () {
-			return lastPickerTreeContext && lastPickerTreeContext.nodes ? lastPickerTreeContext.nodes : [];
+			return visibleHeadingNodes(lastPickerTreeContext && lastPickerTreeContext.nodes);
+		});
+		const persistentBoxes = Array.from(document.querySelectorAll('.ht-persistent-only'));
+		persistentBoxes.forEach(function (box) {
+			box.checked = persistentOnly;
+			box.addEventListener('change', function () {
+				persistentOnly = box.checked;
+				persistentBoxes.forEach(function (b) { b.checked = persistentOnly; });
+				vscode.setState(Object.assign({}, vscode.getState() || {}, { persistentOnly: persistentOnly }));
+				if (placementAnchorPath && !isFileRoot(placementAnchorPath) && !findHeadingTreeNodeByPath(visibleTreeRoots(), placementAnchorPath)) {
+					exitPlacementAnchor();
+				}
+				resetIngestDropTarget();
+				if (placementAnchorPath) setDefaultIngestToBottomOfAnchor();
+				rerenderHeadingTrees();
+				postSelection();
+			});
 		});
 		function bindRefresh(refreshId) {
 			const btn = document.getElementById(refreshId);
@@ -1760,6 +1830,7 @@ const vscode = acquireVsCodeApi();
 			if (!customPickerEl.hidden) {
 				return;
 			}
+			hideLlmPlan();
 			aiListMode = false;
 			if (aiPathsPanelEl) {
 				aiPathsPanelEl.hidden = true;
@@ -1871,6 +1942,8 @@ const vscode = acquireVsCodeApi();
 
 	function applyAiPathSuggestion(p) {
 		aiListMode = false;
+		exitPlacementAnchor();
+		resetIngestDropTarget();
 		cachedPathSegments = Array.isArray(p.pathSegments) ? p.pathSegments : [];
 		if (p.targetType === 'folder') {
 			pickedFlowFolder = { uri: p.uri, label: p.displayPath || p.label };
@@ -1915,6 +1988,16 @@ const vscode = acquireVsCodeApi();
 				renderStoragePathBar();
 			}
 			renderHeadingTreeInto(headingTreeEl, selectedTarget.headingTree || [], initial, onPickFlow);
+			if (p.kind === 'file') {
+				// File suggestion: open placement at the file's top level (new heading, not nested).
+				placementAnchorPath = FILE_ROOT_PATH;
+				selectedTarget.headingPath = FILE_ROOT_PATH;
+				setDefaultIngestToBottomOfAnchor();
+				document.querySelectorAll('.heading-tree').forEach(function (el) {
+					el.classList.add('ht-placement-mode');
+				});
+				rerenderHeadingTrees();
+			}
 		}
 		renderSelectionUI();
 		renderStoragePathBar();
@@ -1922,6 +2005,227 @@ const vscode = acquireVsCodeApi();
 		renderSharedFolderActions();
 		postSelection();
 	}
+
+	function hideLlmPlan() {
+		llmProposal = null;
+		if (llmPlanPanelEl) {
+			llmPlanPanelEl.hidden = true;
+			llmPlanPanelEl.innerHTML = '';
+			llmPlanPanelEl.className = 'llm-plan-panel';
+		}
+	}
+
+	function showLlmPlanStatus(text, isError) {
+		if (!llmPlanPanelEl) return;
+		llmPlanPanelEl.hidden = false;
+		llmPlanPanelEl.className = 'llm-plan-panel';
+		llmPlanPanelEl.innerHTML =
+			'<p class="' + (isError ? 'error' : 'meta') + '" style="margin:0">' + escHtml(text) + '</p>';
+	}
+
+	const LLM_ICONS = {
+		append: '<path d="M2 3.5h9M2 6.5h9M2 9.5h5"/><path d="M11.5 8.5v6M9 12l2.5 2.5L14 12"/>',
+		heading: '<path d="M5.5 2l-1 12M10.5 2l-1 12M2.5 5.5h11M2 10.5h11"/>',
+		file: '<path d="M4 1.5h5l3 3v10H4z"/><path d="M9 1.5v3h3"/>',
+		folder: '<path d="M1.5 3.5h4.5l1.5 1.5h7v8.5h-13z"/>'
+	};
+
+	/** Per action: card colour class, icon, headline, and what Ingest will do. */
+	const LLM_ACTIONS = {
+		append: { cls: 'append', icon: 'append', title: 'Append to an existing heading', hint: 'Ingest adds the note text to the end of this heading. No new heading is created.' },
+		new_heading: { cls: 'heading', icon: 'heading', title: 'Create a new heading', hint: 'Ingest creates the new heading here with the note inside it.' },
+		new_file: { cls: 'file', icon: 'file', title: 'Create a new file', hint: 'Ingest creates the new file here. You can rename it in Name below.' },
+		new_folder: { cls: 'folder', icon: 'folder', title: 'Create a new folder', hint: 'Ingest creates the new folder and a file inside it. You can rename the file in Name below.' }
+	};
+
+	function llmIcon(name) {
+		return (
+			'<svg class="llm-icon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">' +
+			(LLM_ICONS[name] || '') +
+			'</svg>'
+		);
+	}
+
+	/** Destination as a small tree: existing places, then the new item(s) Ingest will create. */
+	function llmDestinationHtml(p) {
+		const crumbs = Array.isArray(p.crumbs) ? p.crumbs : [];
+		const newItems = Array.isArray(p.newItems) ? p.newItems : [];
+		const bindFor = { heading: 'title', folder: 'folder', file: 'file' };
+		let html = '<div class="llm-dest"><div class="llm-dest-row llm-dest-root" style="padding-left:0">' + llmIcon('folder') + '<span>Knowledge base</span></div>';
+		let depth = 1;
+		crumbs.forEach(function (c, i) {
+			const isTarget = p.extras.mode === 'append' && i === crumbs.length - 1;
+			html +=
+				'<div class="llm-dest-row' + (isTarget ? ' llm-dest-target' : '') + '" style="padding-left:' + depth * 12 + 'px">' +
+				llmIcon(c.kind) + '<span>' + escHtml(c.label) + '</span>' +
+				(isTarget ? '<span class="llm-dest-tag">text goes here</span>' : '') +
+				'</div>';
+			depth += 1;
+		});
+		newItems.forEach(function (n) {
+			html +=
+				'<div class="llm-dest-row llm-dest-new" style="padding-left:' + depth * 12 + 'px">' +
+				llmIcon(n.kind) + '<span data-llm-bind="' + (bindFor[n.kind] || '') + '">' + escHtml(n.label) + '</span>' +
+				'<span class="llm-dest-tag">new</span></div>';
+			depth += 1;
+		});
+		return html + '</div>';
+	}
+
+	/** Keep the "new" items in the tree in step with the title / folder / file name inputs. */
+	function syncLlmDestinationLabels() {
+		if (!llmProposal || !llmPlanPanelEl) return;
+		const sources = { title: 'llm-note-title', folder: 'llm-folder-name', file: 'new-file-name' };
+		llmPlanPanelEl.querySelectorAll('[data-llm-bind]').forEach(function (el) {
+			const input = document.getElementById(sources[el.getAttribute('data-llm-bind')] || '');
+			if (input && input.value.trim()) el.textContent = input.value.trim();
+		});
+	}
+
+	document.addEventListener('input', function (e) {
+		const id = e.target && e.target.id;
+		if (id === 'llm-note-title' || id === 'llm-folder-name' || id === 'new-file-name') syncLlmDestinationLabels();
+	});
+
+	function formatSeconds(ms) {
+		return (Math.max(0, Number(ms) || 0) / 1000).toFixed(1) + ' s';
+	}
+
+	function llmTimingHtml(result) {
+		const t = result.timings;
+		if (!t) return '';
+		const local = (t.syncMs || 0) + (t.encodeMs || 0) + (t.searchMs || 0);
+		let text = 'Local search ' + formatSeconds(local) + ' · LLM' + (result.model ? ' (' + result.model + ')' : '') + ' ' + formatSeconds(t.llmMs);
+		if (t.syncMs > 1000) text += ' · first run indexed file paths in ' + formatSeconds(t.syncMs);
+		return '<p class="llm-plan-timing">' + escHtml(text) + '</p>';
+	}
+
+	/** Proposal card: target is pre-selected below; the normal Ingest button applies it. */
+	function renderLlmPlan(result) {
+		if (!llmPlanPanelEl) return;
+		if (!result || !result.ok) {
+			llmProposal = null;
+			showLlmPlanStatus((result && result.message) || 'The LLM could not suggest a place.', true);
+			return;
+		}
+		const p = result.proposal;
+		applyAiPathSuggestion(p.path);
+		if (p.path.targetType === 'folder' && selectedTarget) {
+			selectedTarget.fileNameDefault = p.title;
+			renderSelectionUI();
+		}
+		llmProposal = {
+			extras: p.extras,
+			targetUri: p.path.uri,
+			headingPath: p.path.headingPath || ''
+		};
+		const mode = p.extras.mode;
+		const act = LLM_ACTIONS[mode] || LLM_ACTIONS.append;
+		let html =
+			'<div class="llm-plan-head">' +
+			'<span class="llm-act-icon">' + llmIcon(act.icon) + '</span>' +
+			'<span class="llm-act-title">' + escHtml(act.title) + '</span>' +
+			'<span class="llm-badge">LLM</span></div>';
+		html += llmDestinationHtml(p);
+		if (p.reason) html += '<p class="llm-plan-reason">' + escHtml(p.reason) + '</p>';
+		if (mode === 'new_heading') {
+			html +=
+				'<div class="llm-plan-field"><label for="llm-note-title">New heading title</label>' +
+				'<input id="llm-note-title" value="' + escHtml(p.title) + '" /></div>';
+		}
+		if (mode === 'new_folder') {
+			html +=
+				'<div class="llm-plan-field"><label for="llm-folder-name">New folder name</label>' +
+				'<input id="llm-folder-name" value="' + escHtml(p.folderName) + '" /></div>';
+		}
+		html += '<p class="meta">' + escHtml(act.hint) + ' Click Ingest to apply; choosing another target cancels this suggestion.</p>';
+		const split = Array.isArray(result.split) ? result.split : [];
+		if (split.length >= 2) {
+			html +=
+				'<div class="llm-plan-split"><p><strong>This note looks like ' + split.length + ' separate topics:</strong></p><ol>' +
+				split
+					.map(function (s) {
+						const preview = String(s.text || '').replace(/\s+/g, ' ');
+						return (
+							'<li><strong>' + escHtml(s.title || 'Untitled') + '</strong> — <span class="llm-plan-preview">' +
+							escHtml(preview.length > 90 ? preview.slice(0, 90) + '…' : preview) + '</span></li>'
+						);
+					})
+					.join('') +
+				'</ol><div class="llm-plan-actions">' +
+				'<button type="button" id="llm-split-yes">Split into ' + split.length + ' notes</button>' +
+				'<button type="button" class="secondary" id="llm-split-no">Keep as one note</button></div></div>';
+		}
+		html += '<div class="llm-plan-actions"><button type="button" class="secondary" id="llm-dismiss">Dismiss</button></div>';
+		html += llmTimingHtml(result);
+		llmPlanPanelEl.hidden = false;
+		llmPlanPanelEl.className = 'llm-plan-panel llm-act-' + act.cls;
+		llmPlanPanelEl.innerHTML = html;
+
+		for (const id of ['llm-note-title', 'llm-folder-name']) {
+			const el = document.getElementById(id);
+			if (el) el.addEventListener('input', postSelection);
+		}
+		const dismiss = document.getElementById('llm-dismiss');
+		if (dismiss) {
+			dismiss.addEventListener('click', function () {
+				hideLlmPlan();
+				postSelection();
+			});
+		}
+		const splitNo = document.getElementById('llm-split-no');
+		if (splitNo) {
+			splitNo.addEventListener('click', function () {
+				const box = llmPlanPanelEl.querySelector('.llm-plan-split');
+				if (box) box.remove();
+			});
+		}
+		const splitYes = document.getElementById('llm-split-yes');
+		if (splitYes) {
+			splitYes.addEventListener('click', function () {
+				const parts = split.map(function (s) {
+					return { title: s.title, text: s.text };
+				});
+				showLlmPlanStatus('Splitting the note and finding a place for part 1…', false);
+				vscode.postMessage(Object.assign({ type: 'llmIngestSplit', note: notePayload(), parts: parts }, corpusPayload()));
+			});
+		}
+		renderSelectionUI();
+	}
+
+	/** LLM extras for the selection payload — only while the proposal's own target is selected. */
+	function llmSelectionExtras(payload) {
+		if (!llmProposal || !payload || payload.uri !== llmProposal.targetUri) return {};
+		const ex = llmProposal.extras || {};
+		if (payload.targetType === 'file') {
+			if (ex.mode === 'append' && payload.headingPath === llmProposal.headingPath) {
+				return { appendTo: { fileId: ex.fileId, headingId: ex.headingId } };
+			}
+			if (ex.mode === 'new_heading') {
+				const t = document.getElementById('llm-note-title');
+				return { noteTitle: t ? t.value.trim() : ex.noteTitle || '' };
+			}
+			return {};
+		}
+		if (payload.targetType === 'folder' && (ex.mode === 'new_file' || ex.mode === 'new_folder')) {
+			const out = { noteTitle: String(payload.fileName || '').trim() };
+			if (ex.mode === 'new_folder') {
+				const f = document.getElementById('llm-folder-name');
+				out.newFolderName = f ? f.value.trim() : ex.newFolderName || '';
+			}
+			return out;
+		}
+		return {};
+	}
+
+	document.getElementById('llm-suggest-btn').addEventListener('click', () => {
+		clearMessages();
+		llmProposal = null;
+		resetStorageSuggestionsToEmpty();
+		updateExplorerPanels();
+		showLlmPlanStatus('Finding related folders, files and headings, then asking the LLM…', false);
+		vscode.postMessage(Object.assign({ type: 'llmIngestPlan', note: notePayload() }, corpusPayload()));
+	});
 
 	function renderAiPathResults(paths) {
 		if (!aiPathsListEl) {
@@ -1940,17 +2244,19 @@ const vscode = acquireVsCodeApi();
 			const sc = document.createElement('span');
 			sc.className = 'sf-score';
 			sc.textContent = p.score || '';
+			const kind = p.kind || (p.targetType === 'folder' ? 'folder' : p.headingPath ? 'heading' : 'file');
 			const ic = document.createElement('span');
 			ic.className = 'sf-icon';
 			ic.setAttribute('aria-hidden', 'true');
-			ic.textContent = p.targetType === 'folder' ? '📁' : '📄';
+			ic.textContent = kind === 'folder' ? '📁' : kind === 'file' ? '📄' : '#';
 			const nm = document.createElement('span');
 			nm.className = 'sf-name';
-			if (p.targetType === 'folder') {
+			if (kind === 'folder') {
 				nm.textContent = 'Folder · ' + (p.displayPath || p.label) + ' (new note)';
+			} else if (kind === 'file') {
+				nm.textContent = 'File · ' + p.displayPath + ' (top level)';
 			} else {
-				const hp = p.headingPath ? String(p.headingPath) : '(whole file)';
-				nm.textContent = p.displayPath + ' → ' + hp;
+				nm.textContent = p.displayPath + ' → ' + String(p.headingPath).split('/').join(' › ');
 			}
 			row.appendChild(sc);
 			row.appendChild(ic);
@@ -2013,6 +2319,58 @@ const vscode = acquireVsCodeApi();
 		return t || 'new-note';
 	}
 
+	function noteHasTitle() {
+		return !!(remoteNote.title || '').trim();
+	}
+
+	/** Suggested title for "New heading" when the note has none: its first line, shortened. */
+	function defaultNoTitleHeading() {
+		const first = String(remoteNote.content || '').split('\n').map(function (l) { return l.trim(); }).filter(Boolean)[0] || '';
+		return first.length > 60 ? first.slice(0, 60).trim() : first;
+	}
+
+	function noTitleHeadingValue() {
+		if (noteHasTitle()) return '';
+		const el = document.getElementById('no-title-heading');
+		return ((el ? el.value : noTitleHeading) || defaultNoTitleHeading()).trim();
+	}
+
+	/** Heading the "Append" choice writes into: the double-clicked section, else the selected heading. */
+	function appendHeadingTarget() {
+		if (!selectedTarget || selectedTarget.targetType !== 'file') return '';
+		return realHeadingPath(placementAnchorPath || selectedTarget.headingPath || '');
+	}
+
+	/** An LLM proposal for the selected target decides append / new heading itself (see its card). */
+	function llmOwnsTarget() {
+		return !!(llmProposal && selectedTarget && selectedTarget.uri === llmProposal.targetUri);
+	}
+
+	function noTitleAppendActive() {
+		return !noteHasTitle() && !llmOwnsTarget() && noTitleMode === 'append' && !!appendHeadingTarget();
+	}
+
+	/** Append vs New heading choice, shown only for file targets when the note has no heading. */
+	function noTitleChoiceHtml() {
+		if (noteHasTitle() || llmOwnsTarget()) return '';
+		const target = appendHeadingTarget();
+		const mode = target ? noTitleMode : 'new_heading';
+		const leaf = target ? headingPathLeafTitle(target).replace(/^\.\S*\s+/, '') : '';
+		return (
+			'<div class="no-title-choice">' +
+			'<label class="ntc-opt' + (target ? '' : ' ntc-disabled') + '" title="' +
+			escapeHtml(target ? 'Append to: ' + leaf : 'Pick a heading first') + '">' +
+			'<input type="radio" name="no-title-mode" value="append"' +
+			(mode === 'append' ? ' checked' : '') + (target ? '' : ' disabled') + ' /> Append</label>' +
+			'<label class="ntc-opt"><input type="radio" name="no-title-mode" value="new_heading"' +
+			(mode === 'new_heading' ? ' checked' : '') + ' /> New heading</label>' +
+			(mode === 'new_heading'
+				? '<input id="no-title-heading" placeholder="Heading title" value="' + escapeHtml(noTitleHeading || defaultNoTitleHeading()) + '" />'
+				: '') +
+			'</div>'
+		);
+	}
+
 	function postSelection() {
 		vscode.postMessage({ type: 'selectionChanged', selection: buildSelectionPayload() });
 		syncComposerPlacementHeadings();
@@ -2020,6 +2378,7 @@ const vscode = acquireVsCodeApi();
 
 	document.getElementById('suggestions-btn').addEventListener('click', () => {
 		clearMessages();
+		hideLlmPlan();
 		aiListMode = false;
 		if (aiPathsPanelEl) {
 			aiPathsPanelEl.hidden = true;
@@ -2029,6 +2388,7 @@ const vscode = acquireVsCodeApi();
 
 	document.getElementById('ai-paths-btn').addEventListener('click', () => {
 		clearMessages();
+		hideLlmPlan();
 		aiListMode = true;
 		selectedTarget = null;
 		suggestedFolderIdx = null;
@@ -2101,6 +2461,7 @@ const vscode = acquireVsCodeApi();
 
 		if (message.type === 'composerNote') {
 			const n = message.note || {};
+			const hadTitle = noteHasTitle();
 			currentDraftId = n.id || '';
 			remoteNote = {
 				id: n.id || '',
@@ -2110,11 +2471,22 @@ const vscode = acquireVsCodeApi();
 				metadataFilename: n.metadataFilename || ''
 			};
 			syncComposerPlacementHeadings();
+			if (hadTitle !== noteHasTitle() && selectedTarget && selectedTarget.targetType === 'file') {
+				renderSelectionUI();
+				rerenderHeadingTrees();
+			}
 		}
 
 		if (message.type === 'storageReset') {
+			hideLlmPlan();
+			noTitleMode = 'append';
+			noTitleHeading = '';
 			resetStorageSuggestionsToEmpty(message.summaryText || 'No target selected. Use Suggestions.');
 			errorEl.textContent = '';
+		}
+
+		if (message.type === 'llmIngestPlanResult') {
+			renderLlmPlan(message);
 		}
 
 		if (message.type === 'storageActionStatus') {
@@ -2342,10 +2714,10 @@ const vscode = acquireVsCodeApi();
 			selectedTarget.headingPaths = m.headingPaths || [];
 			selectedTarget.headingTree = m.headingTree || [];
 			const paths = selectedTarget.headingPaths;
-			if (placementAnchorPath && paths.indexOf(placementAnchorPath) < 0) {
+			if (placementAnchorPath && !isFileRoot(placementAnchorPath) && paths.indexOf(placementAnchorPath) < 0) {
 				exitPlacementAnchor();
 			}
-			if (selectedTarget.headingPath && paths.indexOf(selectedTarget.headingPath) < 0) {
+			if (selectedTarget.headingPath && !isFileRoot(selectedTarget.headingPath) && paths.indexOf(selectedTarget.headingPath) < 0) {
 				selectedTarget.headingPath = m.suggestedHeadingPath || paths[0] || '';
 			}
 			const initial = selectedTarget.headingPath || '';
@@ -2463,6 +2835,12 @@ const vscode = acquireVsCodeApi();
 			selectionControlsChangeWired = true;
 			selectionControlsEl.addEventListener('change', function (e) {
 				const t = e.target;
+				if (t && t.name === 'no-title-mode') {
+					noTitleMode = t.value === 'new_heading' ? 'new_heading' : 'append';
+					renderSelectionUI();
+					rerenderHeadingTrees();
+					return;
+				}
 				if (!t || !t.id) {
 					return;
 				}
@@ -2499,21 +2877,21 @@ const vscode = acquireVsCodeApi();
 		if (selectedTarget.targetType === 'file') {
 			const headingPaths = selectedTarget.headingPaths || [];
 			if (selectedTarget.fromTreeFlow) {
-				if (!headingPaths.length) {
-					postSelection();
-					return;
-				}
 				selectionControlsEl.innerHTML =
 					'<p class="meta" style="margin:0;font-size:11px;line-height:1.45">' +
 					(placementAnchorPath
-						? 'Drag the note row to set position.'
-						: 'Double-click a heading to choose the section.') +
-					'</p>';
+						? noTitleAppendActive()
+							? 'The note text goes at the end of this heading.'
+							: 'Drag the note row to set position.'
+						: 'Double-click a heading, or the file name for the top level, to choose the section.') +
+					'</p>' +
+					noTitleChoiceHtml();
 				postSelection();
 				return;
 			}
 
 			if (!headingPaths.length) {
+				selectionControlsEl.innerHTML = noTitleChoiceHtml();
 				postSelection();
 				return;
 			}
@@ -2542,7 +2920,8 @@ const vscode = acquireVsCodeApi();
 				(placementAnchorPath
 					? 'Drag the note row to set position.'
 					: 'Double-click a heading to choose the section.') +
-				'</p>';
+				'</p>' +
+				noTitleChoiceHtml();
 		} else if (selectedTarget.targetType === 'folder') {
 			selectionControlsEl.innerHTML =
 				'<label for="new-file-name">Name</label>' +
@@ -2558,25 +2937,50 @@ const vscode = acquireVsCodeApi();
 
 		if (selectedTarget.targetType === 'file') {
 			const headingSelect = document.getElementById('heading-select');
-			const headingPath = headingSelect
-				? headingSelect.value
-				: (selectedTarget.headingPath || '');
-			return {
+			const headingPath = realHeadingPath(headingSelect ? headingSelect.value : selectedTarget.headingPath || '');
+			let ref = ingestDropRefPath || '';
+			let pos = ingestPosition || '';
+			if (isFileRoot(ref)) {
+				// Top level of the file = before the first / after the last top-level heading.
+				const tops = selectedTarget.headingTree || [];
+				if (!tops.length) {
+					ref = '';
+					pos = '';
+				} else if (pos === 'childFirst') {
+					ref = tops[0].path;
+					pos = 'before';
+				} else {
+					ref = tops[tops.length - 1].path;
+					pos = 'afterSection';
+				}
+			}
+			const filePayload = {
 				targetType: 'file',
 				uri: selectedTarget.uri,
 				headingPath,
-				ingestDropRefPath: ingestDropRefPath || '',
-				ingestPosition: ingestPosition || ''
+				ingestDropRefPath: ref,
+				ingestPosition: pos
 			};
+			if (!noteHasTitle() && !llmOwnsTarget()) {
+				if (noTitleAppendActive()) {
+					filePayload.headingPath = appendHeadingTarget();
+					filePayload.ingestDropRefPath = '';
+					filePayload.ingestPosition = '';
+				} else {
+					filePayload.noteTitle = noTitleHeadingValue();
+				}
+			}
+			return Object.assign(filePayload, llmSelectionExtras(filePayload));
 		}
 
 		if (selectedTarget.targetType === 'folder') {
 			const nameEl = document.getElementById('new-file-name');
-			return {
+			const folderPayload = {
 				targetType: 'folder',
 				uri: selectedTarget.uri,
 				fileName: nameEl ? nameEl.value : selectedTarget.fileNameDefault
 			};
+			return Object.assign(folderPayload, llmSelectionExtras(folderPayload));
 		}
 
 		return undefined;
@@ -2593,6 +2997,12 @@ const vscode = acquireVsCodeApi();
 
 	selectionControlsEl.addEventListener('change', postSelection);
 	selectionControlsEl.addEventListener('input', postSelection);
+	selectionControlsEl.addEventListener('input', function (e) {
+		if (!e.target || e.target.id !== 'no-title-heading') return;
+		noTitleHeading = e.target.value;
+		const ph = document.querySelector('.ht-ingest-placeholder-row .ht-label');
+		if (ph) ph.textContent = noTitleHeadingValue() || 'New note';
+	});
 
 	if (corpusSel) {
 		corpusSel.addEventListener('change', () => {

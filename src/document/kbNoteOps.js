@@ -651,6 +651,17 @@ function isMarkdownKbPathForHeadings(fileFsPath) {
 	return Boolean(fileFsPath && path.basename(fileFsPath).toLowerCase().endsWith('.md'));
 }
 
+/**
+ * A heading's `@fN:hM` identity line sits directly above it; anything inserted "before" that
+ * heading must go above the identity line, or the new text would take over the heading's id.
+ * @param {string[]} lines
+ * @param {number} headingLine
+ */
+function insertIndexAboveHeading(lines, headingLine) {
+	const { isHeadingIdentityLine } = require('../indexing/dripnoteHeadingIdentity');
+	return headingLine > 0 && isHeadingIdentityLine(lines[headingLine - 1]) ? headingLine - 1 : headingLine;
+}
+
 function findInsertLineBeforeBody(body, headingPath, useDripType1Indent = true) {
 	const path = String(headingPath || '').trim();
 	if (!path) {
@@ -663,10 +674,14 @@ function findInsertLineBeforeBody(body, headingPath, useDripType1Indent = true) 
 	}
 	const h = headings[idx];
 	const next = headings.slice(idx + 1).find(x => x.level <= h.level);
-	return next ? next.line : lines.length;
+	return next ? insertIndexAboveHeading(lines, next.line) : lines.length;
 }
 
-/** Insert immediately after the heading line (first position inside that section). */
+/**
+ * First position inside a heading's section. In `.d.txt` notes this is below the heading's
+ * metadata block (`.concept`, `tags: […]`, …) — inserting above it would detach the metadata
+ * from its heading.
+ */
 function findInsertLineAfterHeadingLine(body, headingPath, useDripType1Indent = true) {
 	const path = String(headingPath || '').trim();
 	if (!path) {
@@ -678,7 +693,11 @@ function findInsertLineAfterHeadingLine(body, headingPath, useDripType1Indent = 
 		return null;
 	}
 	const h = headings[idx];
-	return Math.min(h.line + 1, lines.length);
+	if (!useDripType1Indent) {
+		return Math.min(h.line + 1, lines.length);
+	}
+	const { findMetadataBlockEndExclusive } = require('./model/persistentHeadingZones');
+	return Math.min(findMetadataBlockEndExclusive(lines, h.line), lines.length);
 }
 
 function isDirectChildHeadingPath(parentPath, childPath) {
@@ -814,6 +833,9 @@ function buildUnderHeadingChunkLines(body, headingPath, title, draftContentRaw, 
 		.split('\n');
 
 	if (!useDripType1Indent) {
+		if (h && !noteTitle) {
+			return ['', ...rawLines.map(line => (line.trim() ? line : ''))];
+		}
 		if (!h) {
 			return ['', `# ${noteTitle}`, ...rawLines.map(line => (line.trim() ? line : ''))];
 		}
@@ -826,6 +848,9 @@ function buildUnderHeadingChunkLines(body, headingPath, title, draftContentRaw, 
 	}
 
 	const tabForHeading = '\t'.repeat(h.level + 1);
+	if (!noteTitle) {
+		return ['', ...rawLines.map(line => (line.trim() ? tabForHeading + line : ''))];
+	}
 	const tabForContent = '\t'.repeat(h.level + 2);
 	return [
 		'',
@@ -975,7 +1000,21 @@ function buildAppendedNote(existingContent, draft, headingPath, options = {}) {
 	const dropPos = options.ingestPosition || '';
 
 	let newBody;
+	// No title + a heading target: add the text to that heading's own body instead of a blank `#` heading.
+	const siblingDrop = dropRef && (dropPos === 'before' || dropPos === 'afterSection');
+	const underDrop = dropRef && (dropPos === 'childFirst' || dropPos === 'sectionEnd') ? dropRef : '';
+	const proseAnchor = !title && useDripType1Indent && !siblingDrop ? underDrop || path : '';
+	if (proseAnchor) {
+		const h = parseType1HeadingRecords(body).headings.find(x => x.path === proseAnchor);
+		if (h) {
+			const { appendToHeadingAtLine } = require('../capture/headingContent');
+			const next = appendToHeadingAtLine(body, h.line, draftLines);
+			if (next != null) newBody = next;
+		}
+	}
+
 	if (
+		newBody == null &&
 		dropRef &&
 		(dropPos === 'before' ||
 			dropPos === 'afterSection' ||
@@ -999,10 +1038,10 @@ function buildAppendedNote(existingContent, draft, headingPath, options = {}) {
 			} else {
 				insertBefore =
 					dropPos === 'before'
-						? hr.line
+						? insertIndexAboveHeading(lines, hr.line)
 						: (() => {
 								const next = headings.slice(idx + 1).find(x => x.level <= hr.level);
-								return next ? next.line : lines.length;
+								return next ? insertIndexAboveHeading(lines, next.line) : lines.length;
 							})();
 				chunkLines = buildSiblingChunkLinesAtRef(body, dropRef, title, draftLines, useDripType1Indent);
 			}

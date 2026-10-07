@@ -111,6 +111,7 @@ function emptyCapture() {
 /**
  * Capture for Composer: strip `@f…` / heading ids and excess blank lines.
  * Split into heading title, freeform metadata block, and body — no type parsing.
+ * Only a first line that is a real `#` heading becomes the title; otherwise everything is body.
  *
  * @param {string} rawText
  * @returns {{ title: string, metadata: string, content: string }}
@@ -122,19 +123,12 @@ function parseSelectionForComposer(rawText) {
 	lines = normalizeBlankLines(lines);
 	if (!lines.length) return emptyCapture();
 
-	let headingIdx = -1;
-	for (let i = 0; i < lines.length; i++) {
-		if (parseHeadingForValidation(lines[i])) {
-			headingIdx = i;
-			break;
-		}
-	}
-
-	if (headingIdx < 0) {
+	const headingIdx = 0;
+	if (!parseHeadingForValidation(lines[headingIdx])) {
 		return {
-			title: String(lines[0] || '').trim(),
+			title: '',
 			metadata: '',
-			content: dedentBodyLines(lines.slice(1).join('\n')).trim()
+			content: dedentBodyLines(lines.join('\n')).trim()
 		};
 	}
 
