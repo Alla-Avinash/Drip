@@ -9,7 +9,7 @@
  *
  * Defaults (application-enforced; see `headings.metadata_type_id`):
  * - `headings.metadata_type_id` → SQL NULL when the note has no `.type` marker or an unknown type
- * - `index_meta.schema_version` → `14`
+ * - `index_meta.schema_version` → `15`
  * - `index_meta.next_file_id` → `0`
  * - `index_meta.next_project_id` → `1`
  * - `index_meta.embedding_*` → model/dims/format/generation (see headingEmbeddingStore.js)
@@ -31,7 +31,7 @@ const { ensureHeadingEmbeddingStorage } = require('../embeddings/headingEmbeddin
 const { ensureFolderEmbeddingStorage } = require('../embeddings/folderEmbeddingStore');
 const { ensureTagEmbeddingStorage } = require('../embeddings/tagEmbeddingStore');
 
-const SCHEMA_VERSION = 14;
+const SCHEMA_VERSION = 15;
 
 /** @type {string} */
 const SCHEMA_SQL = `
@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS projects (
 	title TEXT,
 	status TEXT,
 	deadline INTEGER,
+	priority TEXT,
 	FOREIGN KEY (index_file_id) REFERENCES files(id) ON DELETE SET NULL
 );
 
@@ -146,11 +147,12 @@ CREATE TABLE IF NOT EXISTS project_metadata (
 	heading_id INTEGER NOT NULL,
 	status TEXT,
 	deadline INTEGER,
+	priority TEXT,
 	PRIMARY KEY (file_id, heading_id),
 	FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_project_sort ON project_metadata(deadline);
+CREATE INDEX IF NOT EXISTS idx_project_sort ON project_metadata(deadline, priority);
 
 CREATE TABLE IF NOT EXISTS task_metadata (
 	file_id INTEGER NOT NULL,
@@ -528,6 +530,22 @@ function migrateProjectsV14(db) {
 			r.priority != null ? String(r.priority) : null
 		);
 	}
+}
+
+/**
+ * v15: add `priority` to `projects` and `project_metadata` (project-level priority).
+ * Project priority was declared in the `.project` template but never persisted.
+ * @param {import('../db/dripSqlite').DripSqliteDatabase} db
+ */
+function migrateProjectPriorityV15(db) {
+	if (tableExists(db, 'projects') && !columnExists(db, 'projects', 'priority')) {
+		db.exec(`ALTER TABLE projects ADD COLUMN priority TEXT`);
+	}
+	if (tableExists(db, 'project_metadata') && !columnExists(db, 'project_metadata', 'priority')) {
+		db.exec(`ALTER TABLE project_metadata ADD COLUMN priority TEXT`);
+	}
+	db.exec(`DROP INDEX IF EXISTS idx_project_sort`);
+	db.exec(`CREATE INDEX IF NOT EXISTS idx_project_sort ON project_metadata(deadline, priority)`);
 }
 
 /**
@@ -971,6 +989,10 @@ function migrateSchemaIfNeeded(db) {
 		migrateProjectsV14(db);
 	}
 
+	if (version < 15) {
+		migrateProjectPriorityV15(db);
+	}
+
 	db.exec(SCHEMA_SQL);
 	ensureHeadingEmbeddingStorage(db);
 	ensureFolderEmbeddingStorage(db);
@@ -1017,6 +1039,7 @@ function ensureDripIndexSchema(db) {
 	migrateHeadingsAddParent(db);
 	migrateIssueMetadataParentKey(db);
 	migrateProjectsV14(db);
+	migrateProjectPriorityV15(db);
 	db.exec(SCHEMA_SQL);
 	seedInitialIndexMeta(db);
 	db.run(`INSERT OR IGNORE INTO index_meta(key, value) VALUES ('next_project_id', '1')`);

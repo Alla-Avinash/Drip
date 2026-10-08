@@ -328,12 +328,13 @@ function insertTypedMetadataRows(db, fileId, typedMetadata, metadataTypeIdByLowe
 				]);
 			} else if (table === 'project_metadata') {
 				db.run(
-					`INSERT INTO project_metadata (file_id, heading_id, status, deadline) VALUES (?, ?, ?, ?)`,
+					`INSERT INTO project_metadata (file_id, heading_id, status, deadline, priority) VALUES (?, ?, ?, ?, ?)`,
 					[
 						fileId,
 						headingId,
 						fields.status != null ? String(fields.status) : null,
-						fields.deadline != null ? Number(fields.deadline) : null
+						fields.deadline != null ? Number(fields.deadline) : null,
+						fields.priority != null ? String(fields.priority) : null
 					]
 				);
 				if (
@@ -349,7 +350,8 @@ function insertTypedMetadataRows(db, fileId, typedMetadata, metadataTypeIdByLowe
 						filePath: ctx.filePath,
 						title: (ctx.titleByHeadingId && ctx.titleByHeadingId.get(0)) || '',
 						status: fields.status != null ? String(fields.status) : null,
-						deadline: fields.deadline != null ? Number(fields.deadline) : null
+						deadline: fields.deadline != null ? Number(fields.deadline) : null,
+						priority: fields.priority != null ? String(fields.priority) : null
 					});
 				}
 			} else if (table === 'task_metadata') {

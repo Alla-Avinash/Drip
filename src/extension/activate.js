@@ -217,7 +217,6 @@ async function activate(context) {
 	setHeadingFormExtensionContext(context);
 	setHeadingFormKbRootGetter(() => state.getKnowledgeBaseRoot && state.getKnowledgeBaseRoot());
 	registerHeadingFormAutoFlush(context);
-	registerStartupCheck(context, state);
 	registerRetrieverAutoRefresh(context, state);
 	state.syncTagGraphCheckpointFromStorage();
 	const componentsTreeProvider = new DripTreeDataProvider(state, 'components');
@@ -236,6 +235,12 @@ async function activate(context) {
 	};
 	state.setDraftsRefreshListener(() => sidebarRefreshHub.refresh());
 	state.setRecentsRefreshListener(() => recentsTreeProvider.refresh());
+	// Start the KB verification. Once the saved folder is confirmed to be a `.driplock` KB
+	// (or found missing/invalid), refresh the views that depend on the verified root.
+	registerStartupCheck(context, state, () => {
+		sidebarRefreshHub.refresh();
+		refreshProjectViewIfShown();
+	});
 	require('../integrations/mcp/mcpBridge').registerDripMcp(context, state, {
 		refreshUi: () => kbTreeProvider.refresh()
 	});

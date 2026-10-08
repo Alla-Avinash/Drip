@@ -242,6 +242,10 @@ const AI_SUGGESTION_LIMIT = 4;
 class DripState {
 	constructor(context) {
 		this.context = context;
+		/** @type {import('vscode').Uri | null} KB root that passed startup `.driplock` verification. */
+		this._verifiedKbRoot = null;
+		/** @type {boolean} Whether a startup verification pass has finished (success OR failure). */
+		this._verificationSettled = false;
 		/** @type {any[]} */
 		this._tagGraphUndo = [];
 		/** @type {any[]} */
@@ -333,7 +337,7 @@ class DripState {
 	}
 
 	async refreshDraftsFromStorage() {
-		const kbRoot = this.getKnowledgeBaseRoot();
+		const kbRoot = this.getVerifiedKnowledgeBaseRoot();
 		if (kbRoot) {
 			this._draftsCache = await loadDraftsFromDripIndex(kbRoot);
 		} else {
@@ -423,6 +427,35 @@ class DripState {
 	getKnowledgeBaseRoot() {
 		const value = this.context.workspaceState.get(KB_ROOT_KEY);
 		return value ? vscode.Uri.parse(value) : undefined;
+	}
+
+	/**
+	 * The KB root that passed startup verification (a real `.driplock` folder).
+	 * Dependent views (Daily Notes, Drafts, Project View) read this instead of the raw
+	 * saved path, so they only show data once the folder is confirmed valid.
+	 * @returns {import('vscode').Uri | undefined}
+	 */
+	getVerifiedKnowledgeBaseRoot() {
+		return this._verifiedKbRoot || undefined;
+	}
+
+	/**
+	 * Whether a verification pass has finished, so callers can tell "still checking"
+	 * (unsettled) apart from "checked and found nothing valid" (settled, no verified root).
+	 * @returns {boolean}
+	 */
+	getVerificationSettled() {
+		return this._verificationSettled;
+	}
+
+	/**
+	 * Promote a KB root as verified (or clear it when the saved folder is missing/invalid).
+	 * Marks verification as settled, since this is only called once the check has a verdict.
+	 * @param {import('vscode').Uri | undefined} uri
+	 */
+	setVerifiedKnowledgeBaseRoot(uri) {
+		this._verifiedKbRoot = uri || null;
+		this._verificationSettled = true;
 	}
 
 	/**

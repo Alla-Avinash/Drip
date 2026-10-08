@@ -100,33 +100,40 @@ class DripTreeDataProvider {
 	}
 
 	async getKnowledgeRootChildren() {
-		let kbRoot = this.state.getKnowledgeBaseRoot();
-		if (
-			!kbRoot &&
-			typeof this.state.getRetrieverKnowledgeBaseRoot === 'function'
-		) {
-			const rk = this.state.getRetrieverKnowledgeBaseRoot();
-			if (rk && rk.uri) {
-				kbRoot = rk.uri;
-			}
-		}
-		if (!kbRoot) {
-			const kbItem = new vscode.TreeItem(
-				'Select Knowledge Base Folder',
-				vscode.TreeItemCollapsibleState.None
-			);
-			kbItem.kind = 'kbRoot';
-			kbItem.contextValue = 'dripKbRoot';
-			kbItem.description = 'Or open a folder workspace';
-			kbItem.command = {
-				command: 'drip.selectKnowledgeBase',
-				title: 'Select Knowledge Base Folder'
-			};
-			kbItem.iconPath = new vscode.ThemeIcon('folder');
-			return [kbItem];
+		// Only render the KB after the saved folder has been verified as a `.driplock` KB by
+		// the startup check. Until then we show a neutral placeholder, so we never list folders
+		// from an unverified (or stale) path.
+		const kbRoot = this.state.getVerifiedKnowledgeBaseRoot();
+		if (kbRoot) {
+			return this.state.getKnowledgeBaseTreeChildren(kbRoot);
 		}
 
-		return this.state.getKnowledgeBaseTreeChildren(kbRoot);
+		// A path is saved but verification hasn't finished yet — brief "verifying" state.
+		// Once the check settles (success OR failure) this branch is never hit again.
+		if (!this.state.getVerificationSettled() && this.state.getKnowledgeBaseRoot()) {
+			const verifying = new vscode.TreeItem(
+				'Verifying knowledge base…',
+				vscode.TreeItemCollapsibleState.None
+			);
+			verifying.kind = 'kbRoot';
+			verifying.contextValue = 'dripKbRoot';
+			verifying.iconPath = new vscode.ThemeIcon('sync~spin');
+			return [verifying];
+		}
+
+		const kbItem = new vscode.TreeItem(
+			'Select Knowledge Base Folder',
+			vscode.TreeItemCollapsibleState.None
+		);
+		kbItem.kind = 'kbRoot';
+		kbItem.contextValue = 'dripKbRoot';
+		kbItem.description = 'Or open a folder workspace';
+		kbItem.command = {
+			command: 'drip.selectKnowledgeBase',
+			title: 'Select Knowledge Base Folder'
+		};
+		kbItem.iconPath = new vscode.ThemeIcon('folder');
+		return [kbItem];
 	}
 
 	getDraftItems() {
@@ -188,7 +195,7 @@ class DripTreeDataProvider {
 	}
 
 	async getDailyNotesChildren(element) {
-		const kbRoot = this.state.getKnowledgeBaseRoot();
+		const kbRoot = this.state.getVerifiedKnowledgeBaseRoot();
 		if (!kbRoot) {
 			const item = new vscode.TreeItem('Select a Knowledge Base first', vscode.TreeItemCollapsibleState.None);
 			item.contextValue = 'dripDailyEmpty';

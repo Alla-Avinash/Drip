@@ -7,7 +7,12 @@
 
 const path = require('path');
 const vscode = require('vscode');
-const { buildNewNoteFile, writeTextFile: writeTextFileRaw, readTextFile } = require('../kbNoteOps');
+const {
+	buildNewNoteFile,
+	writeTextFile: writeTextFileRaw,
+	readTextFile,
+	splitFileHeaderAndBody
+} = require('../kbNoteOps');
 const { markExpectedDiskWrite } = require('../../shared/documentEditGuard');
 
 /**
@@ -26,6 +31,7 @@ const {
 	PROJECT_ISSUES_FILE_NAME,
 	FEATURE_RECENT_FILE_NAME,
 	FEATURE_RECENT_HEADING_TITLE,
+	PROJECT_ISSUES_RECENTS_HEADING_TITLE,
 	ISSUE_PARENT_META_KEY,
 	parseIssueTitleEntityId,
 	normalizeIssueEntityId
@@ -39,7 +45,12 @@ const { isDripFeatureFolderName } = require('../model/dripFeature');
 const {
 	findIssueHeadingBlock,
 	appendIssueToRecents,
-	appendSubIssueUnderParent
+	appendSubIssueUnderParent,
+	insertSiblingBeforeIssue,
+	insertSiblingAfterIssue,
+	appendBlockUnderHeading,
+	insertSiblingBeforeHeading,
+	insertSiblingAfterHeading
 } = require('./issueInboxLayout');
 
 /**
@@ -329,6 +340,205 @@ async function moveIssueToFeatureMailbox(kbRootUri, projectFolderUri, featureUri
 	return { issueId: id, mailboxUri: target.mailboxUri };
 }
 
+/**
+ * Remove any `parent: i-N` metadata line from a dedented issue block. Used when the block is
+ * re-parented under a new issue by indentation — indentation becomes the source of truth.
+ * @param {string[]} lines
+ * @returns {string[]}
+ */
+function stripIssueParentLine(lines) {
+	return (lines || []).filter(function (l) {
+		return !/^\s*parent\s*:/i.test(String(l));
+	});
+}
+
+/**
+ * @param {string[]} lines
+ * @returns {boolean}
+ */
+function hasIssueParentLine(lines) {
+	return (lines || []).some(function (l) {
+		return /^\s*parent\s*:/i.test(String(l));
+	});
+}
+
+/**
+ * Append a dedented issue block to a destination target.
+ *
+ * @param {import('vscode').Uri} kbRootUri
+ * @param {import('vscode').Uri} projectFolderUri
+ * @param {{ kind: 'feature', featureUri: import('vscode').Uri } | { kind: 'inbox' } | { kind: 'issue', issueId: string, position?: 'before' | 'after' | 'under', fileUri: import('vscode').Uri } | { kind: 'heading', headingPath: string, position?: 'before' | 'after' | 'under', fileUri: import('vscode').Uri } | { kind: 'file', position?: 'top' | 'bottom', fileUri: import('vscode').Uri }} target
+ * @param {string[]} blockLines dedented block lines (indent 0)
+ * @param {{ context?: import('vscode').ExtensionContext, removeParent?: boolean }} options
+ * @returns {Promise<import('vscode').Uri>} the file written
+ */
+async function appendIssueBlockToTarget(kbRootUri, projectFolderUri, target, blockLines, options) {
+	if (target.kind === 'inbox') {
+		const issuesUri = await ensureProjectIssuesFile(projectFolderUri, {
+			kbRoot: kbRootUri,
+			context: options.context
+		});
+		const issuesText = await readTextFile(issuesUri);
+		await writeTextFile(
+			issuesUri,
+			appendIssueToRecents(issuesText, blockLines, PROJECT_ISSUES_RECENTS_HEADING_TITLE)
+		);
+		return issuesUri;
+	}
+
+	if (target.kind === 'issue') {
+		const pos = target.position === 'before' || target.position === 'after' ? target.position : 'under';
+		const refText = await readTextFile(target.fileUri);
+		let next = null;
+		if (pos === 'under') {
+			// A sub-issue can't be nested under another issue — indentation would fight the `parent:`
+			// link. Only allow it when the user chose to remove the parent first.
+			if (!options.removeParent && hasIssueParentLine(blockLines)) {
+				throw new Error('This issue has a parent. Check "Remove parent" to place it under another issue.');
+			}
+			// Re-parent under an existing issue: indentation carries the link, so drop any parent line.
+			next = appendSubIssueUnderParent(refText, target.issueId, stripIssueParentLine(blockLines));
+		} else if (pos === 'before') {
+			next = insertSiblingBeforeIssue(refText, target.issueId, blockLines);
+		} else {
+			next = insertSiblingAfterIssue(refText, target.issueId, blockLines);
+		}
+		if (next == null) throw new Error(`Issue ${target.issueId} not found in ${target.fileUri.fsPath}`);
+		await writeTextFile(target.fileUri, next);
+		return target.fileUri;
+	}
+
+	if (target.kind === 'heading') {
+		// Place relative to a plain (or issue) heading in a file: as its last child (default),
+		// or as a sibling directly before/after it. The `parent:` line (if any) is kept so the
+		// issue's own hierarchy survives, unless the user chose to remove it.
+		const pos = target.position === 'before' || target.position === 'after' ? target.position : 'under';
+		const text = await readTextFile(target.fileUri);
+		let next = null;
+		if (pos === 'before') {
+			next = insertSiblingBeforeHeading(text, target.headingPath, blockLines);
+		} else if (pos === 'after') {
+			next = insertSiblingAfterHeading(text, target.headingPath, blockLines);
+		} else {
+			next = appendBlockUnderHeading(text, target.headingPath, blockLines);
+		}
+		if (next == null) throw new Error(`Heading "${target.headingPath}" not found in ${target.fileUri.fsPath}`);
+		await writeTextFile(target.fileUri, next);
+		return target.fileUri;
+	}
+
+	if (target.kind === 'file') {
+		// File-level placement: put the issue at the top of the body (first heading) or at the
+		// very bottom of the file, with no heading nesting — so there is no hierarchy problem.
+		const text = await readTextFile(target.fileUri);
+		const { bodyStartLine } = splitFileHeaderAndBody(text);
+		const lines = text.replace(/\r\n/g, '\n').split('\n');
+		if (target.position === 'top') {
+			lines.splice(bodyStartLine, 0, '', ...blockLines, '');
+		} else {
+			while (lines.length && !String(lines[lines.length - 1]).trim()) lines.pop();
+			lines.push('', ...blockLines, '');
+		}
+		let next = lines.join('\n');
+		await writeTextFile(target.fileUri, next.endsWith('\n') ? next : next + '\n');
+		return target.fileUri;
+	}
+
+	const t = await resolveFeatureMailboxTarget(target.featureUri);
+	if (t.kind === 'folder') {
+		let mailboxText = '';
+		try {
+			mailboxText = await readTextFile(t.mailboxUri);
+		} catch {
+			const n = kbRootUri ? await allocateNextEntityNumber(kbRootUri).catch(() => 0) : 0;
+			mailboxText = buildNewNoteFile(
+				{ title: 'recent', content: '', metadataFilename: 'recent' },
+				{ fileEntityNumber: n }
+			);
+		}
+		if (!mailboxText.endsWith('\n')) mailboxText += '\n';
+		await writeTextFile(t.mailboxUri, `${mailboxText}${blockLines.join('\n')}\n`);
+		return t.mailboxUri;
+	}
+	const fileText = await readTextFile(t.mailboxUri);
+	await writeTextFile(
+		t.mailboxUri,
+		appendIssueToRecents(fileText, blockLines, FEATURE_RECENT_HEADING_TITLE)
+	);
+	return t.mailboxUri;
+}
+
+/**
+ * Move an issue block from any source file (project inbox, feature mailbox, feature note)
+ * to a feature mailbox, the project inbox, under a plain heading, or under another issue as a
+ * sub-issue. Preserves `parent: i-N` by converting any outline ancestor before the block leaves
+ * its file, unless `options.removeParent` is set (the user chose to detach the hierarchy).
+ *
+ * @param {import('vscode').Uri} kbRootUri
+ * @param {import('vscode').Uri} sourceUri file the issue currently lives in
+ * @param {import('vscode').Uri} projectFolderUri
+ * @param {{ kind: 'feature', featureUri: import('vscode').Uri } | { kind: 'inbox' } | { kind: 'issue', issueId: string, position?: 'before' | 'after' | 'under', fileUri: import('vscode').Uri } | { kind: 'heading', headingPath: string, position?: 'before' | 'after' | 'under', fileUri: import('vscode').Uri } | { kind: 'file', position?: 'top' | 'bottom', fileUri: import('vscode').Uri }} target
+ * @param {string} issueId e.g. i-3
+ * @param {{ context?: import('vscode').ExtensionContext, removeParent?: boolean }} options
+ */
+async function moveIssueBlock(kbRootUri, sourceUri, projectFolderUri, target, issueId, options = {}) {
+	const id = normalizeIssueEntityId(issueId);
+	if (!id) throw new Error('Invalid issue id');
+	const removeParent = options.removeParent === true;
+
+	let text = await readTextFile(sourceUri);
+	let found = findIssueHeadingBlock(text, id);
+	if (!found) throw new Error(`Issue ${id} not found in ${sourceUri.fsPath}`);
+
+	// Indentation-carried parent is lost on move; record it as `parent: i-N` first — unless the
+	// user is detaching the hierarchy, in which case we leave it out entirely.
+	const outlineParent = findNearestOutlineAncestorIssueId(found.lines.join('\n'), found.start);
+	if (outlineParent && !removeParent) {
+		text = setIssueParentLineInLines(found.lines, found.start, outlineParent).join('\n');
+		found = findIssueHeadingBlock(text, id);
+		if (!found) throw new Error(`Issue ${id} not found in ${sourceUri.fsPath}`);
+	}
+
+	// Take the heading's own identity line with the block (as a manual cut/paste would).
+	const blockStart =
+		found.start > 0 && isHeadingIdentityLine(found.lines[found.start - 1])
+			? found.start - 1
+			: found.start;
+	const blockLines = found.lines.slice(blockStart, found.end);
+	const startIndentMatch = found.lines[found.start].match(/^(\t*)/);
+	const tabStrip = startIndentMatch ? startIndentMatch[1].length : 0;
+	const dedentedLines = blockLines.map(ln => {
+		let out = ln;
+		for (let t = 0; t < tabStrip && out.startsWith('\t'); t++) out = out.slice(1);
+		return out;
+	});
+	// Detach: drop the `parent:` line so the issue can sit under any heading/issue.
+	const finalLines = removeParent ? stripIssueParentLine(dedentedLines) : dedentedLines;
+
+	const before = found.lines.slice(0, blockStart);
+	const after = found.lines.slice(found.end);
+	while (before.length && !String(before[before.length - 1]).trim() && after.length && !String(after[0]).trim()) {
+		after.shift();
+	}
+	const remaining = before.concat(after).join('\n');
+
+	// Append to the destination FIRST: if it throws (e.g. "has a parent" guard, or the target
+	// heading/issue isn't found), the issue is never removed from its source file.
+	const targetUri = await appendIssueBlockToTarget(kbRootUri, projectFolderUri, target, finalLines, options);
+
+	// Destination write succeeded — now remove the issue from its source file.
+	await writeTextFile(sourceUri, remaining.endsWith('\n') ? remaining : remaining + '\n');
+
+	try {
+		await indexNewNoteImmediately(kbRootUri, sourceUri, options.context);
+		await indexNewNoteImmediately(kbRootUri, targetUri, options.context);
+	} catch (err) {
+		console.error('[DRIP] reindex after issue move', err);
+	}
+
+	return { issueId: id, mailboxUri: targetUri };
+}
+
 module.exports = {
 	projectIssuesUri,
 	ensureProjectIssuesFile,
@@ -337,5 +547,6 @@ module.exports = {
 	findIssueHeadingBlock,
 	resolveFeatureMailboxTarget,
 	moveIssueToFeatureMailbox,
+	moveIssueBlock,
 	parseIssueTitleEntityId
 };

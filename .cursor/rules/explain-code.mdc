@@ -1,0 +1,37 @@
+---
+description: How to explain code in plain, simple terms with a clear end-to-end flow and code references. Use when asked to explain how code works, walk through a function/module/feature, or understand what something does.
+alwaysApply: false
+---
+
+# Explaining code
+
+Explain code the way you'd teach a colleague — plain words, the real flow, and snippets they can open. Not docs, not a code dump.
+
+## Goals
+
+- **Plain language first.** What it does and why it exists, in everyday words. No jargon unless asked.
+- **Follow the flow.** Trace input → process → output, from entry point to result, in the order the code runs.
+- **Cite the code.** Point at real snippets with file path and line numbers so the reader can see them.
+- **Explain the "why", not just the "what".** Call out the reasoning behind non-obvious choices and checks.
+- **Be honest.** If something is redundant, buggy, confusing, or double-verified, say so plainly.
+
+## Structure
+
+1. One-line summary: what it does and why it's useful.
+2. Walk the flow in numbered steps, matching the order the code runs.
+3. For each step, show the exact snippet (path + line numbers) next to a plain-English description.
+4. End with a "whole picture" recap when the flow spans many places.
+
+## Snippets
+
+Use code references with file path and line numbers:
+
+```startLine:endLine:filepath
+// the actual lines
+```
+
+Only include the lines that matter; trim the rest with a `// ...` comment. Never dump a whole file.
+
+## Distinguish look-alikes
+
+When two things appear identical (two getters, two checks, two stores), explicitly explain the difference — that's where readers get most confused.

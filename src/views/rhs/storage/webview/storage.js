@@ -2,6 +2,46 @@ const vscode = acquireVsCodeApi();
 	let currentDraftId = '';
 	let remoteNote = { id: '', title: '', headings: '', content: '', metadataFilename: '' };
 
+	// Move-issue mode (RHS): project-scoped issue relocation. Additive — normal Storage flow is untouched.
+	const movePanelEl = document.getElementById('issue-move-panel');
+	const storageRootEl = document.getElementById('storage-root');
+	const imProjectNameEl = document.getElementById('im-project-name');
+	const imIssueLineEl = document.getElementById('im-issue-line');
+	const imQueryEl = document.getElementById('im-query');
+	const imCrumbsEl = document.getElementById('im-crumbs');
+	const imListEl = document.getElementById('im-list');
+	const imSelectionEl = document.getElementById('im-selection');
+	const imMoveBtn = document.getElementById('im-move');
+	const imPersistentWrapEl = document.getElementById('im-persistent-wrap');
+	const imPersistentOnlyEl = document.getElementById('im-persistent-only');
+	const imRemoveParentEl = document.getElementById('im-remove-parent');
+	const imParentHintEl = document.getElementById('im-parent-hint');
+	const imErrorEl = document.getElementById('im-error');
+	/** @type {{ projectName: string, projectFolderPrefix: string, issueId: string, issueTitle: string, hasParent: boolean } | null} */
+	let moveCtx = null;
+	/** @type {{ kind: 'inbox' } | { kind: 'feature', folderPrefix: string | null, path: string, isFolderIndex: boolean } | { kind: 'issue', issueKey: string, position: 'before' | 'after' | 'under' } | { kind: 'heading', headingPath: string, position: 'before' | 'after' | 'under', filePath: string } | { kind: 'file', position: 'top' | 'bottom', filePath: string } | null} */
+	let moveTarget = null;
+	/** @type {boolean} */
+	let moveRank = false;
+	/** @type {boolean} */
+	let movePersistentOnly = false;
+	/** @type {boolean} */
+	let moveRemoveParent = false;
+	/** @type {string} */
+	let movePlacementAnchorPath = '';
+	/** @type {string} */
+	let moveIngestDropRefPath = '';
+	/** @type {string} */
+	let moveIngestPosition = '';
+	/** @type {Set<string>} */
+	const moveCollapsedPaths = new Set();
+	/** @type {string} */
+	let moveError = '';
+	/** @type {{ label: string, node: { kind: string, folderPrefix?: string | null, path?: string, isFolderIndex?: boolean, uri?: string } }[]} */
+	let moveNav = [];
+	/** @type {{ level: string, inboxCount?: number, features?: any[], projectIssues?: any[], issues?: any[], isFolder?: boolean, feature?: any, folders?: any[], files?: any[], filePath?: string, fileName?: string, headings?: any[] } | null} */
+	let moveListing = null;
+
 	const errorEl = document.getElementById('error');
 	const suggestedFoldersEl = document.getElementById('suggested-folders');
 	const suggestedFilesWrap = document.getElementById('suggested-files-wrap');
@@ -2447,6 +2487,23 @@ const vscode = acquireVsCodeApi();
 	window.addEventListener('message', event => {
 		const message = event.data;
 
+		if (message.type === 'storageMoveMode') {
+			enterMoveMode(message.context || {});
+			return;
+		}
+
+		if (message.type === 'moveIssueBrowseResult') {
+			moveListing = message && message.level ? message : null;
+			renderMoveListing();
+			return;
+		}
+
+		if (message.type === 'moveIssueDone') {
+			exitMoveMode();
+			if (storageStatusEl) storageStatusEl.textContent = 'Issue ' + (message.issueId || '') + ' moved.';
+			return;
+		}
+
 		if (message.type === 'storageCustomPathsPicked') {
 			const entries = (message.payload && message.payload.entries) || [];
 			if (!customCorpusEditorOpen) openCustomCorpusEditor();
@@ -2767,7 +2824,14 @@ const vscode = acquireVsCodeApi();
 		}
 
 		if (message.type === 'operationError') {
-			errorEl.textContent = message.message || 'Unknown error';
+			const msg = message.message || 'Unknown error';
+			errorEl.textContent = msg;
+			// In move mode the normal storage UI is hidden — surface the error without wiping the
+			// current browse level, so the user can fix the checkbox and retry.
+			if (moveCtx) {
+				moveError = msg;
+				renderMoveError();
+			}
 		}
 	});
 
@@ -3031,6 +3095,871 @@ const vscode = acquireVsCodeApi();
 		customCancelBtn.addEventListener('click', cancelCustomCorpusEditor);
 	}
 	syncCorpusEditBtn();
+
+	// ---- Move-issue mode (RHS) -----------------------------------------------------------
+	/**
+	 * @param {{ projectName: string, projectFolderPrefix: string, issueId: string, issueTitle: string }} ctx
+	 */
+	function enterMoveMode(ctx) {
+		moveCtx = {
+			projectName: String(ctx.projectName || ''),
+			projectFolderPrefix: String(ctx.projectFolderPrefix || ''),
+			issueId: String(ctx.issueId || ''),
+			issueTitle: String(ctx.issueTitle || ''),
+			hasParent: ctx.hasParent === true
+		};
+		moveTarget = null;
+		moveRank = false;
+		moveRemoveParent = false;
+		movePlacementAnchorPath = '';
+		moveIngestDropRefPath = '';
+		moveIngestPosition = '';
+		moveCollapsedPaths.clear();
+		moveError = '';
+		moveNav = [];
+		moveListing = null;
+		if (storageRootEl) storageRootEl.hidden = true;
+		if (movePanelEl) movePanelEl.hidden = false;
+		if (imProjectNameEl) imProjectNameEl.textContent = moveCtx.projectName;
+		if (imIssueLineEl) imIssueLineEl.textContent = moveCtx.issueId + (moveCtx.issueTitle ? ' — ' + moveCtx.issueTitle : '');
+		if (imQueryEl) imQueryEl.hidden = true;
+		if (imRemoveParentEl) imRemoveParentEl.checked = false;
+		if (imParentHintEl) imParentHintEl.hidden = !moveCtx.hasParent;
+		syncMoveSelection();
+		goMoveRoot(false);
+	}
+
+	function exitMoveMode() {
+		moveCtx = null;
+		moveTarget = null;
+		moveNav = [];
+		moveListing = null;
+		moveError = '';
+		movePlacementAnchorPath = '';
+		moveIngestDropRefPath = '';
+		moveIngestPosition = '';
+		if (storageRootEl) storageRootEl.hidden = false;
+		if (movePanelEl) movePanelEl.hidden = true;
+	}
+
+	function moveRootNode() {
+		return { kind: 'root' };
+	}
+
+	/**
+	 * Request a browse node from the host.
+	 * @param {{ kind: string, folderPrefix?: string | null, path?: string, isFolderIndex?: boolean, uri?: string }} node
+	 * @param {boolean} rank
+	 */
+	function requestMoveBrowse(node, rank) {
+		if (!moveCtx) return;
+		moveRank = rank;
+		if (imListEl) imListEl.innerHTML = '<div class="im-empty">Loading…</div>';
+		if (imQueryEl) {
+			if (rank && moveCtx.issueTitle) {
+				imQueryEl.hidden = false;
+				imQueryEl.textContent = 'Comparing: "' + moveCtx.issueTitle + '"';
+			} else {
+				imQueryEl.hidden = true;
+			}
+		}
+		vscode.postMessage({
+			type: 'moveIssueBrowse',
+			node,
+			rank,
+			projectFolderPrefix: moveCtx.projectFolderPrefix,
+			issueId: moveCtx.issueId,
+			issueTitle: moveCtx.issueTitle
+		});
+	}
+
+	function exitMovePlacementAnchor() {
+		movePlacementAnchorPath = '';
+		resetMoveIngestDropTarget();
+		document.querySelectorAll('#im-list .heading-tree').forEach(function (el) {
+			el.classList.remove('ht-placement-mode');
+		});
+	}
+
+	function resetMoveIngestDropTarget() {
+		moveIngestDropRefPath = '';
+		moveIngestPosition = '';
+	}
+
+	function resetMovePlacement() {
+		movePlacementAnchorPath = '';
+		moveIngestDropRefPath = '';
+		moveIngestPosition = '';
+		moveError = '';
+		renderMoveError();
+	}
+
+	function goMoveRoot(rank) {
+		moveNav = [];
+		resetMovePlacement();
+		requestMoveBrowse(moveRootNode(), rank);
+	}
+
+	/** Navigate into a feature / folder / file (push a breadcrumb). */
+	function goMoveNode(label, node) {
+		moveNav.push({ label, node });
+		resetMovePlacement();
+		requestMoveBrowse(node, moveRank);
+	}
+
+	/** Go back to a breadcrumb position. */
+	function goMoveCrumb(index) {
+		moveNav = moveNav.slice(0, index + 1);
+		const node = moveNav.length ? moveNav[moveNav.length - 1].node : moveRootNode();
+		resetMovePlacement();
+		requestMoveBrowse(node, moveRank);
+	}
+
+	function syncMoveSelection() {
+		if (!imMoveBtn || !imSelectionEl) return;
+		if (!moveTarget) {
+			imMoveBtn.disabled = true;
+			imSelectionEl.textContent = '';
+		} else {
+			imMoveBtn.disabled = false;
+			if (moveTarget.kind === 'inbox') {
+				imSelectionEl.textContent = 'Project issues (inbox)';
+			} else if (moveTarget.kind === 'issue') {
+				const posLabel = moveTarget.position === 'before' ? 'Above ' : moveTarget.position === 'after' ? 'Below ' : 'Sub-issue under ';
+				imSelectionEl.textContent = posLabel + moveTarget.issueKey;
+			} else if (moveTarget.kind === 'heading') {
+				const posLabel = moveTarget.position === 'before' ? 'Above ' : moveTarget.position === 'after' ? 'Below ' : 'Under ';
+				imSelectionEl.textContent = posLabel + 'heading: ' + (moveTarget.headingPath || '');
+			} else if (moveTarget.kind === 'file') {
+				imSelectionEl.textContent = (moveTarget.position === 'top' ? 'Top of ' : 'Bottom of ') + (moveTarget.filePath || 'file');
+			} else {
+				imSelectionEl.textContent = 'Feature: ' + (moveTarget.folderPrefix || moveTarget.path || '');
+			}
+		}
+		if (imListEl) {
+			Array.from(imListEl.querySelectorAll('[data-im-key]')).forEach(function (el) {
+				const key = el.getAttribute('data-im-key') || '';
+				const isSel =
+					!!moveTarget &&
+					((moveTarget.kind === 'inbox' && key === 'inbox') ||
+						(moveTarget.kind === 'issue' && key === 'issue:' + moveTarget.issueKey) ||
+						(moveTarget.kind === 'heading' && key === 'heading:' + moveTarget.headingPath) ||
+						(moveTarget.kind === 'feature' && key === 'feature:' + (moveTarget.folderPrefix || moveTarget.path)));
+				el.classList.toggle('im-selected', isSel);
+			});
+		}
+	}
+
+	function renderMoveCrumbs() {
+		if (!imCrumbsEl) return;
+		imCrumbsEl.innerHTML = '';
+		const addSep = function () {
+			const s = document.createElement('span');
+			s.className = 'im-crumb-sep';
+			s.textContent = '›';
+			imCrumbsEl.appendChild(s);
+		};
+		const rootSpan = document.createElement('span');
+		rootSpan.className = 'im-crumb';
+		rootSpan.textContent = moveCtx ? moveCtx.projectName : 'Project';
+		rootSpan.addEventListener('click', function () {
+			goMoveRoot(moveRank);
+		});
+		imCrumbsEl.appendChild(rootSpan);
+		moveNav.forEach(function (entry, i) {
+			addSep();
+			const last = i === moveNav.length - 1;
+			const span = document.createElement('span');
+			span.className = last ? 'im-crumb-current' : 'im-crumb';
+			span.textContent = entry.label;
+			if (!last) {
+				span.addEventListener('click', function () {
+					goMoveCrumb(i);
+				});
+			}
+			imCrumbsEl.appendChild(span);
+		});
+	}
+
+	/**
+	 * Move-mode heading tree — a direct mirror of the Storage composer heading placement UI.
+	 * The file is shown as a synthetic "file root" row (📄 name) at the top; every heading keeps
+	 * its raw `# …` outline and is collapsible. Double-click a heading (or the file root) to make
+	 * it the placement anchor, then drag the moving issue's placeholder row up/down inside the
+	 * anchor's children to choose the exact slot — the same selection + drag-reorder used to
+	 * ingest a note into Storage.
+	 */
+
+	/** Top-level heading nodes (children of the synthetic file root), honouring filters. */
+	function moveHeadingRoots() {
+		const raw = Array.isArray(moveListing && moveListing.headings) ? moveListing.headings : [];
+		return visibleMoveHeadingNodes(raw);
+	}
+
+	function visibleMoveHeadingNodes(nodes) {
+		const out = [];
+		(nodes || []).forEach(function (n) {
+			if (!n) return;
+			if (n.hidden) return;
+			if (movePersistentOnly && !n.persistent) {
+				out.push.apply(out, visibleMoveHeadingNodes(n.children));
+				return;
+			}
+			const kids = visibleMoveHeadingNodes(n.children);
+			out.push(Object.assign({}, n, { children: kids }));
+		});
+		return out;
+	}
+
+	function findMoveHeadingNodeByPath(nodes, path) {
+		if (!nodes) return null;
+		for (let i = 0; i < nodes.length; i++) {
+			const n = nodes[i];
+			if (n && String(n.path) === String(path)) return n;
+			const found = findMoveHeadingNodeByPath(n && n.children, path);
+			if (found) return found;
+		}
+		return null;
+	}
+
+	/** Default placement = bottom of the anchor (last child, or the anchor itself when leaf). */
+	function setDefaultMoveIngestToBottomOfAnchor() {
+		const anchor = movePlacementAnchorPath;
+		if (!anchor) return;
+		const roots = moveHeadingRoots();
+		const anchorNode = isFileRoot(anchor) ? { children: roots } : findMoveHeadingNodeByPath(roots, anchor);
+		const kids = anchorNode ? (anchorNode.children || []) : [];
+		if (!kids.length) {
+			moveIngestDropRefPath = anchor;
+			moveIngestPosition = 'sectionEnd';
+		} else {
+			moveIngestDropRefPath = kids[kids.length - 1].path;
+			moveIngestPosition = 'afterSection';
+		}
+	}
+
+	function computeMoveSlotIndexFromIngest(anchorPath, childNodes, refPath, zone) {
+		const childPaths = (childNodes || []).map(function (n) {
+			return n.path;
+		});
+		const n = childPaths.length;
+		if (n === 0) return 0;
+		if (!refPath || !zone) return n;
+		if (refPath === anchorPath && zone === 'childFirst') return 0;
+		if (refPath === anchorPath && zone === 'sectionEnd') return n;
+		const i = childPaths.indexOf(refPath);
+		if (i < 0) return n;
+		if (zone === 'before') return i;
+		if (zone === 'afterSection') return i + 1;
+		return n;
+	}
+
+	function applyMoveIngestFromPlaceholderOrder(anchorPath, parentUl) {
+		if (!parentUl || anchorPath !== movePlacementAnchorPath) return;
+		const lis = Array.from(parentUl.querySelectorAll(':scope > li'));
+		const slotLi = parentUl.querySelector(':scope > li.ht-ingest-slot-li');
+		if (!slotLi) return;
+		const idx = lis.indexOf(slotLi);
+		if (idx < 0) return;
+		const childPaths = lis
+			.filter(function (li) {
+				return !li.classList.contains('ht-ingest-slot-li');
+			})
+			.map(function (li) {
+				const r = li.querySelector('.ht-row[data-path]');
+				return r ? r.dataset.path : '';
+			})
+			.filter(Boolean);
+		const n = childPaths.length;
+		if (n === 0) {
+			moveIngestDropRefPath = anchorPath;
+			moveIngestPosition = 'sectionEnd';
+		} else if (idx === 0) {
+			moveIngestDropRefPath = anchorPath;
+			moveIngestPosition = 'childFirst';
+		} else if (idx >= lis.length - 1) {
+			moveIngestDropRefPath = childPaths[n - 1];
+			moveIngestPosition = 'afterSection';
+		} else {
+			const realsBefore = lis.slice(0, idx).filter(function (li) {
+				return !li.classList.contains('ht-ingest-slot-li');
+			}).length;
+			if (realsBefore === 0) {
+				moveIngestDropRefPath = anchorPath;
+				moveIngestPosition = 'childFirst';
+			} else {
+				moveIngestDropRefPath = childPaths[realsBefore - 1];
+				moveIngestPosition = 'afterSection';
+			}
+		}
+	}
+
+	function getMoveDragAfterLi(container, y) {
+		const lis = Array.from(container.querySelectorAll(':scope > li:not(.ht-ingest-dragging)'));
+		let closest = { offset: Number.NEGATIVE_INFINITY, element: null };
+		for (let i = 0; i < lis.length; i++) {
+			const child = lis[i];
+			const box = child.getBoundingClientRect();
+			const offset = y - box.top - box.height / 2;
+			if (offset < 0 && offset > closest.offset) {
+				closest = { offset: offset, element: child };
+			}
+		}
+		return closest.element;
+	}
+
+	function wireMoveIngestSlotList(parentUl, anchorPath) {
+		if (!parentUl || parentUl.dataset.moveSlotWired === '1') return;
+		parentUl.dataset.moveSlotWired = '1';
+		parentUl.addEventListener('dragover', function (e) {
+			const ph = parentUl.querySelector(':scope > li.ht-ingest-slot-li.ht-ingest-dragging');
+			if (!ph) return;
+			e.preventDefault();
+			if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+			const after = getMoveDragAfterLi(parentUl, e.clientY);
+			if (after == null) parentUl.appendChild(ph);
+			else parentUl.insertBefore(ph, after);
+			applyMoveIngestFromPlaceholderOrder(anchorPath, parentUl);
+		});
+		parentUl.addEventListener('drop', function (e) {
+			e.preventDefault();
+		});
+	}
+
+	function createMoveIngestPlaceholderLi(parentUl, anchorPath) {
+		const li = document.createElement('li');
+		li.className = 'ht-li ht-ingest-slot-li';
+		const row = document.createElement('div');
+		row.className = 'ht-row ht-ingest-placeholder-row';
+		const chev = document.createElement('span');
+		chev.className = 'ht-chev';
+		chev.setAttribute('aria-hidden', 'true');
+		chev.style.visibility = 'hidden';
+		chev.style.width = '1.35em';
+		chev.style.flexShrink = '0';
+		const label = document.createElement('span');
+		label.className = 'ht-label';
+		const rawTitle = (moveCtx && moveCtx.issueTitle) || (moveCtx && moveCtx.issueId) || 'issue';
+		label.textContent = rawTitle;
+		label.title = rawTitle + ' — drag up or down to choose position in this section';
+		row.appendChild(chev);
+		row.appendChild(label);
+		li.appendChild(row);
+		li.draggable = true;
+		li.addEventListener('dragstart', function (e) {
+			if (!e.dataTransfer) return;
+			e.dataTransfer.setData('text/plain', 'drip-move-issue-slot');
+			e.dataTransfer.effectAllowed = 'move';
+			li.classList.add('ht-ingest-dragging');
+		});
+		li.addEventListener('dragend', function () {
+			li.classList.remove('ht-ingest-dragging');
+			moveTarget = buildMoveTargetFromIngest();
+			clearMoveError();
+			syncMoveSelection();
+		});
+		wireMoveIngestSlotList(parentUl, anchorPath);
+		return li;
+	}
+
+	function appendMoveHeadingTreeNodes(parentUl, nodes, parentPath) {
+		(nodes || []).forEach(function (node, i) {
+			const li = document.createElement('li');
+			li.className = 'ht-li';
+			const row = document.createElement('div');
+			row.className = 'ht-row';
+			row.dataset.path = node.path;
+			const depthSegs = (node.path || '').split('/').filter(Boolean).length;
+			row.dataset.depth = String(Math.max(0, depthSegs - 1));
+			row.dataset.siblingIndex = String(i);
+			const hasKids = !!(node.children && node.children.length);
+			row.dataset.hasKids = hasKids ? '1' : '0';
+			if (isFileRoot(node.path)) row.classList.add('ht-file-root');
+			if (movePlacementAnchorPath && node.path === movePlacementAnchorPath) row.classList.add('ht-anchor');
+
+			const chev = document.createElement('button');
+			chev.type = 'button';
+			chev.className = 'ht-chev';
+			chev.setAttribute('aria-expanded', hasKids && !moveCollapsedPaths.has(node.path) ? 'true' : 'false');
+			if (!hasKids) {
+				chev.disabled = true;
+			} else {
+				chev.textContent = moveCollapsedPaths.has(node.path) ? '▸' : '▾';
+				chev.addEventListener('click', function (e) {
+					e.stopPropagation();
+					e.preventDefault();
+					if (moveCollapsedPaths.has(node.path)) moveCollapsedPaths.delete(node.path);
+					else moveCollapsedPaths.add(node.path);
+					renderMoveListing();
+				});
+			}
+
+			const label = document.createElement('span');
+			label.className = 'ht-label';
+			const fullTitle = String(node.title || '');
+			if (isFileRoot(node.path)) {
+				label.textContent = fullTitle;
+				label.title = fullTitle + ' — double-click to place at the top or bottom of this file';
+			} else {
+				label.textContent = '# ' + fullTitle;
+				label.title = fullTitle;
+			}
+			row.appendChild(chev);
+			row.appendChild(label);
+
+			row.addEventListener('dblclick', function (e) {
+				if (e.target.closest('.ht-chev')) return;
+				e.preventDefault();
+				// Re-double-clicking the anchor exits placement.
+				if (movePlacementAnchorPath === node.path) {
+					exitMovePlacementAnchor();
+					moveTarget = null;
+					syncMoveSelection();
+					renderMoveListing();
+					return;
+				}
+				// Nesting a parented issue under another issue fights its existing `parent:` link.
+				if (!isFileRoot(node.path) && node.isIssue && moveCtx && moveCtx.hasParent && !moveRemoveParent) {
+					movePlacementAnchorPath = '';
+					moveIngestDropRefPath = '';
+					moveIngestPosition = '';
+					moveTarget = null;
+					moveError = 'This issue has a parent. Check "Remove parent / hierarchy" to place it under another issue.';
+					syncMoveSelection();
+					renderMoveListing();
+					return;
+				}
+				if (hasKids) moveCollapsedPaths.delete(node.path);
+				movePlacementAnchorPath = node.path;
+				setDefaultMoveIngestToBottomOfAnchor();
+				moveTarget = buildMoveTargetFromIngest();
+				clearMoveError();
+				syncMoveSelection();
+				renderMoveListing();
+			});
+
+			row.addEventListener('click', function (e) {
+				if (e.target.closest('.ht-chev')) return;
+				if (e.detail === 2) return;
+				if (hasKids) {
+					e.preventDefault();
+					if (moveCollapsedPaths.has(node.path)) moveCollapsedPaths.delete(node.path);
+					else moveCollapsedPaths.add(node.path);
+					renderMoveListing();
+				}
+			});
+
+			if (movePlacementAnchorPath && node.path === movePlacementAnchorPath) {
+				const wrap = document.createElement('div');
+				wrap.className = 'ht-placement-section-wrap';
+				wrap.appendChild(row);
+				const sub = document.createElement('ul');
+				sub.className = 'ht-tree ht-tree-nested';
+				if (hasKids && !moveCollapsedPaths.has(node.path)) {
+					appendMoveHeadingTreeNodes(sub, node.children, node.path);
+				} else if (!hasKids) {
+					// Leaf anchor: still render an empty children list so the placeholder shows.
+					appendMoveHeadingTreeNodes(sub, [], node.path);
+				}
+				wrap.appendChild(sub);
+				li.appendChild(wrap);
+			} else {
+				li.appendChild(row);
+				if (hasKids && !moveCollapsedPaths.has(node.path)) {
+					const sub = document.createElement('ul');
+					sub.className = 'ht-tree ht-tree-nested';
+					appendMoveHeadingTreeNodes(sub, node.children, node.path);
+					li.appendChild(sub);
+				}
+			}
+			parentUl.appendChild(li);
+		});
+
+		// Insert the moving issue's draggable placeholder into the anchor's children list.
+		if (movePlacementAnchorPath && parentPath === movePlacementAnchorPath) {
+			const slotIdx = computeMoveSlotIndexFromIngest(
+				movePlacementAnchorPath,
+				nodes,
+				moveIngestDropRefPath,
+				moveIngestPosition
+			);
+			const phLi = createMoveIngestPlaceholderLi(parentUl, movePlacementAnchorPath);
+			if (slotIdx >= parentUl.children.length) parentUl.appendChild(phLi);
+			else parentUl.insertBefore(phLi, parentUl.children[slotIdx]);
+		}
+	}
+
+	function renderMoveHeadingTreeInto(host) {
+		host.innerHTML = '';
+		const fileLabel = String((moveListing && moveListing.fileName) || '') || 'File';
+		const roots = moveHeadingRoots();
+		const rootNode = { path: FILE_ROOT_PATH, title: fileLabel, children: roots };
+		const rootUl = document.createElement('ul');
+		rootUl.className = 'ht-tree ht-tree-root';
+		host.appendChild(rootUl);
+		appendMoveHeadingTreeNodes(rootUl, [rootNode], '');
+		if (movePlacementAnchorPath) host.classList.add('ht-placement-mode');
+		else host.classList.remove('ht-placement-mode');
+	}
+
+	/** Map the current anchor + dragged placeholder order to a concrete move target. */
+	function buildMoveTargetFromIngest() {
+		const anchor = movePlacementAnchorPath;
+		if (!anchor) return null;
+		const filePath = moveListing ? String(moveListing.filePath || '') : '';
+		if (isFileRoot(anchor)) {
+			const roots = moveHeadingRoots();
+			if (!roots.length) return { kind: 'file', position: 'top', filePath };
+			if (moveIngestPosition === 'childFirst') return { kind: 'file', position: 'top', filePath };
+			return { kind: 'file', position: 'bottom', filePath };
+		}
+		const anchorNode = findMoveHeadingNodeByPath(moveHeadingRoots(), anchor);
+		if (!anchorNode) return null;
+		const kids = anchorNode.children || [];
+		if (!kids.length) {
+			return moveTargetForNode(anchorNode, 'under');
+		}
+		if (moveIngestPosition === 'childFirst') {
+			return moveTargetForNode(kids[0], 'before');
+		}
+		if (moveIngestPosition === 'sectionEnd') {
+			return moveTargetForNode(anchorNode, 'under');
+		}
+		const refNode = moveIngestDropRefPath ? findMoveHeadingNodeByPath(moveHeadingRoots(), moveIngestDropRefPath) : null;
+		if (!refNode) return moveTargetForNode(anchorNode, 'under');
+		return moveTargetForNode(refNode, moveIngestPosition === 'before' ? 'before' : 'after');
+	}
+
+	function moveTargetForNode(node, position) {
+		const filePath = moveListing ? String(moveListing.filePath || '') : '';
+		if (node && node.isIssue) {
+			return { kind: 'issue', issueKey: node.issueKey, position };
+		}
+		return { kind: 'heading', headingPath: node ? node.path : '', position, filePath };
+	}
+
+	/**
+	 * Build a nested tree from a flat list of issues keyed by `parentIssueKey` (project inbox).
+	 * @param {any[]} issues
+	 * @returns {any[]}
+	 */
+	function moveIssueTree(issues) {
+		const list = Array.isArray(issues) ? issues : [];
+		const byKey = new Map();
+		list.forEach(function (i) {
+			if (i.issueKey) byKey.set(String(i.issueKey).toLowerCase(), i);
+		});
+		/** @type {Map<string, any[]>} */
+		const children = new Map();
+		/** @type {any[]} */
+		const roots = [];
+		list.forEach(function (i) {
+			const p = i.parentIssueKey ? byKey.get(String(i.parentIssueKey).toLowerCase()) : null;
+			if (p && p !== i) {
+				const k = 'ik:' + String(p.issueKey).toLowerCase();
+				if (!children.has(k)) children.set(k, []);
+				children.get(k).push(i);
+			} else {
+				roots.push(i);
+			}
+		});
+		/** @param {any[]} nodes @param {number} depth */
+		function walk(nodes, depth) {
+			let html = '';
+			nodes.forEach(function (i) {
+				const indent = Math.min(8, Math.max(0, depth)) * 14;
+				html +=
+					'<div class="im-row" data-im-key="issue:' +
+					escHtml(i.issueKey) +
+					'" data-im-action="issue" data-im-issue="' +
+					escHtml(i.issueKey) +
+					'" style="padding-left:' +
+					(8 + indent) +
+					'px"><span class="im-heading-title">' +
+					escHtml(i.title || i.issueKey) +
+					'</span><span class="im-count">' +
+					escHtml(i.issueKey || '') +
+					'</span></div>';
+				const k = 'ik:' + String(i.issueKey).toLowerCase();
+				html += walk(children.get(k) || [], depth + 1);
+			});
+			return html;
+		}
+		return walk(roots, 0);
+	}
+
+	function renderMoveListing() {
+		if (!imListEl) return;
+		renderMoveCrumbs();
+		if (!moveListing) {
+			imListEl.innerHTML = '';
+			syncMoveSelection();
+			renderMoveError();
+			return;
+		}
+
+		const level = moveListing.level;
+		const isHeadingLevel = level === 'file' || (level === 'feature' && moveListing.isFolder === false);
+		if (imPersistentWrapEl) imPersistentWrapEl.hidden = !isHeadingLevel;
+
+		// Heading level: DOM-built tree mirroring the Storage composer placement UI.
+		if (isHeadingLevel) {
+			imListEl.innerHTML = '';
+			const host = document.createElement('div');
+			host.className = 'heading-tree im-heading-tree';
+			renderMoveHeadingTreeInto(host);
+			imListEl.appendChild(host);
+			syncMoveSelection();
+			renderMoveError();
+			return;
+		}
+
+		let html = '';
+
+		if (level === 'root') {
+			const features = Array.isArray(moveListing.features) ? moveListing.features : [];
+			// In ranked mode, only the top 4 features (by score) show their embedding score.
+			const top4 = new Set(
+				moveRank
+					? features
+							.slice()
+							.sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0))
+							.slice(0, 4)
+							.map(f => f.folderPrefix || f.path || '')
+					: []
+			);
+			features.forEach(function (f) {
+				const fval = f.folderPrefix || f.path || '';
+				const showScore = moveRank && top4.has(fval) && Number(f.score) > 0;
+				html +=
+					'<div class="im-row im-feature" data-im-key="feature:' +
+					escHtml(fval) +
+					'"><span class="sym">◆</span>' +
+					'<span class="im-label" data-im-action="open-feature" data-im-folder-prefix="' +
+					escHtml(f.folderPrefix || '') +
+					'" data-im-path="' +
+					escHtml(f.path || '') +
+					'" data-im-is-folder-index="' +
+					(f.isFolderIndex ? '1' : '0') +
+					'">' +
+					escHtml(f.title) +
+					'</span>' +
+					(showScore ? '<span class="im-score">' + escHtml(Number(f.score).toFixed(3)) + '</span>' : '') +
+					'<span class="im-count">' +
+					(f.issueCount || 0) +
+					'</span>' +
+					'<button type="button" class="im-move-here" data-im-action="feature" data-im-folder-prefix="' +
+					escHtml(f.folderPrefix || '') +
+					'" data-im-path="' +
+					escHtml(f.path || '') +
+					'" data-im-is-folder-index="' +
+					(f.isFolderIndex ? '1' : '0') +
+					'">Inbox</button></div>';
+			});
+			if (!features.length) html += '<div class="im-empty">No features in this project.</div>';
+			html +=
+				'<div class="im-row im-target-row" data-im-key="inbox" data-im-action="inbox"><span class="sym">📥</span><span class="im-label">Move to project inbox</span><span class="im-count">' +
+				(moveListing.inboxCount || 0) +
+				'</span></div>';
+			html +=
+				'<div class="im-row" data-im-action="open-inbox-issues"><span class="sym">🗂</span><span class="im-label">Project issues</span><span class="im-count">' +
+				(Array.isArray(moveListing.projectIssues) ? moveListing.projectIssues.length : 0) +
+				'</span></div>';
+		} else if (level === 'inbox-issues') {
+			const issuesHtml = moveIssueTree(moveListing.issues);
+			html += '<div class="im-row im-target-row" data-im-key="inbox" data-im-action="inbox"><span class="sym">📥</span><span class="im-label">Move to project inbox</span></div>';
+			html += issuesHtml || '<div class="im-empty">No project issues.</div>';
+		} else if (level === 'feature') {
+			const feature = moveListing.feature || {};
+			const fval = feature.folderPrefix || feature.path || '';
+			html +=
+				'<div class="im-row im-target-row" data-im-key="feature:' +
+				escHtml(fval) +
+				'" data-im-action="feature" data-im-folder-prefix="' +
+				escHtml(feature.folderPrefix || '') +
+				'" data-im-path="' +
+				escHtml(feature.path || '') +
+				'" data-im-is-folder-index="' +
+				(feature.isFolderIndex ? '1' : '0') +
+				'"><span class="sym">📥</span><span class="im-label">' +
+				escHtml(feature.title || '') +
+				' (inbox)</span></div>';
+			const folders = Array.isArray(moveListing.folders) ? moveListing.folders : [];
+			const files = Array.isArray(moveListing.files) ? moveListing.files : [];
+			folders.forEach(function (d) {
+				html +=
+					'<div class="im-row" data-im-action="open-folder" data-im-uri="' +
+					escHtml(d.uri) +
+					'"><span class="sym">📁</span><span class="im-label">' +
+					escHtml(d.name) +
+					'</span></div>';
+			});
+			files.forEach(function (f) {
+				html +=
+					'<div class="im-row" data-im-action="open-file" data-im-uri="' +
+					escHtml(f.uri) +
+					'"><span class="sym">📄</span><span class="im-label">' +
+					escHtml(f.name) +
+					'</span></div>';
+			});
+			if (!folders.length && !files.length) {
+				html += '<div class="im-empty">No files or folders in this feature.</div>';
+			}
+		} else if (level === 'folder') {
+			const folders = Array.isArray(moveListing.folders) ? moveListing.folders : [];
+			const files = Array.isArray(moveListing.files) ? moveListing.files : [];
+			folders.forEach(function (d) {
+				html +=
+					'<div class="im-row" data-im-action="open-folder" data-im-uri="' +
+					escHtml(d.uri) +
+					'"><span class="sym">📁</span><span class="im-label">' +
+					escHtml(d.name) +
+					'</span></div>';
+			});
+			files.forEach(function (f) {
+				html +=
+					'<div class="im-row" data-im-action="open-file" data-im-uri="' +
+					escHtml(f.uri) +
+					'"><span class="sym">📄</span><span class="im-label">' +
+					escHtml(f.name) +
+					'</span></div>';
+			});
+			if (!folders.length && !files.length) html += '<div class="im-empty">This folder is empty.</div>';
+		}
+
+		imListEl.innerHTML = html || '<div class="im-empty">Nothing here.</div>';
+		syncMoveSelection();
+		renderMoveError();
+	}
+
+	function clearMoveError() {
+		if (moveError) {
+			moveError = '';
+			renderMoveError();
+		}
+	}
+
+	function renderMoveError() {
+		if (!imErrorEl) return;
+		if (moveError) {
+			imErrorEl.textContent = moveError;
+			imErrorEl.hidden = false;
+		} else {
+			imErrorEl.textContent = '';
+			imErrorEl.hidden = true;
+		}
+	}
+
+	function wireMovePanel() {
+		const suggest = document.getElementById('im-suggest');
+		const ai = document.getElementById('im-ai');
+		const browse = document.getElementById('im-browse');
+		const cancel = document.getElementById('im-cancel');
+		if (suggest) suggest.addEventListener('click', function () { goMoveRoot(true); });
+		if (ai) ai.addEventListener('click', function () { goMoveRoot(true); });
+		if (browse) browse.addEventListener('click', function () { goMoveRoot(false); });
+		if (cancel) {
+			cancel.addEventListener('click', function () {
+				vscode.postMessage({ type: 'moveIssueCancel' });
+				exitMoveMode();
+			});
+		}
+		if (imMoveBtn) {
+			imMoveBtn.addEventListener('click', function () {
+				if (!moveCtx || !moveTarget) return;
+				vscode.postMessage({
+					type: 'moveIssueConfirm',
+					projectFolderPrefix: moveCtx.projectFolderPrefix,
+					issueId: moveCtx.issueId,
+					target: moveTarget,
+					removeParent: moveRemoveParent
+				});
+			});
+		}
+		if (imPersistentOnlyEl) {
+			imPersistentOnlyEl.checked = movePersistentOnly;
+			imPersistentOnlyEl.addEventListener('change', function () {
+				movePersistentOnly = imPersistentOnlyEl.checked;
+				movePlacementAnchorPath = '';
+				moveIngestDropRefPath = '';
+				moveIngestPosition = '';
+				moveTarget = null;
+				renderMoveListing();
+			});
+		}
+		if (imRemoveParentEl) {
+			imRemoveParentEl.checked = moveRemoveParent;
+			imRemoveParentEl.addEventListener('change', function () {
+				moveRemoveParent = imRemoveParentEl.checked;
+				if (moveRemoveParent) {
+					moveError = '';
+					renderMoveError();
+				}
+			});
+		}
+
+		if (imListEl) {
+			// Delegated single-click for the non-heading browse lists (features, inbox, project
+			// issues, folders, files). The heading tree handles its own double-click/drag inline.
+			imListEl.addEventListener('click', function (e) {
+				const el = /** @type {HTMLElement | null} */ (
+					e.target && e.target.closest ? e.target.closest('[data-im-action]') : null
+				);
+				if (!el) return;
+				const action = el.getAttribute('data-im-action');
+				const labelEl = el.querySelector('.im-label');
+				if (action === 'inbox') {
+					moveTarget = { kind: 'inbox' };
+					clearMoveError();
+					syncMoveSelection();
+				} else if (action === 'feature') {
+					moveTarget = {
+						kind: 'feature',
+						folderPrefix: el.getAttribute('data-im-folder-prefix') || null,
+						path: el.getAttribute('data-im-path') || '',
+						isFolderIndex: el.getAttribute('data-im-is-folder-index') === '1'
+					};
+					clearMoveError();
+					syncMoveSelection();
+				} else if (action === 'issue') {
+					if (moveCtx && moveCtx.hasParent && !moveRemoveParent) {
+						moveTarget = null;
+						moveError = 'This issue has a parent. Check "Remove parent / hierarchy" to place it under another issue.';
+						syncMoveSelection();
+						renderMoveError();
+						return;
+					}
+					moveTarget = { kind: 'issue', issueKey: el.getAttribute('data-im-issue') || '', position: 'under' };
+					clearMoveError();
+					syncMoveSelection();
+				} else if (action === 'open-feature') {
+					const featureLabel = el.textContent ? el.textContent.trim() : (el.getAttribute('data-im-path') || 'Feature');
+					goMoveNode(
+						featureLabel,
+						{
+							kind: 'feature',
+							folderPrefix: el.getAttribute('data-im-folder-prefix') || null,
+							path: el.getAttribute('data-im-path') || '',
+							isFolderIndex: el.getAttribute('data-im-is-folder-index') === '1'
+						}
+					);
+				} else if (action === 'open-folder') {
+					goMoveNode(labelEl ? labelEl.textContent.trim() : 'Folder', {
+						kind: 'folder',
+						uri: el.getAttribute('data-im-uri') || ''
+					});
+				} else if (action === 'open-file') {
+					goMoveNode(labelEl ? labelEl.textContent.trim() : 'File', {
+						kind: 'file',
+						uri: el.getAttribute('data-im-uri') || ''
+					});
+				} else if (action === 'open-inbox-issues') {
+					goMoveNode('Project issues', { kind: 'inbox-issues' });
+				}
+			});
+		}
+	}
+	wireMovePanel();
 
 	vscode.postMessage({ type: 'requestState' });
 

@@ -1,5 +1,5 @@
 <body>
-	<div class="storage-root">
+	<div class="storage-root" id="storage-root">
 			<div class="storage-corpus-strip" aria-label="Storage corpus">
 				<label for="st-corpus">Corpus</label>
 				<div class="storage-corpus-row">
@@ -98,5 +98,37 @@
 				<div id="storage-status" class="storage-status-below" aria-live="polite"></div>
 			</div>
 			</div>
+	</div>
+
+	<div id="issue-move-panel" hidden>
+		<div class="im-head">
+			<div class="im-title">
+				<span class="im-project-name" id="im-project-name"></span>
+				<span class="im-issue-line" id="im-issue-line"></span>
+			</div>
+		</div>
+		<div class="im-toolbar">
+			<button type="button" id="im-suggest">Suggestions</button>
+			<button type="button" class="secondary" id="im-ai" title="Top matches from stored embeddings">AI</button>
+			<button type="button" class="secondary" id="im-browse" title="Browse the project structure">Browse</button>
+		</div>
+		<div class="im-query" id="im-query" hidden></div>
+		<div class="im-crumbs" id="im-crumbs"></div>
+		<div class="im-list" id="im-list"></div>
+		<div class="im-options">
+			<label class="im-check" id="im-persistent-wrap" hidden>
+				<input type="checkbox" id="im-persistent-only" /> Persistent only
+			</label>
+			<label class="im-check">
+				<input type="checkbox" id="im-remove-parent" /> Remove parent / hierarchy
+			</label>
+			<span class="im-hint" id="im-parent-hint" hidden>This issue has a parent. Check "Remove parent" to place it under another issue or anywhere.</span>
+		</div>
+		<div class="im-error" id="im-error" hidden></div>
+		<div class="im-actions">
+			<span class="im-selection" id="im-selection"></span>
+			<button type="button" class="secondary" id="im-cancel" title="Cancel move">Cancel</button>
+			<button type="button" id="im-move" disabled>Move</button>
+		</div>
 	</div>
 	

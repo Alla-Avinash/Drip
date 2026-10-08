@@ -225,11 +225,147 @@ function appendSubIssueUnderParent(text, parentIssueId, block) {
 	return fromLines(insertBlock(found.lines, found.end, found.start, indentBlock(block, prefix)));
 }
 
+/**
+ * Insert a sibling issue block (lines at indent 0) directly above the issue at `issueId`, at the
+ * same indent. The identity line just above the issue is kept with it.
+ *
+ * @param {string} text
+ * @param {string} issueId
+ * @param {string[]} block
+ * @returns {string | null}
+ */
+function insertSiblingBeforeIssue(text, issueId, block) {
+	const found = findIssueHeadingBlock(text, issueId);
+	if (!found) return null;
+	const start =
+		found.start > 0 && IDENTITY_LINE_RE.test(String(found.lines[found.start - 1]))
+			? found.start - 1
+			: found.start;
+	const prefix = '\t'.repeat(found.indent);
+	const out = found.lines.slice();
+	out.splice(start, 0, '', ...indentBlock(block, prefix), '');
+	return fromLines(out);
+}
+
+/**
+ * Insert a sibling issue block (lines at indent 0) directly below the issue at `issueId`, at the
+ * same indent.
+ *
+ * @param {string} text
+ * @param {string} issueId
+ * @param {string[]} block
+ * @returns {string | null}
+ */
+function insertSiblingAfterIssue(text, issueId, block) {
+	const found = findIssueHeadingBlock(text, issueId);
+	if (!found) return null;
+	const prefix = '\t'.repeat(found.indent);
+	const out = found.lines.slice();
+	out.splice(found.end, 0, '', ...indentBlock(block, prefix), '');
+	return fromLines(out);
+}
+
+/**
+ * Find a heading (issue or plain) by its full title path (`A/B/C`) in note text.
+ * Mirrors the path built by the heading trees (`buildHeadingTreeFromBody`): tab/space
+ * indentation plus `#` level, titles joined with `/`. Header metadata carries no `#`
+ * headings, so scanning the full text yields the same paths as the body-only tree.
+ *
+ * @param {string} text
+ * @param {string} headingPath
+ * @returns {{ start: number, end: number, indent: number, lines: string[] } | null}
+ */
+function findHeadingSectionByPath(text, headingPath) {
+	const path = String(headingPath || '').trim();
+	if (!path) return null;
+	const lines = toLines(text);
+	const stack = [];
+	for (let i = 0; i < lines.length; i++) {
+		const m = String(lines[i] || '').match(/^([\t ]*)(#{1,6})\s+(.+)$/);
+		if (!m) continue;
+		let tabCount = 0;
+		let spaceCount = 0;
+		for (const ch of m[1]) {
+			if (ch === '\t') tabCount++;
+			else if (ch === ' ') spaceCount++;
+		}
+		const indentLevel = tabCount + Math.floor(spaceCount / 4);
+		const level = indentLevel + (m[2].length - 1);
+		const title = m[3].trim();
+		while (stack.length && stack[stack.length - 1].level >= level) stack.pop();
+		stack.push({ level, title });
+		if (stack.map(s => s.title).join('/') === path) {
+			const indent = (m[1] || '').length;
+			const end = sectionEnd(lines, i, indent);
+			return { start: i, end, indent, lines };
+		}
+	}
+	return null;
+}
+
+/**
+ * Append a block (lines at indent 0) as the last child of the heading at `headingPath`,
+ * whether that heading is an issue or a plain heading. Returns null when not found.
+ *
+ * @param {string} text
+ * @param {string} headingPath
+ * @param {string[]} block
+ * @returns {string | null}
+ */
+function appendBlockUnderHeading(text, headingPath, block) {
+	const found = findHeadingSectionByPath(text, headingPath);
+	if (!found) return null;
+	const prefix = '\t'.repeat(found.indent + 1);
+	return fromLines(insertBlock(found.lines, found.end, found.start, indentBlock(block, prefix)));
+}
+
+/**
+ * Insert a block (lines at indent 0) as a sibling directly before the heading at `headingPath`,
+ * at the same indent. Returns null when not found.
+ *
+ * @param {string} text
+ * @param {string} headingPath
+ * @param {string[]} block
+ * @returns {string | null}
+ */
+function insertSiblingBeforeHeading(text, headingPath, block) {
+	const found = findHeadingSectionByPath(text, headingPath);
+	if (!found) return null;
+	const prefix = '\t'.repeat(found.indent);
+	const out = found.lines.slice();
+	out.splice(found.start, 0, '', ...indentBlock(block, prefix), '');
+	return fromLines(out);
+}
+
+/**
+ * Insert a block (lines at indent 0) as a sibling directly after the heading at `headingPath`,
+ * at the same indent. Returns null when not found.
+ *
+ * @param {string} text
+ * @param {string} headingPath
+ * @param {string[]} block
+ * @returns {string | null}
+ */
+function insertSiblingAfterHeading(text, headingPath, block) {
+	const found = findHeadingSectionByPath(text, headingPath);
+	if (!found) return null;
+	const prefix = '\t'.repeat(found.indent);
+	const out = found.lines.slice();
+	out.splice(found.end, 0, '', ...indentBlock(block, prefix), '');
+	return fromLines(out);
+}
+
 module.exports = {
 	indentOf,
 	sectionEnd,
 	outlineParentsByLine,
 	findIssueHeadingBlock,
 	appendIssueToRecents,
-	appendSubIssueUnderParent
+	appendSubIssueUnderParent,
+	insertSiblingBeforeIssue,
+	insertSiblingAfterIssue,
+	findHeadingSectionByPath,
+	appendBlockUnderHeading,
+	insertSiblingBeforeHeading,
+	insertSiblingAfterHeading
 };

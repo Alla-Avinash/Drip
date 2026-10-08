@@ -14,7 +14,8 @@ temp-data/
 
 sample_delete.txt
 
-
+.cursor/other_files/**
+.cursor/not_imp_context/**
 
 
 

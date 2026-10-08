@@ -1,6 +1,6 @@
 'use strict';
 
-const { getMetadataSettings, getTypeRule } = require('../../document/model/dripnoteMetadataTemplates');
+const { getMetadataSettingsForIndex } = require('../../document/model/dripnoteMetadataTemplates');
 const { parseFlexibleDateTime } = require('../../document/parse/dripnoteDatetime');
 const {
 	parseDurationValue,
@@ -147,7 +147,7 @@ function collectValidatedMetadataKeyValues(metadataType, metaLines) {
 	const typeId = String(metadataType || '').trim().toLowerCase();
 	if (!typeId) return out;
 
-	const settings = getMetadataSettings();
+	const settings = getMetadataSettingsForIndex();
 	const typeDef = settings.typeById.get(typeId);
 	if (!typeDef) return out;
 

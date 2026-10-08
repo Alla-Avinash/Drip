@@ -13,6 +13,10 @@ const {
 	listProjectsFromIndex,
 	listProjectChildrenFromIndex
 } = require('../../../indexing/projectViewQuery');
+const {
+	getFileLevelMetadataSettings,
+	getMetadataSettings
+} = require('../../../document/model/dripnoteMetadataTemplates');
 
 function tryCloseAuxiliaryBar() {
 	try {
@@ -20,6 +24,52 @@ function tryCloseAuxiliaryBar() {
 	} catch {
 		/* ignore */
 	}
+}
+
+/**
+ * Enum values from a metadata type's attribute, lowercased and deduped.
+ * @param {{ attributes?: Record<string, { values?: unknown[] }> } | undefined} type
+ * @param {string} key
+ * @returns {string[]}
+ */
+function enumValuesFor(type, key) {
+	const a = type && type.attributes && type.attributes[String(key).toLowerCase()];
+	const values = a && Array.isArray(a.values) ? a.values : [];
+	return Array.from(new Set(values.map(v => String(v).trim().toLowerCase()).filter(Boolean)));
+}
+
+/**
+ * Field schema for the Project View filter/group/sort toolbar. Enum values are
+ * read live from DRIP settings (`.project` / `.issue` templates), not hardcoded.
+ * @returns {{ project: { fields: object[] }, issue: { fields: object[] } }}
+ */
+function buildFilterSchemaForWebview() {
+	const fileLevel = getFileLevelMetadataSettings();
+	const doc = getMetadataSettings();
+	const projectType = fileLevel.typeById && fileLevel.typeById.get('project');
+	const issueType = doc.typeById && doc.typeById.get('issue');
+
+	return {
+		project: {
+			fields: [
+				{ id: 'title', label: 'Title', kind: 'text' },
+				{ id: 'status', label: 'Status', kind: 'enum', values: enumValuesFor(projectType, 'status') },
+				{ id: 'priority', label: 'Priority', kind: 'enum', values: enumValuesFor(projectType, 'priority') },
+				{ id: 'deadline', label: 'Deadline', kind: 'datetime' },
+				{ id: 'issues', label: 'Issues', kind: 'number' }
+			]
+		},
+		issue: {
+			fields: [
+				{ id: 'title', label: 'Title', kind: 'text' },
+				{ id: 'feature', label: 'Feature', kind: 'enum', values: [] },
+				{ id: 'status', label: 'Status', kind: 'enum', values: enumValuesFor(issueType, 'status') },
+				{ id: 'priority', label: 'Priority', kind: 'enum', values: enumValuesFor(issueType, 'priority') },
+				{ id: 'deadline', label: 'Deadline', kind: 'datetime' },
+				{ id: 'category', label: 'Category', kind: 'enum', values: enumValuesFor(issueType, 'category') }
+			]
+		}
+	};
 }
 
 /**
@@ -33,6 +83,9 @@ function getProjectViewHtml(webview, extensionUri) {
 	);
 	const jsUri = webview.asWebviewUri(
 		vscode.Uri.joinPath(extensionUri, 'src', 'views', 'lhs', 'projects', 'webview', 'projectView.js')
+	);
+	const schemaUri = webview.asWebviewUri(
+		vscode.Uri.joinPath(extensionUri, 'src', 'views', 'lhs', 'projects', 'webview', 'filterSchema.js')
 	);
 	const csp = [
 		`default-src 'none'`,
@@ -60,6 +113,7 @@ function getProjectViewHtml(webview, extensionUri) {
 		<p class="page-sub">Connecting to extension host…</p>
 	</div>
 </div>
+<script nonce="${nonce}" src="${schemaUri}"></script>
 <script nonce="${nonce}" src="${jsUri}"></script>
 </body>
 </html>`;
@@ -141,8 +195,8 @@ class DripProjectViewPanel {
 					case 'createIssue':
 						await this.createIssue(message);
 						break;
-					case 'assignIssue':
-						await this.assignIssue(message);
+					case 'moveIssue':
+						await this.moveIssue(message);
 						break;
 					default:
 						break;
@@ -157,7 +211,7 @@ class DripProjectViewPanel {
 
 	async refresh() {
 		try {
-			const kbRoot = this.state.getKnowledgeBaseRoot && this.state.getKnowledgeBaseRoot();
+			const kbRoot = this.state.getVerifiedKnowledgeBaseRoot && this.state.getVerifiedKnowledgeBaseRoot();
 			if (!kbRoot) {
 				this._selectedPrefix = '';
 				await this.panel.webview.postMessage({
@@ -177,6 +231,7 @@ class DripProjectViewPanel {
 			await this.panel.webview.postMessage({
 				type: 'projects',
 				projects,
+				schema: buildFilterSchemaForWebview(),
 				kbLabel: path.basename(kbRoot.fsPath)
 			});
 			if (this._selectedPrefix) {
@@ -193,7 +248,7 @@ class DripProjectViewPanel {
 	 * @param {string} folderPrefix
 	 */
 	async loadProject(folderPrefix) {
-		const kbRoot = this.state.getKnowledgeBaseRoot && this.state.getKnowledgeBaseRoot();
+		const kbRoot = this.state.getVerifiedKnowledgeBaseRoot && this.state.getVerifiedKnowledgeBaseRoot();
 		if (!kbRoot || !folderPrefix) {
 			await this.panel.webview.postMessage({
 				type: 'projectDetail',
@@ -226,7 +281,7 @@ class DripProjectViewPanel {
 	 * @param {{ folderPrefix?: string, parentIssueId?: string, title?: string }} message
 	 */
 	async createIssue(message) {
-		const kbRoot = this.state.getKnowledgeBaseRoot && this.state.getKnowledgeBaseRoot();
+		const kbRoot = this.state.getVerifiedKnowledgeBaseRoot && this.state.getVerifiedKnowledgeBaseRoot();
 		const prefix = String(message.folderPrefix || this._selectedPrefix || '');
 		if (!kbRoot || !prefix) return;
 		const folderUri = vscode.Uri.joinPath(
@@ -250,55 +305,50 @@ class DripProjectViewPanel {
 	}
 
 	/**
+	 * Open the RHS Storage sidebar in "move issue" mode for this issue (scoped to the project).
+	 * The actual move happens only when the user confirms in Storage.
 	 * @param {{ folderPrefix?: string, issueId?: string }} message
 	 */
-	async assignIssue(message) {
-		const kbRoot = this.state.getKnowledgeBaseRoot && this.state.getKnowledgeBaseRoot();
+	async moveIssue(message) {
+		const kbRoot = this.state.getVerifiedKnowledgeBaseRoot && this.state.getVerifiedKnowledgeBaseRoot();
 		const prefix = String(message.folderPrefix || this._selectedPrefix || '');
 		const issueId = String(message.issueId || '');
 		if (!kbRoot || !prefix || !issueId) return;
-		const data = await listProjectChildrenFromIndex(kbRoot, prefix);
-		const features = data.features || [];
-		if (!features.length) {
-			void vscode.window.showWarningMessage('Create a feature first, then assign the issue.');
+
+		const { issues } = await listProjectChildrenFromIndex(kbRoot, prefix);
+		const issue = issues.find(
+			i => String(i.issueKey || '').toLowerCase() === issueId.toLowerCase()
+		);
+		if (!issue) {
+			void vscode.window.showWarningMessage(`Issue ${issueId} not found.`);
 			return;
 		}
-		const picked = await vscode.window.showQuickPick(
-			features.map(f => ({
-				label: f.title,
-				description: f.folderPrefix || f.path,
-				feature: f
-			})),
-			{ placeHolder: `Send ${issueId} to feature mailbox` }
-		);
-		if (!picked) return;
-		const folderUri = vscode.Uri.joinPath(
-			kbRoot,
-			...prefix.replace(/\/+$/, '').split('/').filter(Boolean)
-		);
-		const feat = picked.feature;
-		const featureUri = feat.isFolderIndex
-			? vscode.Uri.joinPath(
-					kbRoot,
-					...String(feat.folderPrefix || '')
-						.replace(/\/+$/, '')
-						.split('/')
-						.filter(Boolean)
-				)
-			: vscode.Uri.joinPath(kbRoot, ...String(feat.path || '').split('/').filter(Boolean));
-		const { moveIssueToFeatureMailbox } = require('../../../document/project/projectIssuesMailbox');
-		await moveIssueToFeatureMailbox(kbRoot, folderUri, featureUri, issueId, {
-			context: this.context
+
+		// Project display name for the Storage banner.
+		let projectName = prefix.replace(/\/+$/, '').split('/').pop() || prefix;
+		try {
+			const { projects } = await listProjectsFromIndex(kbRoot);
+			const proj = projects.find(p => p.folderPrefix === prefix);
+			if (proj && proj.title) projectName = String(proj.title);
+		} catch {
+			/* fall back to the folder name */
+		}
+
+		const { beginIssueMove } = require('../../views');
+		await beginIssueMove({
+			projectName,
+			projectFolderPrefix: prefix,
+			issueId,
+			issueTitle: String(issue.title || ''),
+			hasParent: !!issue.parentIssueKey
 		});
-		void vscode.window.setStatusBarMessage(`Moved ${issueId} → feature mailbox`, 3000);
-		await this.loadProject(prefix);
 	}
 
 	/**
 	 * @param {{ path?: string, title?: string, headingId?: number }} message
 	 */
 	async openHeading(message) {
-		const kbRoot = this.state.getKnowledgeBaseRoot && this.state.getKnowledgeBaseRoot();
+		const kbRoot = this.state.getVerifiedKnowledgeBaseRoot && this.state.getVerifiedKnowledgeBaseRoot();
 		if (!kbRoot || !message.path) return;
 		const uri = vscode.Uri.joinPath(kbRoot, ...String(message.path).split('/').filter(Boolean));
 		const doc = await vscode.workspace.openTextDocument(uri);

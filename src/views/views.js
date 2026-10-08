@@ -33,6 +33,13 @@ let lastComposerCapture = null;
 /** @type {unknown} */
 let lastStorageSelection = undefined;
 
+/**
+ * RHS "move issue" mode context. Set while the user is moving an issue within a project
+ * via the Storage sidebar. Non-null means the Storage webview shows the move panel.
+ * @type {{ projectName: string, projectFolderPrefix: string, issueId: string, issueTitle: string } | null}
+ */
+let moveIssueContext = null;
+
 function postToStorage(message) {
 	if (storageWebviewRef) {
 		void storageWebviewRef.postMessage(message);
@@ -1051,6 +1058,25 @@ async function revealDripStorageView() {
 	await revealStorageOnly();
 }
 
+/**
+ * Open the RHS Storage sidebar in "move issue" mode: show the project name at the top and
+ * let the user pick a destination (feature / project inbox / another issue) with the same
+ * embedding-based suggestions. The move only happens when the user clicks Move.
+ *
+ * @param {{ projectName: string, projectFolderPrefix: string, issueId: string, issueTitle: string, hasParent?: boolean }} ctx
+ */
+async function beginIssueMove(ctx) {
+	moveIssueContext = {
+		projectName: String(ctx.projectName || ''),
+		projectFolderPrefix: String(ctx.projectFolderPrefix || ''),
+		issueId: String(ctx.issueId || ''),
+		issueTitle: String(ctx.issueTitle || ''),
+		hasParent: ctx.hasParent === true
+	};
+	await revealDripStorageView();
+	postToStorage({ type: 'storageMoveMode', context: moveIssueContext });
+}
+
 /** @param {*} sidebarProvider */
 async function notifyDraftSaved(sidebarProvider, draft, statusMessage) {
 	await sidebarProvider.refresh();
@@ -1141,6 +1167,9 @@ class DripStorageWebviewProvider {
 						postKbNoteSettingsToStorage();
 						if (lastComposerNote) {
 							await w.postMessage({ type: 'composerNote', note: lastComposerNote });
+						}
+						if (moveIssueContext) {
+							await w.postMessage({ type: 'storageMoveMode', context: moveIssueContext });
 						}
 						break;
 					case 'previewTargets': {
@@ -1299,6 +1328,60 @@ class DripStorageWebviewProvider {
 						const result = await this.state.ingestNote(note, selection);
 						const summary = `Note ${result.mode === 'append' ? 'appended to' : 'created at'} ${result.targetPath}`;
 						await notifyAfterIngest(this.sidebarProvider, summary);
+						break;
+					}
+					case 'moveIssueBrowse': {
+						const ctx = moveIssueContext || {};
+						const kbRoot = this.state.getVerifiedKnowledgeBaseRoot && this.state.getVerifiedKnowledgeBaseRoot();
+						if (!kbRoot || !ctx.projectFolderPrefix || !ctx.issueId) {
+							await w.postMessage({
+								type: 'moveIssueBrowseResult',
+								level: 'root',
+								inboxCount: 0,
+								features: []
+							});
+							break;
+						}
+						const { listProjectMoveBrowse } = require('../document/project/projectIssueMove');
+						const result = await listProjectMoveBrowse(
+							kbRoot,
+							ctx.projectFolderPrefix,
+							message.node || { kind: 'root' },
+							{
+								issueId: ctx.issueId,
+								title: ctx.issueTitle,
+								rank: message.rank === true
+							}
+						);
+						await w.postMessage({ type: 'moveIssueBrowseResult', ...result });
+						break;
+					}
+					case 'moveIssueConfirm': {
+						const ctx = moveIssueContext;
+						const kbRoot = this.state.getVerifiedKnowledgeBaseRoot && this.state.getVerifiedKnowledgeBaseRoot();
+						if (!ctx || !kbRoot || !message.target) {
+							break;
+						}
+						const { moveProjectIssue } = require('../document/project/projectIssueMove');
+						const result = await moveProjectIssue(
+							kbRoot,
+							ctx.projectFolderPrefix,
+							ctx.issueId,
+							message.target,
+							{ context: this.state.context, removeParent: message.removeParent === true }
+						);
+						moveIssueContext = null;
+						await w.postMessage({
+							type: 'moveIssueDone',
+							issueId: result.issueId
+						});
+						const { refreshProjectViewIfShown } = require('./lhs/projects/panel');
+						refreshProjectViewIfShown();
+						void vscode.window.setStatusBarMessage(`Moved ${ctx.issueId}`, 3000);
+						break;
+					}
+					case 'moveIssueCancel': {
+						moveIssueContext = null;
 						break;
 					}
 					default:
@@ -1756,5 +1839,6 @@ module.exports = {
 	postKbNoteSettingsToStorage,
 	postTagGraphStateToAll,
 	pushTagGraphUi,
-	revealDripStorageView
+	revealDripStorageView,
+	beginIssueMove
 };

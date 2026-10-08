@@ -85,13 +85,15 @@ function takeFolderEmbeddingJobs(kbRootUri) {
 /**
  * @param {import('vscode').Uri | string} kbRootUri
  * @param {(job: FolderEmbeddingJob) => Promise<void>} processJob
+ * @returns {Promise<{ processed: number, skippedBusy: boolean }>}
  */
 async function drainFolderEmbeddingQueue(kbRootUri, processJob) {
 	const key = kbKey(kbRootUri);
 	if (draining.get(key)) {
-		return;
+		return { processed: 0, skippedBusy: true };
 	}
 	draining.set(key, true);
+	let processed = 0;
 	try {
 		for (;;) {
 			const jobs = takeFolderEmbeddingJobs(kbRootUri);
@@ -100,11 +102,13 @@ async function drainFolderEmbeddingQueue(kbRootUri, processJob) {
 			}
 			for (const job of jobs) {
 				await processJob(job);
+				processed++;
 			}
 		}
 	} finally {
 		draining.set(key, false);
 	}
+	return { processed, skippedBusy: false };
 }
 
 module.exports = {

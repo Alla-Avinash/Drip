@@ -68,7 +68,7 @@ function allocateProjectId(db) {
  * Ensure a `projects` row for this folder prefix; return project_id.
  * @param {import('./db/dripSqlite').DripSqliteDatabase} db
  * @param {string} folderPrefix
- * @param {{ fileId?: number, filePath?: string, title?: string, status?: string|null, deadline?: number|null }} [opts]
+ * @param {{ fileId?: number, filePath?: string, title?: string, status?: string|null, deadline?: number|null, priority?: string|null }} [opts]
  * @returns {number | null}
  */
 function ensureProjectRow(db, folderPrefix, opts = {}) {
@@ -99,7 +99,7 @@ function ensureProjectRow(db, folderPrefix, opts = {}) {
 		if (isIndex && opts.fileId != null) {
 			db.run(
 				`UPDATE projects SET index_file_id = ?, title = COALESCE(?, title),
-				 status = COALESCE(?, status), deadline = COALESCE(?, deadline)
+				 status = COALESCE(?, status), deadline = COALESCE(?, deadline), priority = COALESCE(?, priority)
 				 WHERE project_id = ?`,
 				[
 					Math.floor(Number(opts.fileId)),
@@ -108,6 +108,7 @@ function ensureProjectRow(db, folderPrefix, opts = {}) {
 					opts.deadline != null && Number.isFinite(Number(opts.deadline))
 						? Number(opts.deadline)
 						: null,
+					opts.priority != null ? String(opts.priority) : null,
 					projectId
 				]
 			);
@@ -122,15 +123,16 @@ function ensureProjectRow(db, folderPrefix, opts = {}) {
 	const isIndex =
 		opts.filePath && isProjectIndexFileName(path.posix.basename(String(opts.filePath).replace(/\\/g, '/')));
 	db.run(
-		`INSERT INTO projects (project_id, folder_prefix, index_file_id, title, status, deadline)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO projects (project_id, folder_prefix, index_file_id, title, status, deadline, priority)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		[
 			projectId,
 			normalized,
 			isIndex && opts.fileId != null ? Math.floor(Number(opts.fileId)) : null,
 			title,
 			opts.status != null ? String(opts.status) : null,
-			opts.deadline != null && Number.isFinite(Number(opts.deadline)) ? Number(opts.deadline) : null
+			opts.deadline != null && Number.isFinite(Number(opts.deadline)) ? Number(opts.deadline) : null,
+			opts.priority != null ? String(opts.priority) : null
 		]
 	);
 	return projectId;

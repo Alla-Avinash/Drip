@@ -61,7 +61,10 @@ function isStartupCheckReady() {
 
 /**
  * @param {import('vscode').ExtensionContext} context
- * @param {{ getKnowledgeBaseRoot: () => import('vscode').Uri | undefined }} state
+ * @param {{
+ *   getKnowledgeBaseRoot: () => import('vscode').Uri | undefined,
+ *   setVerifiedKnowledgeBaseRoot: (uri: import('vscode').Uri | undefined) => void
+ * }} state
  * @returns {Promise<{ ok: boolean, kbRoot?: import('vscode').Uri, issues?: string[] }>}
  */
 async function runStartupCheck(context, state) {
@@ -76,13 +79,19 @@ async function runStartupCheck(context, state) {
 
 /**
  * @param {import('vscode').ExtensionContext} context
- * @param {{ getKnowledgeBaseRoot: () => import('vscode').Uri | undefined, refreshDraftsFromStorage?: () => Promise<unknown> }} state
+ * @param {{
+ *   getKnowledgeBaseRoot: () => import('vscode').Uri | undefined,
+ *   setVerifiedKnowledgeBaseRoot: (uri: import('vscode').Uri | undefined) => void,
+ *   refreshDraftsFromStorage?: () => Promise<unknown>,
+ *   refreshRecentsFromStorage?: () => Promise<unknown>
+ * }} state
  * @returns {Promise<{ ok: boolean, kbRoot?: import('vscode').Uri, issues?: string[] }>}
  */
 async function runStartupCheckInner(context, state) {
 	const generation = startupCheckGeneration;
 	const kbRoot = state.getKnowledgeBaseRoot();
 	if (!kbRoot) {
+		state.setVerifiedKnowledgeBaseRoot(undefined);
 		await setStartupCheckCompleteContext(true);
 		return { ok: true };
 	}
@@ -107,6 +116,11 @@ async function runStartupCheckInner(context, state) {
 		);
 		return { ok: false, issues: ['not-driplock'] };
 	}
+
+	// The saved folder is a real `.driplock` KB. Promote it so dependent views (Daily Notes,
+	// Drafts, Project View) can use it. We re-verify on every startup so a stale/invalid saved
+	// path never leaks to the rest of the UI.
+	state.setVerifiedKnowledgeBaseRoot(kbRoot);
 
 	try {
 		await ensureDripIndexSkeleton(kbRoot);
@@ -181,11 +195,15 @@ async function runStartupCheckInner(context, state) {
 
 /**
  * @param {import('vscode').ExtensionContext} context
- * @param {{ getKnowledgeBaseRoot?: () => import('vscode').Uri | undefined }} state
+ * @param {{
+ *   getKnowledgeBaseRoot?: () => import('vscode').Uri | undefined,
+ *   setVerifiedKnowledgeBaseRoot: (uri: import('vscode').Uri | undefined) => void
+ * }} state
  * @param {string} message
  */
 async function handleStartupCheckFailure(context, state, message) {
 	await setStartupCheckCompleteContext(false);
+	state.setVerifiedKnowledgeBaseRoot(undefined);
 	if (startupCheckWarned) {
 		return;
 	}
@@ -202,6 +220,9 @@ async function handleStartupCheckFailure(context, state, message) {
 		try {
 			await updateKnowledgeBase(context, kbUri, { force: true, quiet: true });
 			reconciledStartupKbFsPath = kbUri.fsPath;
+			if (isDriplockKnowledgeBaseUri(kbUri)) {
+				state.setVerifiedKnowledgeBaseRoot(kbUri);
+			}
 			await setStartupCheckCompleteContext(true);
 		} catch (e) {
 			console.error('[DRIP] startup_check recovery', e);
@@ -213,15 +234,26 @@ async function handleStartupCheckFailure(context, state, message) {
 
 /**
  * @param {import('vscode').ExtensionContext} context
- * @param {{ getKnowledgeBaseRoot: () => import('vscode').Uri | undefined }} state
+ * @param {{
+ *   getKnowledgeBaseRoot: () => import('vscode').Uri | undefined,
+ *   setVerifiedKnowledgeBaseRoot: (uri: import('vscode').Uri | undefined) => void
+ * }} state
+ * @param {() => void} [onComplete] Called after each startup check settles, so views can refresh.
  */
-function registerStartupCheck(context, state) {
+function registerStartupCheck(context, state, onComplete) {
 	void setStartupCheckCompleteContext(false);
 
-	void runStartupCheck(context, state);
+	void runStartupCheck(context, state).then(() => {
+		if (typeof onComplete === 'function') {
+			onComplete();
+		}
+	});
 	void (async () => {
 		await new Promise(r => setTimeout(r, 2000));
 		await runStartupCheck(context, state);
+		if (typeof onComplete === 'function') {
+			onComplete();
+		}
 	})();
 }
 

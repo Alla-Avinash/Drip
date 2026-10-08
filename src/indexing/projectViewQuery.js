@@ -43,13 +43,34 @@ async function listProjectsFromIndex(kbRootUri) {
 		const rows = db.native
 			.prepare(
 				`SELECT p.project_id AS projectId, p.folder_prefix AS folderPrefix, p.title AS title,
-				        p.status AS status, p.deadline AS deadline, p.index_file_id AS indexFileId,
-				        f.path AS path
+				        p.status AS status, p.deadline AS deadline, p.priority AS priority, p.index_file_id AS indexFileId,
+				        f.path AS path,
+				        (SELECT COUNT(*) FROM issues i WHERE i.project_id = p.project_id) AS issueCount
 				 FROM projects p
 				 LEFT JOIN files f ON f.id = p.index_file_id
 				 ORDER BY LOWER(COALESCE(p.title, p.folder_prefix)) ASC`
 			)
 			.all();
+
+		// Per-project issue status breakdown (powers the issue bubble fraction + stats).
+		const statusRows = db.native
+			.prepare(
+				`SELECT project_id AS projectId, LOWER(COALESCE(status, '')) AS status, COUNT(*) AS n
+				 FROM issues
+				 GROUP BY project_id, LOWER(COALESCE(status, ''))`
+			)
+			.all();
+		/** @type {Map<number, Record<string, number>>} */
+		const statusByProject = new Map();
+		for (const r of statusRows || []) {
+			const row = asRow(r);
+			const pid = Number(row.projectId) || 0;
+			const status = String(row.status || '').toLowerCase();
+			const n = Number(row.n) || 0;
+			if (!pid || !status) continue;
+			if (!statusByProject.has(pid)) statusByProject.set(pid, {});
+			statusByProject.get(pid)[status] = n;
+		}
 
 		const projects = (rows || []).map(r => {
 			const row = asRow(r);
@@ -63,10 +84,16 @@ async function listProjectsFromIndex(kbRootUri) {
 				path: String(row.path || folderPrefix),
 				folderPrefix,
 				status: row.status != null ? String(row.status) : null,
+				priority: row.priority != null ? String(row.priority) : null,
 				deadline:
 					row.deadline != null && Number.isFinite(Number(row.deadline))
 						? Number(row.deadline)
-						: null
+						: null,
+				issueCount:
+					row.issueCount != null && Number.isFinite(Number(row.issueCount))
+						? Number(row.issueCount)
+						: 0,
+				issueStatusCounts: statusByProject.get(Number(row.projectId) || 0) || {}
 			};
 		});
 		return { projects };
