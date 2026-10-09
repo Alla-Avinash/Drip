@@ -11,11 +11,10 @@ DRIP's configuration surface (a Settings webview and keybindings) plus the start
 
 ## Settings webview
 
-A panel (`drip.openDripSettingsView`) with sections for:
-
-- **General** — note extensions, auto-open composer, editor edit mode.
-- **Metadata** — types, templates, colors, markers, relations.
-- **Embeddings** — enable/disable, model choice.
+A panel (`drip.openDripSettingsView`) with a large **DRIP Settings** heading and an always-visible **Sections** sidebar, with independent scrolling (the sidebar and the open panel each scroll on their own, so the sidebar stays visible). Sections:
+- **Metadata** — types, templates, markers, relations. Types are shown in two groups: **Document KB types** (concept, task) and **Project types** (project, feature, issue). Built-in keys are fixed (shown as "built-in", not deletable, with their data type locked) — only enum values can be edited, and custom keys can be added. The issue `parent` key is a special fixed key (shown as a "parent" kind).
+- **Doc Coloring** — a live sample of a `.d.txt` note (file identity lines, a heading, metadata, the `---` separator, tags and relations) rendered with the current colors, plus six color picker rows. The six roles are: (1) metadata type/shortcut, (2) heading line (bold), (3) metadata keys, (4) tag & relation keys, (5) values and the `---` separator, (6) file-level identity keys. Each picker shows the exact color the editor renders for that role as its default (resolved in the extension host from the active theme's TextMate token colors plus any `editor.tokenColorCustomizations` / `editor.semanticTokenColorCustomizations`), so the swatches and live sample match the `.d.txt` document precisely rather than approximating the theme. Leaving a picker empty keeps the theme color, while setting a hex value overrides that role in `.d.txt` notes only. Dragging inside a picker updates the live sample without closing the picker, and a **Revert to Theme Defaults** button clears all six back to the theme colors.
+- **Embeddings** — model info and benchmark only (embeddings are always on; the model is fixed to `Xenova/all-MiniLM-L6-v2`).
 - **LLM** — enable, base URL, model, API key.
 - **MCP** — enable, port, token, connection details.
 - **GitHub backup** — remote, init, push, pull, PAT.

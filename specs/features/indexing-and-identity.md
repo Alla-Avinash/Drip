@@ -13,9 +13,8 @@ DRIP maintains a local SQLite index (`.dripindex/index.drip`) that mirrors the K
 
 - **Files** — one row per note, with path and file ID.
 - **Headings** — one row per heading, with title, parent, file, and metadata type.
-- **References** — cross-file heading references.
 - **Tags** and **relations** — tags and typed relations between notes/headings.
-- **Typed metadata** — separate tables for concept, task, issue, project, feature, and decision metadata (with sort indexes on deadline/priority).
+- **Typed metadata** — fixed tables for each built-in type: concept (`domain`, `status`), task (`status`, `priority`, `deadline`, `category`), and issue (`status`, `priority`, `deadline`, `category`, `parent`). Project fields (`status`, `priority`, `deadline`) live on the projects registry and feature `category` on the features registry. Any user-added keys go into a single EAV table (`metadata_remaining_keys`).
 - **Projects** and **issues** — the project/issue hierarchy tables.
 - **Embeddings** — vector records for headings (used by semantic search).
 
@@ -26,7 +25,7 @@ DRIP maintains a local SQLite index (`.dripindex/index.drip`) that mirrors the K
 - Projects and features get entity IDs (`f-N`).
 - Issues get entity IDs (`i-N`).
 
-These IDs survive renames, moves, and restructuring, so links and references keep pointing correctly.
+These IDs survive renames, moves, and restructuring, so links keep pointing correctly.
 
 ## How the index is kept up to date
 
@@ -34,7 +33,7 @@ These IDs survive renames, moves, and restructuring, so links and references kee
 - **Incremental parse** — edits are mapped to the affected heading subtree and re-parsed selectively.
 - **Startup reconcile** — on startup, path/name mismatches are repaired lightly (no full re-parse).
 - **Full rebuild** — available on demand ("Update index") for a complete re-parse.
-- **Schema migrations** — the database schema is versioned; older indexes upgrade in place.
+- **Static schema** — the database schema is fixed; a fresh index is created with the current schema and there is no in-place upgrade from older versions.
 
 ## Flow (plain steps)
 

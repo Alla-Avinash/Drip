@@ -11,8 +11,6 @@
     "defaultNewNoteExtension": ".d.txt",
     "editHeadingsInFile": false,
     "editHeadingsViaRhs": true,
-    "experimentalEmbeddings": true,
-    "embeddingModel": "Xenova/all-MiniLM-L6-v2",
     "dripnoteAllowedMetadataKeys": [],
     "dripnoteCustomTypeMarkers": [],
     "dripnoteCustomColors": {},
@@ -258,10 +256,6 @@
       "relationKeywordColor": "",
       "tagsKeywordColor": ""
     },
-    "refLinksConfig": {
-      "refKeywordColor": "",
-      "refValueColor": ""
-    },
     "dripMetadataMarks": {
       "marks": [
         {
@@ -352,6 +346,14 @@
     },
     "metadataKeyColor": "",
     "metadataValueColor": "",
+    "dripnoteDocColors": {
+      "color1": "",
+      "color2": "",
+      "color3": "",
+      "color4": "",
+      "color5": "",
+      "color6": ""
+    },
     "canvasVisibleTypeIds": [],
     "canvasShowHeadingsWithoutType": true,
     "githubBackup": {

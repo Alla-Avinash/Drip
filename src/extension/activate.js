@@ -99,7 +99,6 @@ const { registerDripnoteCustomDecorations } = require('../views/editor/dripnoteC
 const { registerDripnoteHeadingIdentityDisplay } = require('../views/editor/dripnoteHeadingIdentityDisplay');
 const { registerDripnoteIndexSync } = require('../indexing/dripnoteIndexSync');
 const { registerStartupCheck, resetStartupCheckCache, runStartupCheck } = require('../startup/startupCheck');
-const { registerDripCanvasPanel } = require('../views/lhs/canvas/panel');
 const {
 	DripRetrieverPanel,
 	registerRetrieverAutoRefresh,
@@ -180,11 +179,10 @@ async function postDripSettingsValuesToWebview(webview, dripState, extensionCont
 		metadataTypeColors: c.get('metadataTypeColors', defs.metadataTypeColors),
 		metadataKeyColor: c.get('metadataKeyColor', defs.metadataKeyColor),
 		metadataValueColor: c.get('metadataValueColor', defs.metadataValueColor),
+		dripnoteDocColors: c.get('dripnoteDocColors', defs.dripnoteDocColors),
+		dripnoteDocThemeColors: require('../views/editor/themeTokenColors').getDocRoleThemeColors(),
 		tagsRelationsConfig: c.get('tagsRelationsConfig', defs.tagsRelationsConfig),
-		refLinksConfig: c.get('refLinksConfig', defs.refLinksConfig),
 		dripMetadataMarks: c.get('dripMetadataMarks', defs.dripMetadataMarks),
-		experimentalEmbeddings: c.get('experimentalEmbeddings', defs.experimentalEmbeddings),
-		embeddingModel: c.get('embeddingModel', defs.embeddingModel),
 		editHeadingsInFile: c.get('editHeadingsInFile', defs.editHeadingsInFile === true),
 		editHeadingsViaRhs: c.get('editHeadingsViaRhs', defs.editHeadingsViaRhs !== false),
 		kbSettingsFilePath: kbRoot ? getSettingsDripFileUri(kbRoot).fsPath : '',
@@ -208,7 +206,6 @@ async function activate(context) {
 	registerDripnoteMetadataCompletion(context);
 	registerDripnoteCustomDecorations(context);
 	registerDripnoteHeadingIdentityDisplay(context);
-	registerDripCanvasPanel(context);
 	const state = new DripState(context);
 	registerDripnoteIndexSync(context, state);
 	registerPersistentHeadingSoftLock(context);
@@ -444,36 +441,6 @@ async function activate(context) {
 					case 'updateSetting':
 						{
 							const kbRoot = state.getKnowledgeBaseRoot();
-							if (message.key === 'embeddingModel') {
-								const {
-									confirmAndApplyEmbeddingModelChange
-								} = require('../indexing/embeddings/embeddingModelChange');
-								const previous = vscode.workspace
-									.getConfiguration('drip')
-									.get('embeddingModel', 'Xenova/all-MiniLM-L6-v2');
-								const result = await confirmAndApplyEmbeddingModelChange(
-									kbRoot,
-									message.value,
-									{
-										previousModelId: previous,
-										persistSetting: async model => {
-											const target = kbRoot
-												? vscode.ConfigurationTarget.Workspace
-												: vscode.ConfigurationTarget.Global;
-											await vscode.workspace
-												.getConfiguration('drip')
-												.update('embeddingModel', model, target);
-											if (kbRoot) {
-												await saveSettingsToDripIndex(kbRoot);
-											}
-										}
-									}
-								);
-								if (result.cancelled) {
-									await postDripSettingsValuesToWebview(webview, state, context);
-								}
-								break;
-							}
 							const target = kbRoot
 								? vscode.ConfigurationTarget.Workspace
 								: vscode.ConfigurationTarget.Global;
@@ -651,6 +618,29 @@ async function activate(context) {
 		});
 		return settingsPanel;
 	}
+
+	// Keep the Doc Coloring swatches in sync with the editor when the theme or token
+	// color customizations change. Send only the resolved theme colors so any unsaved
+	// edits in the form are left untouched.
+	const postDocThemeColors = () => {
+		if (!settingsPanel) return;
+		void settingsPanel.webview.postMessage({
+			type: 'docThemeColors',
+			colors: require('../views/editor/themeTokenColors').getDocRoleThemeColors()
+		});
+	};
+	context.subscriptions.push(vscode.window.onDidChangeActiveColorTheme(postDocThemeColors));
+	context.subscriptions.push(
+		vscode.workspace.onDidChangeConfiguration(e => {
+			if (
+				e.affectsConfiguration('workbench.colorTheme') ||
+				e.affectsConfiguration('editor.tokenColorCustomizations') ||
+				e.affectsConfiguration('editor.semanticTokenColorCustomizations')
+			) {
+				postDocThemeColors();
+			}
+		})
+	);
 
 
 	context.subscriptions.push(
@@ -1106,19 +1096,6 @@ async function activate(context) {
 					e.affectsConfiguration('drip.dripnoteCustomTypeMarkers');
 				if (retrieverStale) {
 					scheduleRetrieverCatalogRebuildIfShown();
-				}
-				if (e.affectsConfiguration('drip.embeddingModel')) {
-					const {
-						reconcileEmbeddingModelSettingWithIndex,
-						isEmbeddingModelConfigWatchSuppressed
-					} = require('../indexing/embeddings/embeddingModelChange');
-					if (!isEmbeddingModelConfigWatchSuppressed()) {
-						void reconcileEmbeddingModelSettingWithIndex(state.getKnowledgeBaseRoot()).catch(
-							err => {
-								console.error('[DRIP] embedding model reconcile failed', err);
-							}
-						);
-					}
 				}
 			}
 		})

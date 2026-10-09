@@ -1,7 +1,7 @@
 'use strict';
 
 const path = require('path');
-const { collectHeadingSequenceValidated, parseHeadingForValidation } = require('../document/parse/dripnoteCanvasParse');
+const { collectHeadingSequenceValidated, parseHeadingForValidation } = require('../document/parse/dripnoteHeadingParse');
 const { getMetadataSettings } = require('../document/model/dripnoteMetadataTemplates');
 const {
 	classifyPersistentHeadingTitle

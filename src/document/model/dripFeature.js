@@ -203,7 +203,7 @@ function applyH0TypeMarkerToNoteText(text, typeMarker, fallbackTitle) {
 function demoteH0TypeToBarePersistent(text, fallbackTitle) {
 	const { getMetadataSettings, matchHeadingTitleTypePrefix, HEADING_SPECIAL_KEYS } = require('./dripnoteMetadataTemplates');
 	const { classifyMetaLine, isStructuredMetadataLine } = require('./persistentHeadingZones');
-	const { parseHeadingForValidation } = require('../parse/dripnoteCanvasParse');
+	const { parseHeadingForValidation } = require('../parse/dripnoteHeadingParse');
 
 	const raw = String(text || '');
 	const nl = raw.includes('\r\n') ? '\r\n' : '\n';

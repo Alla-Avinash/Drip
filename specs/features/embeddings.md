@@ -6,27 +6,29 @@ DRIP can turn text into **vectors** (embeddings) locally and use vector similari
 
 ## How to access it
 
-- Background — enable/disable and pick the model in **Settings → Embeddings**; it then runs automatically on save/search.
+- Background — embeddings are always on and run automatically on save/search. The **Settings → Embeddings** panel only shows model info and a benchmark button.
 
 ## Sub-features
 
 ### Encoding
 
-- A sentence-embedding model (Transformers.js / ONNX) runs locally to encode headings, files, folders, and tags into vectors.
-- The model downloads into the extension's cache on first use.
+- A fixed sentence-embedding model, `Xenova/all-MiniLM-L6-v2` (Transformers.js / ONNX), runs locally to encode headings, files, folders, and tags into vectors. The model cannot be changed from settings.
+- The model downloads on first use into the DRIP extension folder (`.cache/transformers`) — not the home-folder Hugging Face cache — so uninstalling the DRIP extension removes the model files cleanly.
+
+### Vector storage
+
+- Vectors are stored as `Float32Array` BLOBs in ordinary SQLite tables — one per heading, file, folder, and tag — inside the same index database.
+- No separate vector files or sidecar indexes exist.
 
 ### Vector search
 
-- Heading similarity uses FAISS (in-memory) and `sqlite-vec` (in the index DB).
+- Similarity is a single exact L2 distance scan over all stored vectors, done in JavaScript.
+- The same search path is used for every vector count — there is no threshold that switches to a different method.
 - File/folder/tag embeddings support "best place to put this" and related-tag search.
 
 ### Sync
 
 - Embeddings are synced as notes change, through queues that encode only new/changed text.
-
-### Model change
-
-- Changing the embedding model rebuilds only the embedding tables (not note IDs or metadata).
 
 ### Benchmark
 
@@ -36,8 +38,3 @@ DRIP can turn text into **vectors** (embeddings) locally and use vector similari
 
 1. Notes are encoded into vectors and stored in the index.
 2. When the user searches or ingests, DRIP compares vectors to rank by meaning.
-3. If the model changes, embeddings are rebuilt.
-
-## Note
-
-Embeddings are optional (a setting). When off, DRIP falls back to token/overlap matching for suggestions.

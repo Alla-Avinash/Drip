@@ -340,7 +340,7 @@ const ISSUE_TOOLS = [
 		name: 'create_issue',
 		category: 'issues',
 		summary:
-			'Create an issue (next i-N id). Without parent → "# recents" in _issues.d.txt; with parent → indented under that issue.',
+			'Create an issue (next i-N id). Without parent → "# _inbox" in _issues.d.txt; with parent → indented under that issue.',
 		keywords: ['new issue', 'add issue', 'make issue', 'report bug', 'create ticket', 'add sub-issue', 'log task'],
 		inputSchema: {
 			type: 'object',
@@ -389,7 +389,7 @@ const ISSUE_TOOLS = [
 			return {
 				created: res.issueId,
 				file: relOf(kb, res.uri),
-				placement: parent ? `sub-issue of ${parent}` : '# recents in _issues.d.txt'
+				placement: parent ? `sub-issue of ${parent}` : '# _inbox in _issues.d.txt'
 			};
 		}
 	},
@@ -530,7 +530,7 @@ const ISSUE_TOOLS = [
 	{
 		name: 'assign_issue_to_feature',
 		category: 'hierarchy',
-		summary: 'Move an inbox issue (from _issues.d.txt) into a feature\'s _recent mailbox; parent links are kept.',
+		summary: 'Move an inbox issue (from _issues.d.txt) into a feature\'s _inbox mailbox; parent links are kept.',
 		keywords: ['assign', 'move issue', 'triage', 'sort inbox', 'put in feature', 'categorize'],
 		inputSchema: {
 			type: 'object',

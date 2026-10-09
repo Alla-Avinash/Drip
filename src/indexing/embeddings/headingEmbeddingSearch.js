@@ -3,9 +3,8 @@
 /**
  * Heading semantic search over `index.drip` vectors.
  *
- * Exact path (≤1000 locked): embed query once → sqlite-vec KNN → join card fields from SQLite.
- * FAISS path (>1000 locked): embed query → HNSW ANN (`.dripindex/heading-embeddings.faiss`) → cards.
- * Never opens `.d.txt` files to build results.
+ * One search path for all vector counts: embed query once → plain-JS L2 scan over
+ * stored vectors → join card fields from SQLite. Never opens `.d.txt` files.
  */
 
 const path = require('path');
@@ -17,10 +16,6 @@ const {
 	searchHeadingEmbeddingsExact,
 	RECORDS_TABLE
 } = require('./headingEmbeddingStore');
-const {
-	lockHeadingEmbeddingSearchMethod,
-	getLockedHeadingEmbeddingSearchMethod
-} = require('./headingEmbeddingSearchMethod');
 
 /**
  * @typedef {{
@@ -1010,105 +1005,13 @@ async function searchHeadingsExact(kbRootUri, queryText, opts) {
 }
 
 /**
- * FAISS ANN search (locked when vectorCount > 1000).
- * Falls back to exact sqlite-vec if FAISS is missing/corrupt while a rebuild is kicked.
- * @param {import('vscode').Uri} kbRootUri
- * @param {string} queryText
- * @param {{ limit?: number, modelId?: string }} [opts]
- * @returns {Promise<HeadingEmbeddingSearchHit[]>}
- */
-async function searchHeadingsFaiss(kbRootUri, queryText, opts) {
-	const limit = Math.max(1, Math.min(Number(opts?.limit) || 20, 200));
-	const q = String(queryText || '').trim();
-	if (!q) {
-		return [];
-	}
-
-	let modelId = opts?.modelId;
-	{
-		const handle = await openDripIndexDb(kbRootUri);
-		try {
-			if (!modelId) {
-				modelId = getEmbeddingMeta(handle.db).model;
-			}
-		} finally {
-			handle.close();
-		}
-	}
-
-	const vector = await encodeHeadingEmbeddingText(q, { modelId });
-
-	const { searchFaiss, loadFaissModule, scheduleDebouncedRebuild } = require('./headingEmbeddingFaiss');
-	if (!loadFaissModule()) {
-		console.warn('[DRIP] FAISS unavailable; falling back to exact sqlite-vec for this query');
-		return searchHeadingsExact(kbRootUri, queryText, { ...opts, modelId });
-	}
-
-	const handle = await openDripIndexDb(kbRootUri);
-	try {
-		let knn = [];
-		let usedFaiss = false;
-		try {
-			knn = searchFaiss(kbRootUri, handle.db, vector, limit);
-			usedFaiss = true;
-		} catch (err) {
-			console.warn('[DRIP] FAISS search failed; exact fallback + rebuild', err && err.message);
-			scheduleDebouncedRebuild(kbRootUri);
-		}
-
-		if (!usedFaiss || !knn.length) {
-			if (usedFaiss && !knn.length) {
-				scheduleDebouncedRebuild(kbRootUri);
-			}
-			knn = searchHeadingEmbeddingsExact(handle.db, vector, limit);
-		}
-
-		const cards = loadCardsForEmbeddingIds(
-			handle.db,
-			knn.map(h => h.embedding_id),
-			kbRootUri,
-			{ includeRelations: Boolean(opts && opts.includeRelations) }
-		);
-		/** @type {HeadingEmbeddingSearchHit[]} */
-		const hits = [];
-		for (const row of knn) {
-			const card = cards.get(Number(row.embedding_id));
-			if (!card) {
-				continue;
-			}
-			hits.push({
-				...card,
-				distance: Number(row.distance),
-				score: distanceToScore(row.distance)
-			});
-		}
-		return hits;
-	} finally {
-		handle.close();
-	}
-}
-
-/**
- * Search using the **locked** method for this KB (locks on first call if needed).
+ * Semantic search over heading vectors (single exact path).
  * @param {import('vscode').Uri} kbRootUri
  * @param {string} queryText
  * @param {{ limit?: number, modelId?: string, includeRelations?: boolean }} [opts]
  * @returns {Promise<{ method: string, hits: HeadingEmbeddingSearchHit[] }>}
  */
 async function searchHeadingsByEmbedding(kbRootUri, queryText, opts) {
-	let lock = getLockedHeadingEmbeddingSearchMethod(kbRootUri);
-	if (!lock) {
-		lock = await lockHeadingEmbeddingSearchMethod(kbRootUri);
-	}
-
-	if (lock.method === 'none') {
-		return { method: 'none', hits: [] };
-	}
-	if (lock.method === 'faiss') {
-		const hits = await searchHeadingsFaiss(kbRootUri, queryText, opts);
-		return { method: 'faiss', hits };
-	}
-
 	const hits = await searchHeadingsExact(kbRootUri, queryText, opts);
 	return { method: 'exact', hits };
 }
@@ -1890,7 +1793,6 @@ async function listMetadataTypesFromIndex(kbRootUri) {
 module.exports = {
 	distanceToScore,
 	searchHeadingsExact,
-	searchHeadingsFaiss,
 	searchHeadingsByEmbedding,
 	embeddingHitsToRetrieverWireRows,
 	loadCardsForEmbeddingIds,

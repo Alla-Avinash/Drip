@@ -1,16 +1,24 @@
 'use strict';
 
 const vscode = require('vscode');
-const { getMetadataSettings } = require('../../document/model/dripnoteMetadataTemplates');
-const { splitFileTopRegion } = require('../../document/parse/dripnoteCanvasParse');
-const { isRefLine } = require('../../document/parse/dripnoteRefLinks');
-const tagGraphStore = require('../../graph/tagGraphStore');
+const { tokenizeDripnote } = require('./dripnoteColoringTokens');
 
-const HEADING_RE = /^\s*#{1,6}\s+/;
-const COMMENT_RE = /^\s*\/\//;
-const TYPE_LINE_RE = /^\s*\.[a-z][a-z0-9_-]*\b/i;
-const KEY_VALUE_RE = /^\s*([a-z][a-z0-9_-]*)\s*:\s*(.+)$/i;
-const RELATION_RE = /^\s*([a-z][a-z0-9_-]*)\s*:\s*\[[^\]]*\]\s*$/i;
+/**
+ * Editor decoration overlays on top of the semantic-token theme base:
+ *   1. Doc Coloring — the six role colors, applied only where the user set a custom hex
+ *      (empty = follow the theme palette handled by dripnoteSemanticTokens.js).
+ *   2. Markdown marks — the user-assigned mark/text colors (empty = plain text).
+ */
+
+// Doc Coloring role -> setting key mapping (see dripnoteColoringTokens.js for roles).
+const ROLE_TO_COLOR_KEY = {
+	type: 'color1',
+	heading: 'color2',
+	metakey: 'color3',
+	relationkey: 'color4',
+	metavalue: 'color5',
+	fileidentity: 'color6'
+};
 
 function getCustomColorMap() {
 	const cfg = vscode.workspace.getConfiguration('drip');
@@ -44,15 +52,6 @@ function getMetadataColorSettings() {
 	return { useCustom, keyColor, valueColor, typeColors };
 }
 
-function getRefLinksColors() {
-	const cfg = vscode.workspace.getConfiguration('drip');
-	const refCfg = cfg.get('refLinksConfig', {});
-	return {
-		refKeywordColor: String((refCfg && refCfg.refKeywordColor) || '').trim(),
-		refValueColor: String((refCfg && refCfg.refValueColor) || '').trim()
-	};
-}
-
 function getRelationsKeywordColors() {
 	const cfg = vscode.workspace.getConfiguration('drip');
 	const relCfg = cfg.get('tagsRelationsConfig', {});
@@ -78,49 +77,30 @@ function getMarkdownMarksSettings() {
 	return out;
 }
 
-function getCustomTypeMarkers() {
+function getDocColors() {
 	const cfg = vscode.workspace.getConfiguration('drip');
-	const raw = cfg.get('dripnoteCustomTypeMarkers', []);
-	const out = new Set(['concept', 'task', 'project', 'p', 't']);
-	const meta = getMetadataSettings();
-	for (const t of meta.types || []) {
-		const marker = String(t.marker || '').trim().toLowerCase().replace(/^\./, '');
-		if (marker) out.add(marker);
-		const shortcut = String(t.shortcut || '').trim().replace(/^\./, '');
-		if (shortcut) out.add(shortcut);
-	}
-	for (const x of Array.isArray(raw) ? raw : []) {
-		const k = String(x || '').trim().toLowerCase().replace(/^\./, '');
-		if (k) out.add(k);
-	}
-	return out;
-}
-
-function getAllowedRelationKeys() {
-	const cfg = vscode.workspace.getConfiguration('drip');
-	const relCfg = cfg.get('tagsRelationsConfig', {});
-	const out = new Set(['tags', 'pre-req']);
-	const fromAllowed = Array.isArray(relCfg && relCfg.allowed) ? relCfg.allowed : [];
-	for (const x of fromAllowed) {
-		const k = String(x || '').trim().toLowerCase();
-		if (k && !['filename', 'created', 'fileid'].includes(k)) out.add(k);
-	}
-	const fromRows = Array.isArray(relCfg && relCfg.relations) ? relCfg.relations : [];
-	for (const row of fromRows) {
-		const k = String((row && row.name) || '').trim().toLowerCase();
-		if (k && !['filename', 'created', 'fileid'].includes(k)) out.add(k);
+	const raw = cfg.get('dripnoteDocColors', {}) || {};
+	/** @type {Record<string, string>} */
+	const out = {};
+	for (let i = 1; i <= 6; i++) {
+		const key = `color${i}`;
+		out[key] = String((raw && raw[key]) || '').trim();
 	}
 	return out;
 }
 
 function registerDripnoteCustomDecorations(context) {
 	/** @type {Map<string, import('vscode').TextEditorDecorationType>} */
-	const decoByColor = new Map();
+	const decoCache = new Map();
 
-	function decoForColor(color) {
-		if (decoByColor.has(color)) return decoByColor.get(color);
-		const d = vscode.window.createTextEditorDecorationType({ color });
-		decoByColor.set(color, d);
+	function decoFor(color, bold) {
+		const key = `${bold ? 'b' : ''}${color}`;
+		if (decoCache.has(key)) return decoCache.get(key);
+		const opts = {};
+		if (color) opts.color = color;
+		if (bold) opts.fontWeight = 'bold';
+		const d = vscode.window.createTextEditorDecorationType(opts);
+		decoCache.set(key, d);
 		context.subscriptions.push(d);
 		return d;
 	}
@@ -129,222 +109,53 @@ function registerDripnoteCustomDecorations(context) {
 		if (!editor || editor.document.languageId !== 'dripnote') return;
 		const doc = editor.document;
 		const lines = doc.getText().split(/\r?\n/);
-		const colorMap = getCustomColorMap();
-		const types = getCustomTypeMarkers();
-		const relations = getAllowedRelationKeys();
-		const metadataSettings = getMetadataSettings();
-		const metadataColors = getMetadataColorSettings();
-		const relColors = getRelationsKeywordColors();
-		const refColors = getRefLinksColors();
-		const markdownMarks = getMarkdownMarksSettings();
-		const fallbackKeyColor = metadataColors.keyColor || '';
-		const fallbackValueColor = metadataColors.valueColor || '';
-		const relationKeywordColor = relColors.relationKeywordColor || fallbackKeyColor;
-		const tagsKeywordColor = relColors.tagsKeywordColor || '';
-		const refKeywordColor = refColors.refKeywordColor || fallbackKeyColor;
-		const refValueColor = refColors.refValueColor || fallbackValueColor;
-		/** @type {Set<string>} */
-		const knownTagsLower = new Set();
-		for (const meta of tagGraphStore.listStoredTagGraphs(context)) {
-			const graph = tagGraphStore.loadStoredTagGraphById(context, meta.id);
-			for (const node of (graph && graph.nodes) || []) {
-				const label = String((node && node.label) || '').trim().toLowerCase();
-				if (label) knownTagsLower.add(label);
-			}
-		}
-		/** @type {Map<string, string>} */
-		const typeIdByMarker = new Map();
-		for (const t of metadataSettings.types || []) {
-			const marker = String(t.marker || '').trim().toLowerCase().replace(/^\./, '');
-			const typeId = String(t.id || '').trim().toLowerCase();
-			if (marker && typeId) typeIdByMarker.set(marker, typeId);
-		}
 		/** @type {Map<import('vscode').TextEditorDecorationType, import('vscode').Range[]>} */
 		const buckets = new Map();
 
-		function addRangeForToken(lineNo, line, token, colorKey) {
-			const color = colorMap.get(colorKey);
-			if (!color) return;
-			const idx = line.toLowerCase().indexOf(String(token || '').toLowerCase());
-			if (idx < 0) return;
-			const range = new vscode.Range(lineNo, idx, lineNo, idx + String(token).length);
-			const deco = decoForColor(color);
+		function addRange(lineNo, start, end, color, bold) {
+			if (end <= start) return;
+			if (!color && !bold) return;
+			const deco = decoFor(color, bold);
 			if (!buckets.has(deco)) buckets.set(deco, []);
-			buckets.get(deco).push(range);
+			buckets.get(deco).push(new vscode.Range(lineNo, start, lineNo, end));
 		}
 
-		function addAbsoluteRange(lineNo, start, endExclusive, color) {
-			if (!color || endExclusive <= start) return;
-			const range = new vscode.Range(lineNo, start, lineNo, endExclusive);
-			const deco = decoForColor(color);
-			if (!buckets.has(deco)) buckets.set(deco, []);
-			buckets.get(deco).push(range);
+		// Doc Coloring: heading-line tokens are always bold (reliable across themes);
+		// a role's color is applied only where the user set a custom hex override.
+		const docColors = getDocColors();
+		for (const t of tokenizeDripnote(lines)) {
+			const key = ROLE_TO_COLOR_KEY[t.role];
+			const color = key ? docColors[key] : '';
+			if (color || t.bold) addRange(t.line, t.start, t.start + t.length, color, !!t.bold);
 		}
 
-		function addMetadataKeyValueColoring(lineNo, lineText) {
-			if (!metadataColors.useCustom) return;
-			const m = String(lineText || '').match(KEY_VALUE_RE);
-			if (!m) return;
-			const key = String(m[1] || '');
-			const value = String(m[2] || '');
-			if (metadataColors.keyColor) {
-				const kStart = lineText.toLowerCase().indexOf(key.toLowerCase());
-				if (kStart >= 0) addAbsoluteRange(lineNo, kStart, kStart + key.length, metadataColors.keyColor);
-			}
-			if (metadataColors.valueColor) {
-				const vStart = lineText.indexOf(value);
-				if (vStart >= 0) addAbsoluteRange(lineNo, vStart, vStart + value.length, metadataColors.valueColor);
-			}
-		}
-
-		function addRelationListValueColoring(lineNo, lineText, relationKey) {
-			const listMatch = String(lineText || '').match(/\[([^\]]*)\]/);
-			if (!listMatch) return;
-			const rawInner = String(listMatch[1] || '');
-			if (!rawInner.trim()) return;
-			const listStart = lineText.indexOf('[');
-			if (listStart < 0) return;
-			const absoluteInnerStart = listStart + 1;
-			const re = /[^,\s\]]+/g;
-			let m;
-			while ((m = re.exec(rawInner)) !== null) {
-				const token = String(m[0] || '');
-				if (!token) continue;
-				const tokenStart = absoluteInnerStart + m.index;
-				const low = token.toLowerCase();
-				const isKnownTag = knownTagsLower.has(low);
-				let useColor = '';
-				// Color list values only for tags relation or known tag labels.
-				if (relationKey === 'tags' || isKnownTag) useColor = tagsKeywordColor;
-				addAbsoluteRange(lineNo, tokenStart, tokenStart + token.length, useColor);
-			}
-		}
-
-		function addRefLinksColoring(lineNo, lineText) {
-			const trimmed = String(lineText || '').trim();
-			if (!isRefLine(trimmed)) return;
-			const key = 'ref';
-			const kStart = lineText.toLowerCase().indexOf(key);
-			if (kStart >= 0 && refKeywordColor) {
-				addAbsoluteRange(lineNo, kStart, kStart + key.length, refKeywordColor);
-			}
-			const listMatch = String(lineText || '').match(/\[([^\]]*)\]/);
-			if (!listMatch || !refValueColor) return;
-			const rawInner = String(listMatch[1] || '');
-			if (!rawInner.trim()) return;
-			const listStart = lineText.indexOf('[');
-			if (listStart < 0) return;
-			const absoluteInnerStart = listStart + 1;
-			const re = /[^,\s\]]+/g;
-			let m;
-			while ((m = re.exec(rawInner)) !== null) {
-				const token = String(m[0] || '');
-				if (!token) continue;
-				const tokenStart = absoluteInnerStart + m.index;
-				addAbsoluteRange(lineNo, tokenStart, tokenStart + token.length, refValueColor);
-			}
-		}
-
-		function addRelationAndTagColoring(lineNo, lineText) {
-			const trimmed = String(lineText || '').trim();
-			if (isRefLine(trimmed)) {
-				addRefLinksColoring(lineNo, lineText);
-				return;
-			}
-			const relationMatch = trimmed.match(/^([a-z][a-z0-9_-]*)\s*:\s*\[[^\]]*\]\s*$/i);
-			if (relationMatch) {
-				const key = String(relationMatch[1] || '').toLowerCase();
-				const kStart = lineText.toLowerCase().indexOf(key);
-				if (kStart >= 0 && relationKeywordColor) {
-					addAbsoluteRange(lineNo, kStart, kStart + key.length, relationKeywordColor);
-				}
-				addRelationListValueColoring(lineNo, lineText, key);
-				return;
-			}
-			if (/^\[[^\]]*\]\s*$/.test(trimmed)) {
-				addRelationListValueColoring(lineNo, lineText, 'tags');
-			}
-		}
-
+		// Markdown marks (L:, Q:, R:, …).
+		const markdownMarks = getMarkdownMarksSettings();
 		for (let i = 0; i < lines.length; i++) {
 			const line = String(lines[i] || '');
-			const trimmed = line.trim();
-			const tm = trimmed.match(/^\.(\w[\w-]*)\b/i);
-			if (tm) {
-				const marker = String(tm[1] || '').toLowerCase();
-				if (types.has(marker)) {
-					addRangeForToken(i, line, `.${marker}`, `.${marker}`);
-				}
-				if (metadataColors.useCustom) {
-					const typeId = typeIdByMarker.get(marker);
-					const typeColor = typeId ? metadataColors.typeColors.get(typeId) : '';
-					if (typeColor) {
-						const markerToken = `.${marker}`;
-						const idx = line.toLowerCase().indexOf(markerToken);
-						if (idx >= 0) addAbsoluteRange(i, idx, idx + markerToken.length, typeColor);
-					}
-				}
-			}
 			const mm = line.match(/^(\s*)([A-Za-z][A-Za-z0-9_-]*)(\s*[:.])(\s*)(.*)$/);
-			if (mm) {
-				const mark = String(mm[2] || '').trim();
-				const cfg = markdownMarks.get(mark);
-				if (cfg) {
-					const leading = String(mm[1] || '');
-					const sep = String(mm[3] || '');
-					const afterSepWs = String(mm[4] || '');
-					const tail = String(mm[5] || '');
-					const markStart = leading.length;
-					const markColor = cfg.markColor || fallbackKeyColor;
-					const textColor = cfg.textColor || fallbackValueColor;
-					if (markStart >= 0 && markColor) {
-						addAbsoluteRange(i, markStart, markStart + mark.length, markColor);
-					}
-					if (tail && textColor) {
-						const tailStart = markStart + mark.length + sep.length + afterSepWs.length;
-						if (tailStart >= 0) addAbsoluteRange(i, tailStart, tailStart + tail.length, textColor);
-					}
-				}
+			if (!mm) continue;
+			const mark = String(mm[2] || '').trim();
+			const cfg = markdownMarks.get(mark);
+			if (!cfg) continue;
+			const leading = String(mm[1] || '');
+			const sep = String(mm[3] || '');
+			const afterSepWs = String(mm[4] || '');
+			const tail = String(mm[5] || '');
+			const markStart = leading.length;
+			if (cfg.markColor) {
+				addRange(i, markStart, markStart + mark.length, cfg.markColor, false);
 			}
-		}
-
-		const { topEnd } = splitFileTopRegion(lines);
-		for (let i = 0; i < topEnd; i++) {
-			const t = String(lines[i] || '').trim();
-			if (!t || COMMENT_RE.test(t)) continue;
-			if (metadataColors.useCustom && (TYPE_LINE_RE.test(t) || KEY_VALUE_RE.test(t) || RELATION_RE.test(t) || isRefLine(t))) {
-				addMetadataKeyValueColoring(i, lines[i]);
-			}
-			addRelationAndTagColoring(i, lines[i]);
-		}
-		for (let i = 0; i < lines.length; i++) {
-			const heading = String(lines[i] || '');
-			if (!HEADING_RE.test(heading)) continue;
-			let j = i + 1;
-			let started = false;
-			for (; j < lines.length; j++) {
-				const t = String(lines[j] || '').trim();
-				if (HEADING_RE.test(t) || t === '---') break;
-				if (!started) {
-					if (!t || COMMENT_RE.test(t)) break;
-					started = true;
-				}
-				if (!t) break;
-				if (TYPE_LINE_RE.test(t) || KEY_VALUE_RE.test(t) || RELATION_RE.test(t) || isRefLine(t) || /^\[[^\]]*\]\s*$/.test(t)) {
-					if (metadataColors.useCustom && (TYPE_LINE_RE.test(t) || KEY_VALUE_RE.test(t) || RELATION_RE.test(t) || isRefLine(t))) {
-						addMetadataKeyValueColoring(j, lines[j]);
-					}
-					addRelationAndTagColoring(j, lines[j]);
-					continue;
-				}
-				break;
+			if (tail && cfg.textColor) {
+				const tailStart = markStart + mark.length + sep.length + afterSepWs.length;
+				addRange(i, tailStart, tailStart + tail.length, cfg.textColor, false);
 			}
 		}
 
 		for (const [deco, ranges] of buckets.entries()) {
 			editor.setDecorations(deco, ranges);
 		}
-		for (const deco of decoByColor.values()) {
+		for (const deco of decoCache.values()) {
 			if (!buckets.has(deco)) editor.setDecorations(deco, []);
 		}
 	}
@@ -366,17 +177,11 @@ function registerDripnoteCustomDecorations(context) {
 		}),
 		vscode.workspace.onDidChangeConfiguration(ev => {
 			if (
-				ev.affectsConfiguration('drip.dripnoteCustomColors') ||
-				ev.affectsConfiguration('drip.dripnoteCustomTypeMarkers') ||
-				ev.affectsConfiguration('drip.dripnoteAllowedMetadataKeys') ||
-				ev.affectsConfiguration('drip.metadataUseCustomColors') ||
-				ev.affectsConfiguration('drip.metadataTypeColors') ||
-				ev.affectsConfiguration('drip.metadataKeyColor') ||
-				ev.affectsConfiguration('drip.metadataValueColor') ||
-				ev.affectsConfiguration('drip.metadataTypes') ||
+				ev.affectsConfiguration('drip.dripnoteDocColors') ||
 				ev.affectsConfiguration('drip.dripMetadataMarks') ||
+				ev.affectsConfiguration('drip.metadataTypes') ||
 				ev.affectsConfiguration('drip.tagsRelationsConfig') ||
-				ev.affectsConfiguration('drip.refLinksConfig')
+				ev.affectsConfiguration('drip.dripnoteCustomTypeMarkers')
 			) {
 				refreshAll();
 			}
@@ -392,4 +197,3 @@ module.exports = {
 	getRelationsKeywordColors,
 	getCustomColorMap
 };
-

@@ -126,30 +126,13 @@ function computeMetadataEditSignature(text) {
 }
 
 /**
- * Whether the buffer needs immediate heading id allocation (new titled heading without id)
- * or bare `.t` task ids under a workflow.
+ * Whether the buffer needs immediate heading id allocation (new titled heading without id).
  * @param {string} text
  * @returns {boolean}
  */
 function needsImmediateHeadingIdAllocation(text) {
 	const { needsHeadingIdentityReconcile } = getHeadingIdentity();
-	if (needsHeadingIdentityReconcile(text)) return true;
-	try {
-		const {
-			needsImmediateWorkflowTaskIdAllocation
-		} = require('../../document/workflow/dripnoteWorkflowTaskIdentity');
-		if (needsImmediateWorkflowTaskIdAllocation(text)) return true;
-	} catch {
-		/* ignore */
-	}
-	try {
-		const {
-			needsImmediateConceptNumbering
-		} = require('../../document/concept/dripnoteConceptNumbering');
-		return needsImmediateConceptNumbering(text);
-	} catch {
-		return false;
-	}
+	return needsHeadingIdentityReconcile(text);
 }
 
 /**
@@ -169,10 +152,6 @@ function computeIndexPersistenceSignature(parsed) {
 		])
 		.sort((a, b) => a[0] - b[0]);
 
-	const refs = (parsed.references || [])
-		.map(r => [r.source_heading_id, r.target_file_id])
-		.sort();
-
 	const searchtags = (parsed.searchtags || [])
 		.map(t => [t.source_heading_id, t.tag_name.toLowerCase()])
 		.sort();
@@ -189,7 +168,6 @@ function computeIndexPersistenceSignature(parsed) {
 		path: parsed.file.path,
 		fileId: parsed.fileId,
 		headings,
-		refs,
 		searchtags,
 		relations,
 		typed

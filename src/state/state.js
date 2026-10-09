@@ -623,13 +623,10 @@ class DripState {
 			headings: noteInput?.headings || ''
 		};
 
-		const cfg = vscode.workspace.getConfiguration('drip');
-		const useEmbeddings = cfg.get('experimentalEmbeddings', false);
-		const embeddingModelId = cfg.get('embeddingModel', 'Xenova/all-MiniLM-L6-v2');
+		const useEmbeddings = true;
 
 		const topFolders = await rankFolderCandidates(kbRoot, normalizedNoteInput, 3, {
 			useEmbeddings,
-			embeddingModelId,
 			...corpusOpts
 		});
 
@@ -676,16 +673,14 @@ class DripState {
 
 		const relFolder = rel.replace(/\\/g, '/');
 		const displayPath = relFolder && relFolder !== '.' ? relFolder : '(root)';
-		const cfg = vscode.workspace.getConfiguration('drip');
-		const useEmbeddings = cfg.get('experimentalEmbeddings', false);
-		const embeddingModelId = cfg.get('embeddingModel', 'Xenova/all-MiniLM-L6-v2');
+		const useEmbeddings = true;
 
 		const suggestions = await rankSubfoldersAndFilesInFolder(
 			kbRoot,
 			folderUri,
 			normalizedNoteInput,
 			3,
-			{ useEmbeddings, embeddingModelId, ...corpusOpts }
+			{ useEmbeddings, ...corpusOpts }
 		);
 		const files = suggestions.filter(s => s.type === 'file');
 		return {

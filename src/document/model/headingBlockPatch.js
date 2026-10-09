@@ -9,7 +9,7 @@ const {
 	getMetadataSettings
 } = require('./dripnoteMetadataTemplates');
 const { classifyMetaLine, isStructuredMetadataLine } = require('./persistentHeadingZones');
-const { parseHeadingForValidation } = require('../parse/dripnoteCanvasParse');
+const { parseHeadingForValidation } = require('../parse/dripnoteHeadingParse');
 
 /**
  * @param {string[]} lines

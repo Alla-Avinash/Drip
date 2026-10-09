@@ -29,7 +29,8 @@ A root type marker followed by indented key/value lines, for example:
 
 ```
 .concept
-    importance: high
+    domain: frontend
+    status: in-progress
     tags: [ react, hooks ]
     pre-req: [ javascript, webdev ]
 ```
@@ -57,14 +58,20 @@ Quick-scannable markers:
 
 ## Metadata types
 
-Configured types include:
+The application ships with a fixed, standard set of metadata types, split into two groups:
 
-- `.concept` — difficulty, status, importance
-- `.task` — difficulty, status, priority, deadline, duration
-- `.implementation` — implemented (true/false)
-- `.issue` — priority, status, deadline
-- `.project` (file-level) — status, priority, deadline
-- `.feature` (file-level) — implemented (true/false)
+**Document KB types** (heading types, in the note zone):
+
+- `.concept` — `domain` (enum), `status` (enum)
+- `.task` — `status` (enum), `priority` (enum), `deadline` (datetime), `category` (enum)
+
+**Project types** (file-level types for `.p` / `.f` index notes, plus issues):
+
+- `.project` (file-level) — `status`, `priority`, `deadline`
+- `.feature` (file-level) — `category` (enum)
+- `.issue` — `priority` (enum), `status` (enum), `deadline` (datetime), `category` (enum), and a built-in `parent` (`i-N`) link
+
+These built-in fields cannot be deleted, but the user can edit their enum values and add new keys with the standard datatypes (enum, datetime, duration). The built-in fields map to fixed database columns; anything the user adds is stored in a shared remaining-keys table.
 
 File-level types apply to the whole file (project/feature index notes); document types apply to headings.
 

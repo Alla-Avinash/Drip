@@ -1,6 +1,6 @@
 'use strict';
 
-const { parseHeadingForValidation } = require('../parse/dripnoteCanvasParse');
+const { parseHeadingForValidation } = require('../parse/dripnoteHeadingParse');
 const { classifyPersistentHeadingTitle } = require('./dripnotePersistentHeading');
 const {
 	getMetadataSettings,

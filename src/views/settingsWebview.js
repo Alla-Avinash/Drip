@@ -23,7 +23,7 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 	<style>
 		body { font-family: var(--vscode-font-family); margin: 0; color: var(--vscode-foreground); font-size: 13px; }
 		h2 { font-size: 1.1em; margin: 0 0 10px; }
-		h3 { font-size: 1em; margin: 0 0 8px; font-weight: 600; }
+		h3 { font-size: 1em; margin: 0 0 8px; font-weight: 600; color: var(--vscode-foreground); }
 		p { margin: 0 0 10px; line-height: 1.45; }
 		.meta { color: var(--vscode-descriptionForeground); font-size: 12px; }
 		label.row { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0; cursor: pointer; line-height: 1.45; }
@@ -32,20 +32,23 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 		th, td { border: 1px solid var(--vscode-panel-border); padding: 6px 8px; text-align: left; vertical-align: top; }
 		th { background: var(--vscode-editorWidget-background); }
 		code { font-family: var(--vscode-editor-font-family); font-size: 11px; }
-		button { border: none; border-radius: 6px; padding: 8px 10px; cursor: pointer; background: var(--vscode-button-background); color: var(--vscode-button-foreground); margin-top: 10px; }
-		button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+		button { border: 1px solid transparent; border-radius: 6px; padding: 8px 12px; cursor: pointer; background: var(--vscode-button-background); color: var(--vscode-button-foreground); margin-top: 10px; font-family: inherit; }
+		button:hover { background: var(--vscode-button-hoverBackground); }
+		button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border-color: var(--vscode-panel-border); }
+		button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
 		textarea { width: 100%; min-height: 82px; padding: 6px; border-radius: 6px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); font-family: var(--vscode-editor-font-family); font-size: 12px; }
 		input[type="text"], select { width: 100%; box-sizing: border-box; padding: 6px; border-radius: 6px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); font-family: var(--vscode-editor-font-family); font-size: 12px; }
-		.app { display: grid; grid-template-columns: 230px 1fr; min-height: 100vh; }
-		.sidebar { border-right: 1px solid var(--vscode-panel-border); background: var(--vscode-sideBar-background); padding: 14px 10px; }
-		.brand { margin: 0 8px 12px; }
+		.app { display: grid; grid-template-columns: 250px 1fr; height: 100vh; overflow: hidden; }
+		.sidebar { border-right: 1px solid var(--vscode-panel-border); background: var(--vscode-sideBar-background); padding: 14px 10px; overflow-y: auto; display: flex; flex-direction: column; }
+		.brand { margin: 0 8px 14px; }
+		.brand h2 { font-size: 1.9em; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
 		.navBtn { width: 100%; text-align: left; margin: 4px 0; padding: 8px 10px; border-radius: 6px; background: transparent; color: var(--vscode-foreground); }
 		.navBtn:hover { background: var(--vscode-list-hoverBackground); }
 		.navBtn.active { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
-		.main { padding: 16px 18px; }
+		.main { padding: 16px 18px 32px; overflow-y: auto; height: 100vh; box-sizing: border-box; }
 		.panel { display: none; max-width: 900px; }
 		.panel.active { display: block; }
-		.card { border: 1px solid var(--vscode-panel-border); border-radius: 8px; padding: 10px; margin: 10px 0 14px; }
+		.card { border: 1px solid var(--vscode-panel-border); border-radius: 8px; padding: 14px; margin: 12px 0 16px; background: var(--vscode-editorWidget-background); }
 		.actions { display: flex; gap: 8px; margin-top: 8px; }
 		.actions button { width: auto; }
 		.typeList { display: flex; flex-direction: column; gap: 10px; }
@@ -56,7 +59,9 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 		.typeGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 		.attrTable { width: 100%; border-collapse: collapse; margin-top: 8px; }
 		.attrTable th, .attrTable td { border: 1px solid var(--vscode-panel-border); padding: 6px; vertical-align: middle; }
-		.iconBtn { width: 28px; height: 28px; min-width: 28px; padding: 0; border-radius: 6px; margin-top: 0; font-size: 16px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
+		.iconBtn { width: 28px; height: 28px; min-width: 28px; padding: 0; border-radius: 6px; margin-top: 0; font-size: 16px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--vscode-panel-border); background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+		.iconBtn:hover { background: var(--vscode-button-secondaryHoverBackground); }
+		.iconBtn.deleteIcon { color: var(--vscode-errorForeground); }
 		.inlineActions { display: flex; gap: 8px; align-items: center; }
 		.summaryRight { display: inline-flex; align-items: center; gap: 8px; }
 		.chev { font-size: 14px; opacity: 0.85; }
@@ -65,6 +70,14 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 		.optionSelect { min-width: 150px; }
 		.colorRow { display: grid; grid-template-columns: 1fr 44px; gap: 6px; align-items: center; }
 		.colorPatch { width: 42px; height: 30px; border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 0; background: transparent; margin: 0; cursor: pointer; }
+		.docColoringSample { font-family: var(--vscode-editor-font-family); font-size: 13px; line-height: 1.6; white-space: pre; overflow-x: auto; padding: 4px 0; }
+		.docColoringSample .bold { font-weight: 600; }
+		.docColorRow { display: grid; grid-template-columns: 1fr 44px; gap: 6px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--vscode-panel-border); }
+		.docColorRow:last-child { border-bottom: none; }
+		.docColorRow .lbl { display: flex; flex-direction: column; gap: 2px; }
+		.docColorRow .lbl .t { font-weight: 600; }
+		.docColorRow .lbl .d { color: var(--vscode-descriptionForeground); font-size: 11px; }
+		.docColorRow .swatch { width: 34px; height: 28px; border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 0; margin: 0; cursor: pointer; background: transparent; }
 		.saved-settings-path-line { margin: 8px 0 12px; word-break: break-all; }
 		.saved-settings-path-line code { display: block; padding: 8px 10px; border-radius: 6px; background: var(--vscode-textCodeBlock-background); border: 1px solid var(--vscode-panel-border); font-size: 12px; }
 		.mcp-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; background: var(--vscode-descriptionForeground); vertical-align: middle; }
@@ -91,21 +104,22 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 		<aside class="sidebar">
 			<div class="brand">
 				<h2>DRIP Settings</h2>
-				<p class="meta">All settings in one place.</p>
 			</div>
-			<button class="navBtn active" data-panel="kb">Knowledge Base</button>
-			<button class="navBtn" data-panel="editor">Editor</button>
-			<button class="navBtn" data-panel="update">Update</button>
-			<button class="navBtn" data-panel="types">Metadata Types</button>
-			<button class="navBtn" data-panel="relations">Tags & Relations</button>
-			<button class="navBtn" data-panel="ref-links">Ref Links</button>
-			<button class="navBtn" data-panel="metadata">Markdown</button>
-			<button class="navBtn" data-panel="embedding">Embedding model</button>
-			<button class="navBtn" data-panel="llm">Lightweight LLM</button>
-			<button class="navBtn" data-panel="github-backup">GitHub backup</button>
-			<button class="navBtn" data-panel="mcp">MCP connection</button>
-			<button class="navBtn" data-panel="saved-settings">Saved Settings</button>
-			<button class="navBtn" data-panel="shortcuts">Keyboard Shortcuts</button>
+			<nav id="nav-group">
+				<button class="navBtn active" data-panel="kb">Knowledge Base</button>
+				<button class="navBtn" data-panel="editor">Editor</button>
+				<button class="navBtn" data-panel="update">Update</button>
+				<button class="navBtn" data-panel="types">Metadata Types</button>
+				<button class="navBtn" data-panel="relations">Tags & Relations</button>
+				<button class="navBtn" data-panel="metadata">Markdown</button>
+				<button class="navBtn" data-panel="doccoloring">Doc Coloring</button>
+				<button class="navBtn" data-panel="embedding">Embedding model</button>
+				<button class="navBtn" data-panel="llm">Lightweight LLM</button>
+				<button class="navBtn" data-panel="github-backup">GitHub backup</button>
+				<button class="navBtn" data-panel="mcp">MCP connection</button>
+				<button class="navBtn" data-panel="saved-settings">Saved Settings</button>
+				<button class="navBtn" data-panel="shortcuts">Keyboard Shortcuts</button>
+			</nav>
 		</aside>
 		<main class="main">
 			<section id="panel-kb" class="panel active">
@@ -179,7 +193,6 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 				<h3>Metadata Types</h3>
 				<div class="card">
 					<label class="row"><input type="checkbox" id="opt-template-enabled"><span>Enable metadata templates</span></label>
-					<label class="row"><input type="checkbox" id="opt-custom-colors-top"><span>Use custom metadata colors instead of theme defaults</span></label>
 					<label class="row"><input type="checkbox" id="opt-template-auto"><span>Auto insert template keys when type marker is added in valid metadata zone</span></label>
 					<label class="row"><input type="checkbox" id="opt-template-strict"><span>Strict validation (show errors + quick fixes)</span></label>
 					<label class="row"><input type="checkbox" id="opt-template-ignore"><span>Ignore metadata template errors</span></label>
@@ -187,30 +200,23 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 					<label class="row"><input type="checkbox" id="opt-heading-hierarchy-indent"><span>Show heading hierarchy indent errors (body line vs next heading tabs)</span></label>
 				</div>
 				<div class="card">
-					<h3>Special metadata types</h3>
-					<p class="meta">Project and feature (.p / .f) folder index notes. Shortcuts are fixed to <code>.p</code> / <code>.f</code>. RHS Heading only shows this type — not document types.</p>
+					<h3>Projects</h3>
+					<p class="meta">Project (<code>.p</code>), feature (<code>.f</code>), and issue (<code>.issue</code> / <code>i</code>) types. Shortcuts are fixed. Issues are headings inside project folders; their metadata (status, priority, deadline, category, parent <code>i-N</code>) feeds Project View.</p>
 					<div id="file-level-types-list" class="typeList"></div>
 					<div class="actions">
-						<button id="btn-save-file-types">Save Special Types</button>
-						<button id="btn-reset-file-types" class="secondary">Revert Special Types</button>
+						<button id="btn-save-file-types">Save Project Types</button>
+						<button id="btn-reset-file-types" class="secondary">Revert Project Types</button>
 					</div>
 				</div>
 				<div class="card">
-					<h3>Document types</h3>
-					<p class="meta">Heading metadata types (marker, shortcut, attributes). Defaults include .concept, .task, .issue.</p>
+					<h3>Document KB types</h3>
+					<p class="meta">Heading metadata types for the note zone (marker, shortcut, attributes). Defaults include <code>.concept</code> and <code>.task</code>.</p>
 					<div id="metadata-types-list" class="typeList"></div>
 					<div class="actions">
 						<button id="btn-add-type" class="iconBtn" title="Add Metadata Type">+</button>
 						<button id="btn-save-types">Save Document Types</button>
 						<button id="btn-reset-types" class="secondary">Revert Document Types</button>
 					</div>
-				</div>
-				<div class="card">
-					<p class="meta">Global key/value colors, and per-type colors. Empty values use current theme colors.</p>
-					<label class="row"><input type="checkbox" id="opt-custom-colors"><span>Enable custom metadata colors</span></label>
-					<label class="row" style="display:block;"><span>Global metadata key color</span><div class="colorRow"><input type="text" id="metadata-key-color" style="width:100%" placeholder="theme default"><input type="color" class="colorPatch" id="metadata-key-color-picker" title="Choose color"></div></label>
-					<label class="row" style="display:block;"><span>Global metadata value color</span><div class="colorRow"><input type="text" id="metadata-value-color" style="width:100%" placeholder="theme default"><input type="color" class="colorPatch" id="metadata-value-color-picker" title="Choose color"></div></label>
-					<div class="actions"><button id="btn-save-colors">Save Colors</button><button id="btn-reset-colors" class="secondary">Revert Colors to Theme Defaults</button></div>
 				</div>
 				<div class="actions">
 					<button id="btn-save-metadata-panel">Save Metadata Types Settings</button>
@@ -224,28 +230,7 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 					<div id="relations-list" class="typeList"></div>
 					<div class="actions">
 						<button id="btn-add-relation" class="iconBtn" title="Add Relation">+</button>
-					</div>
-				</div>
-				<div class="card">
-					<p class="meta">Global colors for relation and tags keywords. Empty falls back to metadata key color, then theme.</p>
-					<label class="row" style="display:block;"><span>Relation keyword color</span><div class="colorRow"><input type="text" id="relations-keyword-color" placeholder="metadata key color → theme"><input type="color" class="colorPatch" id="relations-keyword-color-picker" title="Choose color"></div></label>
-					<label class="row" style="display:block;"><span>Tags keyword color (keyword + tags inside brackets)</span><div class="colorRow"><input type="text" id="tags-keyword-color" placeholder="metadata key color → theme"><input type="color" class="colorPatch" id="tags-keyword-color-picker" title="Choose color"></div></label>
-					<div class="actions">
 						<button id="btn-save-relations">Save Tags & Relations</button>
-						<button id="btn-reset-relations-colors" class="secondary">Revert Relation Colors To Theme Defaults</button>
-					</div>
-				</div>
-			</section>
-
-			<section id="panel-ref-links" class="panel">
-				<h3>Ref Links</h3>
-				<div class="card">
-					<p class="meta">Colors for <code>ref: [@fN, @fN (topic)]</code> lines in heading metadata (same indent level as tags). Empty values fall back to metadata key/value colors, then theme.</p>
-					<label class="row" style="display:block;"><span>ref keyword color</span><div class="colorRow"><input type="text" id="ref-keyword-color" placeholder="metadata key color → theme"><input type="color" class="colorPatch" id="ref-keyword-color-picker" title="Choose color"></div></label>
-					<label class="row" style="display:block;"><span>ref target color (values inside brackets)</span><div class="colorRow"><input type="text" id="ref-value-color" placeholder="metadata value color → theme"><input type="color" class="colorPatch" id="ref-value-color-picker" title="Choose color"></div></label>
-					<div class="actions">
-						<button id="btn-save-ref-links">Save Ref Links</button>
-						<button id="btn-reset-ref-links-colors" class="secondary">Revert Ref Link Colors To Theme Defaults</button>
 					</div>
 				</div>
 			</section>
@@ -253,31 +238,36 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 			<section id="panel-metadata" class="panel">
 				<h3>Markdown</h3>
 				<div class="card">
-					<p class="meta">Manage markdown marks (defaults: L, Q, R). Names are case-sensitive — Impl, impl, and IMPL are distinct. L is locked and includes a link format example.</p>
+					<p class="meta">Manage markdown marks (defaults: L, Q, R). A mark is written in the document as <code>Mark: text</code> — for example <code>Q: why does this work?</code>. Names are case-sensitive — Impl, impl, and IMPL are distinct. L is locked and includes a link format example. Leave a color empty to use the normal text color.</p>
 					<div id="metadata-marks-list" class="typeList"></div>
 					<div class="actions">
 						<button id="btn-add-metadata-mark" class="iconBtn" title="Add Metadata Mark">+</button>
 						<button id="btn-save-metadata-marks">Save Metadata Marks</button>
-						<button id="btn-reset-metadata-marks-colors" class="secondary">Revert Mark Colors To Theme Defaults</button>
+					</div>
+				</div>
+			</section>
+
+			<section id="panel-doccoloring" class="panel">
+				<h3>Doc Coloring</h3>
+				<p class="meta">The six document colors follow your theme by default. Set a color here to override that specific one in <code>.d.txt</code> notes; leave it empty to keep the theme color.</p>
+				<div class="card">
+					<div id="doc-coloring-sample" class="docColoringSample"></div>
+				</div>
+				<div class="card">
+					<div id="doc-coloring-rows" class="typeList"></div>
+					<div class="actions">
+						<button id="btn-save-doc-colors">Save Doc Colors</button>
+						<button id="btn-revert-doc-colors" class="secondary">Revert to Theme Defaults</button>
 					</div>
 				</div>
 			</section>
 
 			<section id="panel-embedding" class="panel">
-				<h3>Embedding model</h3>
+				<h3>Embeddings</h3>
 				<div class="card">
-					<p class="meta">Sentence embeddings (Transformers.js + ONNX in the extension host) optionally replace token overlap when ranking Storage targets — top folder suggestions, next folder/file picks inside a folder, and AI deep-match across the KB.</p>
-					<label class="row">
-						<input type="checkbox" id="opt-experimental-embeddings">
-						<span>Use sentence embeddings instead of token overlap for Storage suggestions</span>
-					</label>
-					<label class="row" style="display:block;margin-top:12px;">
-						<span>Model id (Xenova ONNX sentence-transformer)</span>
-						<input type="text" id="embedding-model-id" placeholder="Xenova/all-MiniLM-L6-v2" autocomplete="off" spellcheck="false" />
-					</label>
-					<p class="meta">First use downloads model weights (~90MB for the default) into the DRIP extension folder (<code>.cache/transformers</code>), not the system Hugging Face cache — so the same VS Code + DRIP install reuses them. Changing the model id deletes and rebuilds heading and folder embeddings only — note IDs, metadata, and tags stay. You will be asked to confirm.</p>
+					<p class="meta">DRIP always uses sentence embeddings (Transformers.js + ONNX in the extension host) to rank Storage targets — top folder suggestions, next folder/file picks inside a folder, and AI deep-match across the KB.</p>
+					<p class="meta">DRIP uses the <code>Xenova/all-MiniLM-L6-v2</code> sentence-transformer model. The first use downloads the model weights (~90MB) into the DRIP extension folder (<code>.cache/transformers</code>) — not your home folder's Hugging Face cache — so uninstalling the DRIP extension removes the model files cleanly.</p>
 					<div class="actions">
-						<button id="btn-save-embedding">Save embedding settings</button>
 						<button id="btn-embedding-benchmark" class="secondary" type="button">Run embedding benchmark</button>
 					</div>
 				</div>
@@ -459,8 +449,8 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 			update: document.getElementById('panel-update'),
 			types: document.getElementById('panel-types'),
 			relations: document.getElementById('panel-relations'),
-			'ref-links': document.getElementById('panel-ref-links'),
 			metadata: document.getElementById('panel-metadata'),
+			doccoloring: document.getElementById('panel-doccoloring'),
 			embedding: document.getElementById('panel-embedding'),
 			llm: document.getElementById('panel-llm'),
 			'github-backup': document.getElementById('panel-github-backup'),
@@ -470,8 +460,6 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 		};
 		const optEditHeadingsRhs = document.getElementById('opt-edit-headings-rhs');
 		const optEditHeadingsFile = document.getElementById('opt-edit-headings-file');
-		const optExperimentalEmbeddings = document.getElementById('opt-experimental-embeddings');
-		const embeddingModelIdEl = document.getElementById('embedding-model-id');
 		const llmEnabledEl = document.getElementById('llm-enabled');
 		const llmBaseUrlEl = document.getElementById('llm-base-url');
 		const llmModelEl = document.getElementById('llm-model');
@@ -481,12 +469,6 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 		const kbDefaultExt = document.getElementById('kb-default-ext');
 		const metadataTypesListEl = document.getElementById('metadata-types-list');
 		const fileLevelTypesListEl = document.getElementById('file-level-types-list');
-		const metadataKeyColorEl = document.getElementById('metadata-key-color');
-		const metadataValueColorEl = document.getElementById('metadata-value-color');
-		const metadataKeyColorPickerEl = document.getElementById('metadata-key-color-picker');
-		const metadataValueColorPickerEl = document.getElementById('metadata-value-color-picker');
-		const customColorsEnabledEl = document.getElementById('opt-custom-colors');
-		const customColorsEnabledTopEl = document.getElementById('opt-custom-colors-top');
 		const optTemplateEnabled = document.getElementById('opt-template-enabled');
 		const optTemplateAuto = document.getElementById('opt-template-auto');
 		const optTemplateStrict = document.getElementById('opt-template-strict');
@@ -494,15 +476,9 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 		const optTemplateIndentErrors = document.getElementById('opt-template-indent-errors');
 		const optHeadingHierarchyIndent = document.getElementById('opt-heading-hierarchy-indent');
 		const relationsListEl = document.getElementById('relations-list');
-		const relationsKeywordColorEl = document.getElementById('relations-keyword-color');
-		const tagsKeywordColorEl = document.getElementById('tags-keyword-color');
-		const relationsKeywordColorPickerEl = document.getElementById('relations-keyword-color-picker');
-		const tagsKeywordColorPickerEl = document.getElementById('tags-keyword-color-picker');
-		const refKeywordColorEl = document.getElementById('ref-keyword-color');
-		const refValueColorEl = document.getElementById('ref-value-color');
-		const refKeywordColorPickerEl = document.getElementById('ref-keyword-color-picker');
-		const refValueColorPickerEl = document.getElementById('ref-value-color-picker');
 		const metadataMarksListEl = document.getElementById('metadata-marks-list');
+		const docColoringSampleEl = document.getElementById('doc-coloring-sample');
+		const docColoringRowsEl = document.getElementById('doc-coloring-rows');
 		const savedSettingsPathEl = document.getElementById('saved-settings-path');
 		const defaultMetadataTypes = ${defaultTypesJson};
 		const defaultFileLevelMetadataTypes = ${defaultFileTypesJson};
@@ -512,6 +488,9 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 		var fileLevelTypesState = [];
 		var relationsState = [];
 		var metadataMarksState = [];
+		var docColorsState = { color1: '', color2: '', color3: '', color4: '', color5: '', color6: '' };
+		// Resolved from the active theme in the extension host (theme tokenColors + token/semantic customizations).
+		var docThemeColors = null;
 
 		function showPanel(id) {
 			for (var key in panels) {
@@ -554,8 +533,12 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 			var k = String(kind || 'enum').trim().toLowerCase();
 			if (k === 'free' || k === 'range') return 'enum';
 			if (k === 'enum' || k === 'datetime' || k === 'duration') return k;
+			if (k === 'parent' || k === 'issue_parent') return 'issue_parent';
 			return 'enum';
 		}
+
+		// Fixed kind for the issue parent key — a special link, not an enum/datetime/duration.
+		var SPECIAL_PARENT_KIND = 'issue_parent';
 
 		var FIXED_DURATION_UNITS_LABEL = 'minute, hour, day, week, month, year';
 		var FIXED_DATETIME_FORMAT_LABEL = 'datetime (YYYY-MM-DD HH:mm)';
@@ -598,9 +581,8 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 			return attrs;
 		}
 
-		function normalizeTypesFromSettings(rawTypes, typeColorsObj) {
+		function normalizeTypesFromSettings(rawTypes) {
 			var arr = Array.isArray(rawTypes) && rawTypes.length ? rawTypes : cloneJson(defaultMetadataTypes);
-			var colors = (typeColorsObj && typeof typeColorsObj === 'object') ? typeColorsObj : {};
 			var out = [];
 			for (var i = 0; i < arr.length; i++) {
 				var t = arr[i] || {};
@@ -608,13 +590,10 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 				var markerRaw = String(t.marker || (id ? ('.' + id) : '')).trim();
 				var marker = markerRaw ? (markerRaw.startsWith('.') ? markerRaw : '.' + markerRaw) : '';
 				var shortcut = String(t.shortcut != null ? t.shortcut : '').trim();
-				var color = String(t.color || colors[id] || '').trim();
 				out.push({
 					id: id,
 					marker: marker,
 					shortcut: shortcut,
-					color: color,
-					useThemeColor: !color,
 					displayTemplate: t.displayTemplate !== false,
 					attributes: (function () {
 						var attrs = normalizeAttributes(t.attributes);
@@ -667,30 +646,41 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 			if (kind === 'duration') {
 				return '<input type="text" data-role="attr-values" disabled value="' + escapeHtml(FIXED_DURATION_UNITS_LABEL) + '" title="Fixed duration units in DRIP">';
 			}
+			if (kind === SPECIAL_PARENT_KIND) {
+				return '<input type="text" data-role="attr-values" disabled value="parent issue (i-N)" title="Fixed special key">';
+			}
 			return '<input type="text" data-role="attr-values" value="' + escapeHtml((a.values || []).join(', ')) + '" placeholder="comma values (enum)">';
 		}
 
-		function renderAttrDefaultCell(a) {
+		function renderAttrKindCell(a, builtIn) {
 			var kind = normalizeAttributeKind(a.kind);
-			if (kind === 'enum') {
-				var vals = Array.isArray(a.values) ? a.values : [];
-				var def = String(a.default || '').trim();
-				var opts = '<option value="">(null)</option>';
-				for (var vi = 0; vi < vals.length; vi++) {
-					var v = String(vals[vi] || '').trim();
-					if (!v) continue;
-					var sel = def.toLowerCase() === v.toLowerCase() ? ' selected' : '';
-					opts += '<option value="' + escapeHtml(v) + '"' + sel + '>' + escapeHtml(v) + '</option>';
-				}
-				return '<select data-role="attr-default" class="defaultSelect">' + opts + '</select>';
+			var disabled = builtIn ? ' disabled' : '';
+			if (kind === SPECIAL_PARENT_KIND) {
+				return '<select data-role="attr-kind" disabled title="Fixed special key"><option value="issue_parent" selected>parent</option></select>';
 			}
-			return '<select data-role="attr-default" class="defaultSelect" disabled title="Datetime and duration defaults are always null">' +
-				'<option value="" selected>(null)</option></select>';
+			return '<select data-role="attr-kind"' + disabled + '>' +
+				'<option value="enum"' + (kind === 'enum' ? ' selected' : '') + '>enum</option>' +
+				'<option value="datetime"' + (kind === 'datetime' ? ' selected' : '') + '>datetime</option>' +
+				'<option value="duration"' + (kind === 'duration' ? ' selected' : '') + '>duration</option>' +
+			'</select>';
 		}
 
-
-		var LOCKED_METADATA_TYPE_IDS = { concept: true, task: true };
+		var LOCKED_METADATA_TYPE_IDS = { concept: true, task: true, issue: true };
 		var LOCKED_FILE_LEVEL_TYPE_IDS = { project: true, feature: true };
+
+		// Built-in template keys per type: fixed by the product, editable but never deletable.
+		var BUILTIN_ATTRIBUTE_KEYS = {
+			concept: ['domain', 'status'],
+			task: ['status', 'priority', 'deadline', 'category'],
+			issue: ['status', 'priority', 'deadline', 'category', 'parent'],
+			project: ['status', 'priority', 'deadline'],
+			feature: ['category']
+		};
+
+		function isBuiltInAttributeKey(typeId, key) {
+			var list = BUILTIN_ATTRIBUTE_KEYS[String(typeId || '').trim().toLowerCase()];
+			return !!list && list.indexOf(String(key || '').trim().toLowerCase()) >= 0;
+		}
 
 		function isLockedMetadataType(t) {
 			var id = String((t && t.id) || '').trim().toLowerCase();
@@ -702,13 +692,36 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 			return !!LOCKED_FILE_LEVEL_TYPE_IDS[id];
 		}
 
+		function findDocumentTypeIndex(id) {
+			var want = String(id || '').trim().toLowerCase();
+			for (var i = 0; i < metadataTypesState.length; i++) {
+				if (String((metadataTypesState[i] || {}).id || '').trim().toLowerCase() === want) return i;
+			}
+			return -1;
+		}
+
+		function resetIssueType() {
+			var def = null;
+			for (var i = 0; i < defaultMetadataTypes.length; i++) {
+				if (String((defaultMetadataTypes[i] || {}).id || '').toLowerCase() === 'issue') {
+					def = defaultMetadataTypes[i];
+					break;
+				}
+			}
+			if (!def) return;
+			var idx = findDocumentTypeIndex('issue');
+			var normalized = normalizeTypesFromSettings([def]);
+			if (normalized.length) {
+				if (idx >= 0) metadataTypesState[idx] = normalized[0];
+				else metadataTypesState.push(normalized[0]);
+			}
+		}
+
 		function addNewType() {
 			metadataTypesState.push({
 				id: 'new-type',
 				marker: '.new-type',
 				shortcut: '',
-				color: '#4ec9b0',
-				useThemeColor: false,
 				displayTemplate: true,
 				attributes: []
 			});
@@ -719,27 +732,25 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 			var html = '';
 			for (var i = 0; i < metadataTypesState.length; i++) {
 				var t = metadataTypesState[i] || {};
+				// Issue is shown in the Projects card, not the document list.
+				if (String(t.id || '').trim().toLowerCase() === 'issue') continue;
 				var attrs = Array.isArray(t.attributes) ? t.attributes : [];
 				var rows = '';
 				for (var j = 0; j < attrs.length; j++) {
 					var a = attrs[j] || {};
+					var builtIn = isBuiltInAttributeKey(t.id, a.key);
 					rows += '<tr data-type-index="' + i + '" data-attr-index="' + j + '">' +
-						'<td><input type="text" data-role="attr-key" value="' + escapeHtml(a.key) + '" placeholder="key"></td>' +
-						'<td><select data-role="attr-kind">' +
-							'<option value="enum"' + (a.kind === 'enum' ? ' selected' : '') + '>enum</option>' +
-							'<option value="datetime"' + (a.kind === 'datetime' ? ' selected' : '') + '>datetime</option>' +
-							'<option value="duration"' + (a.kind === 'duration' ? ' selected' : '') + '>duration</option>' +
-						'</select></td>' +
+						'<td><input type="text" data-role="attr-key" value="' + escapeHtml(a.key) + '" placeholder="key"' + (builtIn ? ' disabled' : '') + '></td>' +
+						'<td>' + renderAttrKindCell(a, builtIn) + '</td>' +
 						'<td>' + renderAttrValuesCell(a) + '</td>' +
-						'<td>' + renderAttrDefaultCell(a) + '</td>' +
 						'<td><label class="row" style="margin:0;"><input type="checkbox" data-role="attr-required"' + (a.required ? ' checked' : '') + '><span>required</span></label></td>' +
-						'<td><button class="iconBtn secondary deleteIcon" data-role="remove-attr" title="Delete Attribute">🗑</button></td>' +
+						'<td>' + (builtIn ? '<span class="meta">built-in</span>' : '<button class="iconBtn deleteIcon" data-role="remove-attr" title="Delete Attribute">🗑</button>') + '</td>' +
 					'</tr>';
 				}
 				var locked = isLockedMetadataType(t);
 				var deleteTypeBtn = locked
 					? ''
-					: '<button class="iconBtn secondary deleteIcon" data-role="remove-type" title="Delete Metadata Type">🗑</button>';
+					: '<button class="iconBtn deleteIcon" data-role="remove-type" title="Delete Metadata Type">🗑</button>';
 				html +=
 					'<details class="typeDetails" data-type-index="' + i + '" open>' +
 						'<summary class="typeSummary">' +
@@ -751,12 +762,10 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 								'<label class="row" style="display:block;margin:0;"><span>Type Id</span><input type="text" data-role="type-id" value="' + escapeHtml(t.id) + '"></label>' +
 								'<label class="row" style="display:block;margin:0;"><span>Marker (must start with .)</span><input type="text" data-role="type-marker" value="' + escapeHtml(t.marker) + '"></label>' +
 								'<label class="row" style="display:block;margin:0;"><span>Heading shortcut</span><input type="text" data-role="type-shortcut" value="' + escapeHtml(t.shortcut) + '" placeholder="t"></label>' +
-								'<label class="row" style="display:block;margin:0;"><span>Type Color</span><div class="colorRow"><input type="text" data-role="type-color" value="' + escapeHtml(t.color) + '" placeholder="theme default"' + (t.useThemeColor ? ' disabled' : '') + '><input type="color" class="colorPatch" data-role="type-color-picker" value="' + escapeHtml(/^#([0-9a-f]{6})$/i.test(String(t.color || '')) ? t.color : '#808080') + '"' + (t.useThemeColor ? ' disabled' : '') + '></div></label>' +
-								'<label class="row" style="display:block;margin:0;"><input type="checkbox" data-role="type-theme-color"' + (t.useThemeColor ? ' checked' : '') + '><span>Use theme default color</span></label>' +
 								'<label class="row" style="display:block;margin:0;"><input type="checkbox" data-role="type-display-template"' + (t.displayTemplate !== false ? ' checked' : '') + '><span>Display template for this type</span></label>' +
 							'</div>' +
 							'<table class="attrTable">' +
-								'<thead><tr><th>Key</th><th>Kind</th><th>Values</th><th>Default</th><th>Required</th><th>Action</th></tr></thead>' +
+								'<thead><tr><th>Key</th><th>Kind</th><th>Values</th><th>Required</th><th>Action</th></tr></thead>' +
 								'<tbody>' + rows + '</tbody>' +
 							'</table>' +
 							'<div class="inlineActions">' +
@@ -777,17 +786,13 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 				var rows = '';
 				for (var j = 0; j < attrs.length; j++) {
 					var a = attrs[j] || {};
+					var builtIn = isBuiltInAttributeKey(typeId, a.key);
 					rows += '<tr data-type-index="' + i + '" data-attr-index="' + j + '">' +
-						'<td><input type="text" data-role="attr-key" value="' + escapeHtml(a.key) + '" placeholder="key"></td>' +
-						'<td><select data-role="attr-kind">' +
-							'<option value="enum"' + (a.kind === 'enum' ? ' selected' : '') + '>enum</option>' +
-							'<option value="datetime"' + (a.kind === 'datetime' ? ' selected' : '') + '>datetime</option>' +
-							'<option value="duration"' + (a.kind === 'duration' ? ' selected' : '') + '>duration</option>' +
-						'</select></td>' +
+						'<td><input type="text" data-role="attr-key" value="' + escapeHtml(a.key) + '" placeholder="key"' + (builtIn ? ' disabled' : '') + '></td>' +
+						'<td>' + renderAttrKindCell(a, builtIn) + '</td>' +
 						'<td>' + renderAttrValuesCell(a) + '</td>' +
-						'<td>' + renderAttrDefaultCell(a) + '</td>' +
 						'<td><label class="row" style="margin:0;"><input type="checkbox" data-role="attr-required"' + (a.required ? ' checked' : '') + '><span>required</span></label></td>' +
-						'<td><button class="iconBtn secondary deleteIcon" data-role="remove-attr" title="Delete Attribute">🗑</button></td>' +
+						'<td>' + (builtIn ? '<span class="meta">built-in</span>' : '<button class="iconBtn deleteIcon" data-role="remove-attr" title="Delete Attribute">🗑</button>') + '</td>' +
 					'</tr>';
 				}
 				var shortcutLabel = typeId === 'project' ? '.p' : typeId === 'feature' ? '.f' : '';
@@ -801,11 +806,9 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 							'<div class="typeGrid">' +
 								'<label class="row" style="display:block;margin:0;"><span>Type Id</span><input type="text" data-role="type-id" value="' + escapeHtml(t.id) + '" disabled></label>' +
 								'<label class="row" style="display:block;margin:0;"><span>Shortcut</span><input type="text" value="' + escapeHtml(shortcutLabel) + '" disabled></label>' +
-								'<label class="row" style="display:block;margin:0;"><span>Type Color</span><div class="colorRow"><input type="text" data-role="type-color" value="' + escapeHtml(t.color) + '" placeholder="theme default"' + (t.useThemeColor ? ' disabled' : '') + '><input type="color" class="colorPatch" data-role="type-color-picker" value="' + escapeHtml(/^#([0-9a-f]{6})$/i.test(String(t.color || '')) ? t.color : '#808080') + '"' + (t.useThemeColor ? ' disabled' : '') + '></div></label>' +
-								'<label class="row" style="display:block;margin:0;"><input type="checkbox" data-role="type-theme-color"' + (t.useThemeColor ? ' checked' : '') + '><span>Use theme default color</span></label>' +
 							'</div>' +
 							'<table class="attrTable">' +
-								'<thead><tr><th>Key</th><th>Kind</th><th>Values</th><th>Default</th><th>Required</th><th>Action</th></tr></thead>' +
+								'<thead><tr><th>Key</th><th>Kind</th><th>Values</th><th>Required</th><th>Action</th></tr></thead>' +
 								'<tbody>' + rows + '</tbody>' +
 							'</table>' +
 							'<div class="inlineActions">' +
@@ -814,6 +817,48 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 						'</div>' +
 					'</details>';
 			}
+
+			// Issue is a document/heading type (stored in metadataTypes) but belongs to
+			// Projects, so it is rendered here. Mark the block so edits route back to
+			// metadataTypesState instead of fileLevelTypesState.
+			var issueIndex = findDocumentTypeIndex('issue');
+			if (issueIndex >= 0) {
+				var it = metadataTypesState[issueIndex] || {};
+				var iAttrs = Array.isArray(it.attributes) ? it.attributes : [];
+				var iRows = '';
+				for (var j = 0; j < iAttrs.length; j++) {
+					var ia = iAttrs[j] || {};
+					var builtIn = isBuiltInAttributeKey('issue', ia.key);
+					iRows += '<tr data-attr-index="' + j + '">' +
+						'<td><input type="text" data-role="attr-key" value="' + escapeHtml(ia.key) + '" placeholder="key"' + (builtIn ? ' disabled' : '') + '></td>' +
+						'<td>' + renderAttrKindCell(ia, builtIn) + '</td>' +
+						'<td>' + renderAttrValuesCell(ia) + '</td>' +
+						'<td><label class="row" style="margin:0;"><input type="checkbox" data-role="attr-required"' + (ia.required ? ' checked' : '') + '><span>required</span></label></td>' +
+						'<td>' + (builtIn ? '<span class="meta">built-in</span>' : '<button class="iconBtn deleteIcon" data-role="remove-attr" title="Delete Attribute">🗑</button>') + '</td>' +
+					'</tr>';
+				}
+				html +=
+					'<details class="typeDetails" data-type-index="' + issueIndex + '" data-source="document" open>' +
+						'<summary class="typeSummary">' +
+							'<span>' + escapeHtml(it.marker || '.issue') + ' (issue)</span>' +
+							'<span class="summaryRight"><span class="chev">⌃</span></span>' +
+						'</summary>' +
+						'<div class="typeBody" data-type-index="' + issueIndex + '" data-source="document">' +
+							'<div class="typeGrid">' +
+								'<label class="row" style="display:block;margin:0;"><span>Type Id</span><input type="text" data-role="type-id" value="issue" disabled></label>' +
+								'<label class="row" style="display:block;margin:0;"><span>Shortcut</span><input type="text" value="i" disabled></label>' +
+							'</div>' +
+							'<table class="attrTable">' +
+								'<thead><tr><th>Key</th><th>Kind</th><th>Values</th><th>Required</th><th>Action</th></tr></thead>' +
+								'<tbody>' + iRows + '</tbody>' +
+							'</table>' +
+							'<div class="inlineActions">' +
+								'<button class="iconBtn" data-role="add-attr" title="Add Attribute">+</button>' +
+							'</div>' +
+						'</div>' +
+					'</details>';
+			}
+
 			fileLevelTypesListEl.innerHTML = html;
 		}
 
@@ -846,7 +891,6 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 					id: id,
 					marker: marker,
 					shortcut: id === 'project' ? 'p' : id === 'feature' ? 'f' : '',
-					color: t.useThemeColor ? '' : String(t.color || '').trim(),
 					displayTemplate: true,
 					attributes: attrsObj
 				});
@@ -879,13 +923,122 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 					'<div class="typeGrid">' +
 						'<label class="row" style="display:block;margin:0;"><span>Mark</span><input type="text" data-role="mark-name" value="' + escapeHtml(m.name || '') + '"' + (locked ? ' disabled' : '') + '></label>' +
 						'<label class="row" style="display:block;margin:0;"><span>Description</span><input type="text" data-role="mark-desc" value="' + escapeHtml(m.description || '') + '"' + (locked ? ' disabled' : '') + '></label>' +
-						'<label class="row" style="display:block;margin:0;"><span>Mark letter color</span><div class="colorRow"><input type="text" data-role="mark-color" value="' + escapeHtml(m.markColor || m.color || '') + '" placeholder="metadata key color → theme"><input type="color" class="colorPatch" data-role="mark-color-picker" value="' + escapeHtml(/^#([0-9a-f]{6})$/i.test(String(m.markColor || m.color || '')) ? String(m.markColor || m.color || '') : '#808080') + '"></div></label>' +
-						'<label class="row" style="display:block;margin:0;"><span>Text color</span><div class="colorRow"><input type="text" data-role="mark-text-color" value="' + escapeHtml(m.textColor || '') + '" placeholder="metadata value color → theme"><input type="color" class="colorPatch" data-role="mark-text-color-picker" value="' + escapeHtml(/^#([0-9a-f]{6})$/i.test(String(m.textColor || '')) ? String(m.textColor || '') : '#808080') + '"></div></label>' +
+						'<label class="row" style="display:block;margin:0;"><span>Mark letter color</span><div class="colorRow"><input type="text" data-role="mark-color" value="' + escapeHtml(m.markColor || m.color || '') + '" placeholder="no color (plain text)"><input type="color" class="colorPatch" data-role="mark-color-picker" value="' + escapeHtml(/^#([0-9a-f]{6})$/i.test(String(m.markColor || m.color || '')) ? String(m.markColor || m.color || '') : '#808080') + '"></div></label>' +
+						'<label class="row" style="display:block;margin:0;"><span>Text color</span><div class="colorRow"><input type="text" data-role="mark-text-color" value="' + escapeHtml(m.textColor || '') + '" placeholder="no color (plain text)"><input type="color" class="colorPatch" data-role="mark-text-color-picker" value="' + escapeHtml(/^#([0-9a-f]{6})$/i.test(String(m.textColor || '')) ? String(m.textColor || '') : '#808080') + '"></div></label>' +
 					'</div>' +
 					'<div class="inlineActions">' + (locked ? '<span class="meta">Locked default mark</span>' : '<button class="iconBtn secondary deleteIcon" data-role="remove-mark" title="Delete Mark">🗑</button>') + '</div>' +
 				'</div></div>';
 			}
 			metadataMarksListEl.innerHTML = html;
+		}
+
+		var DOC_COLOR_SLOTS = [
+			{ key: 'color1', title: 'Color 1 — Metadata type / shortcut', desc: 'e.g. .concept, .c, c', proxies: ['--vscode-debugTokenExpression-type'], fallback: '#4ec9b0' },
+			{ key: 'color2', title: 'Color 2 — Heading line (bold)', desc: 'the whole heading, e.g. # .c My title', proxies: ['--vscode-debugTokenExpression-boolean'], fallback: '#569cd6' },
+			{ key: 'color3', title: 'Color 3 — Metadata keys', desc: 'e.g. status, deadline, parent', proxies: ['--vscode-debugTokenExpression-name'], fallback: '#c586c0' },
+			{ key: 'color4', title: 'Color 4 — Tag / relation keys', desc: 'e.g. tags, pre-req', proxies: ['--vscode-debugTokenExpression-boolean'], fallback: '#569cd6' },
+			{ key: 'color5', title: 'Color 5 — Values & separators', desc: 'metadata values, tag items, fileid value, ---', proxies: ['--vscode-debugTokenExpression-string'], fallback: '#ce9178' },
+			{ key: 'color6', title: 'Color 6 — File identity keys', desc: 'filename, fileid, headings', proxies: ['--vscode-symbolIcon-fieldForeground', '--vscode-debugTokenExpression-boolean'], fallback: '#4fc1ff' }
+		];
+
+		function normalizeDocColors(raw) {
+			var out = { color1: '', color2: '', color3: '', color4: '', color5: '', color6: '' };
+			raw = raw || {};
+			for (var i = 1; i <= 6; i++) {
+				var key = 'color' + i;
+				var v = String(raw[key] || '').trim();
+				out[key] = /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : '';
+			}
+			return out;
+		}
+
+		function docColorCss(key) {
+			return docColorHex(key);
+		}
+
+		function docSpan(color, bold, text) {
+			return '<span class="' + (bold ? 'bold' : '') + '" style="color:' + color + '">' + escapeHtml(text) + '</span>';
+		}
+
+		function cssColorToHex(colorStr) {
+			var m = String(colorStr || '').match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/);
+			if (!m) return '';
+			var r = parseInt(m[1], 10);
+			var g = parseInt(m[2], 10);
+			var b = parseInt(m[3], 10);
+			var a = m[4] != null ? parseFloat(m[4]) : 1;
+			if (a < 1) {
+				r = Math.round(r * a + 255 * (1 - a));
+				g = Math.round(g * a + 255 * (1 - a));
+				b = Math.round(b * a + 255 * (1 - a));
+			}
+			function hx(n) { var h = n.toString(16); return h.length === 1 ? '0' + h : h; }
+			return '#' + hx(r) + hx(g) + hx(b);
+		}
+
+		function readThemeVar(name) {
+			var v = getComputedStyle(document.documentElement).getPropertyValue(name);
+			return (v && String(v).trim()) ? String(v).trim() : '';
+		}
+
+		function themeVarToHex(name) {
+			var raw = readThemeVar(name);
+			if (!raw) return '';
+			return normalizeHexColor(raw) || cssColorToHex(raw);
+		}
+
+		function docColorHex(key) {
+			var val = String(docColorsState[key] || '').trim();
+			if (/^#[0-9a-f]{6}$/i.test(val)) return val;
+			// Prefer the real color the editor shows (resolved in the extension host).
+			if (docThemeColors && /^#[0-9a-f]{6}$/i.test(String(docThemeColors[key] || ''))) {
+				return String(docThemeColors[key]).toLowerCase();
+			}
+			for (var i = 0; i < DOC_COLOR_SLOTS.length; i++) {
+				var slot = DOC_COLOR_SLOTS[i];
+				if (slot.key !== key) continue;
+				for (var p = 0; p < slot.proxies.length; p++) {
+					var hex = themeVarToHex(slot.proxies[p]);
+					if (hex) return hex;
+				}
+				return slot.fallback;
+			}
+			return '#808080';
+		}
+
+		function renderDocColoringRows() {
+			var rowsHtml = '';
+			for (var i = 0; i < DOC_COLOR_SLOTS.length; i++) {
+				var slot = DOC_COLOR_SLOTS[i];
+				var pickerVal = docColorHex(slot.key);
+				rowsHtml += '<div class="docColorRow" data-slot="' + slot.key + '">' +
+					'<div class="lbl"><span class="t">' + escapeHtml(slot.title) + '</span><span class="d">' + escapeHtml(slot.desc) + '</span></div>' +
+					'<input type="color" class="swatch" data-role="doc-color-picker" value="' + escapeHtml(pickerVal) + '">' +
+					'</div>';
+			}
+			docColoringRowsEl.innerHTML = rowsHtml;
+		}
+
+		function renderDocColoringSample() {
+			var c = {};
+			for (var k = 1; k <= 6; k++) c['color' + k] = docColorCss('color' + k);
+			var plain = 'var(--vscode-foreground)';
+			var s = '';
+			s += docSpan(c.color6, false, 'filename') + docSpan(plain, false, ': ') + docSpan(c.color5, false, 'my-note') + '\\n';
+			s += docSpan(c.color6, false, 'fileid') + docSpan(plain, false, ': ') + docSpan(c.color5, false, '@abc123def4') + '\\n';
+			s += docSpan(c.color6, false, 'headings') + docSpan(plain, false, ': ') + docSpan(c.color5, false, '3') + '\\n';
+			s += docSpan(c.color5, false, '---') + '\\n';
+			s += docSpan(c.color2, true, '# ') + docSpan(c.color1, true, '.c') + docSpan(c.color2, true, ' My Concept') + '\\n';
+			s += docSpan(c.color3, false, 'status') + docSpan(plain, false, ': ') + docSpan(c.color5, false, 'active') + '\\n';
+			s += docSpan(c.color3, false, 'deadline') + docSpan(plain, false, ': ') + docSpan(c.color5, false, '2026-12-31') + '\\n';
+			s += docSpan(c.color4, false, 'tags') + docSpan(plain, false, ': ') + docSpan(c.color5, false, '[drip, notes]') + '\\n';
+			s += docSpan(c.color4, false, 'pre-req') + docSpan(plain, false, ': ') + docSpan(c.color5, false, '[setup]') + '\\n';
+			docColoringSampleEl.innerHTML = s;
+		}
+
+		function renderDocColoring() {
+			renderDocColoringRows();
+			renderDocColoringSample();
 		}
 
 		function collectTypesForSave() {
@@ -918,21 +1071,9 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 					id: id,
 					marker: marker,
 					shortcut: String(t.shortcut != null ? t.shortcut : '').trim(),
-					color: t.useThemeColor ? '' : String(t.color || '').trim(),
 					displayTemplate: t.displayTemplate !== false,
 					attributes: attrsObj
 				});
-			}
-			return out;
-		}
-
-		function collectTypeColorsForSave() {
-			var out = {};
-			for (var i = 0; i < metadataTypesState.length; i++) {
-				var t = metadataTypesState[i] || {};
-				var id = String(t.id || '').trim().toLowerCase();
-				var color = String(t.color || '').trim();
-				if (id && color) out[id] = color;
 			}
 			return out;
 		}
@@ -1040,19 +1181,12 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 			optTemplateIgnore.checked = !!message.metadataIgnoreErrors;
 			optTemplateIndentErrors.checked = !!message.metadataShowIndentErrors;
 			optHeadingHierarchyIndent.checked = !!message.showHeadingHierarchyIndentErrors;
-			customColorsEnabledEl.checked = !!message.metadataUseCustomColors;
-			customColorsEnabledTopEl.checked = !!message.metadataUseCustomColors;
-			metadataKeyColorEl.value = String(message.metadataKeyColor || '');
-			metadataValueColorEl.value = String(message.metadataValueColor || '');
-			syncColorPickerFromText(metadataKeyColorEl, metadataKeyColorPickerEl);
-			syncColorPickerFromText(metadataValueColorEl, metadataValueColorPickerEl);
-			metadataTypesState = normalizeTypesFromSettings(message.metadataTypes, message.metadataTypeColors);
+			metadataTypesState = normalizeTypesFromSettings(message.metadataTypes);
 			renderMetadataTypes();
 			fileLevelTypesState = normalizeTypesFromSettings(
 				message.fileLevelMetadataTypes && message.fileLevelMetadataTypes.length
 					? message.fileLevelMetadataTypes
-					: defaultFileLevelMetadataTypes,
-				message.metadataTypeColors
+					: defaultFileLevelMetadataTypes
 			);
 			renderFileLevelTypes();
 			var tr = message.tagsRelationsConfig || {};
@@ -1060,15 +1194,6 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 				{ name: 'tags', description: 'Special default relation for tags.', locked: true },
 				{ name: 'pre-req', description: 'Prerequisite relation.', locked: false }
 			];
-			relationsKeywordColorEl.value = String(tr.relationKeywordColor || '').trim();
-			tagsKeywordColorEl.value = String(tr.tagsKeywordColor || '').trim();
-			syncColorPickerFromText(relationsKeywordColorEl, relationsKeywordColorPickerEl);
-			syncColorPickerFromText(tagsKeywordColorEl, tagsKeywordColorPickerEl);
-			var rl = message.refLinksConfig || {};
-			refKeywordColorEl.value = String(rl.refKeywordColor || '').trim();
-			refValueColorEl.value = String(rl.refValueColor || '').trim();
-			syncColorPickerFromText(refKeywordColorEl, refKeywordColorPickerEl);
-			syncColorPickerFromText(refValueColorEl, refValueColorPickerEl);
 			if (!relationsState.some(function (x) { return String((x && x.name) || '').toLowerCase() === 'tags'; })) {
 				relationsState.unshift({ name: 'tags', description: 'Special default relation for tags.', locked: true });
 			}
@@ -1081,10 +1206,11 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 				];
 			renderRelations();
 			renderMetadataMarks();
-			if (optExperimentalEmbeddings) optExperimentalEmbeddings.checked = !!message.experimentalEmbeddings;
+			docColorsState = normalizeDocColors(message.dripnoteDocColors);
+			docThemeColors = message.dripnoteDocThemeColors || null;
+			renderDocColoring();
 			if (optEditHeadingsRhs) optEditHeadingsRhs.checked = message.editHeadingsViaRhs !== false;
 			if (optEditHeadingsFile) optEditHeadingsFile.checked = !!message.editHeadingsInFile && message.editHeadingsViaRhs === false;
-			if (embeddingModelIdEl) embeddingModelIdEl.value = String(message.embeddingModel || '');
 			if (savedSettingsPathEl) {
 				var p = String(message.kbSettingsFilePath || '').trim();
 				savedSettingsPathEl.textContent = p || '(no knowledge base selected — bind a .driplock folder first)';
@@ -1102,6 +1228,9 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 				applyMcpStatus(message.status || null);
 			} else if (message.type === 'showPanel' && panels[message.panel]) {
 				showPanel(message.panel);
+			} else if (message.type === 'docThemeColors') {
+				docThemeColors = message.colors || null;
+				renderDocColoring();
 			}
 		});
 
@@ -1222,26 +1351,6 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 		optTemplateIgnore.addEventListener('change', function(){ postBool(optTemplateIgnore, 'metadataIgnoreErrors'); });
 		optTemplateIndentErrors.addEventListener('change', function(){ postBool(optTemplateIndentErrors, 'metadataShowIndentErrors'); });
 		optHeadingHierarchyIndent.addEventListener('change', function(){ postBool(optHeadingHierarchyIndent, 'showHeadingHierarchyIndentErrors'); });
-		customColorsEnabledEl.addEventListener('change', function(){
-			customColorsEnabledTopEl.checked = !!customColorsEnabledEl.checked;
-			postBool(customColorsEnabledEl, 'metadataUseCustomColors');
-		});
-		customColorsEnabledTopEl.addEventListener('change', function(){
-			customColorsEnabledEl.checked = !!customColorsEnabledTopEl.checked;
-			postBool(customColorsEnabledEl, 'metadataUseCustomColors');
-		});
-		metadataKeyColorEl.addEventListener('input', function () { syncColorPickerFromText(metadataKeyColorEl, metadataKeyColorPickerEl); });
-		metadataValueColorEl.addEventListener('input', function () { syncColorPickerFromText(metadataValueColorEl, metadataValueColorPickerEl); });
-		relationsKeywordColorEl.addEventListener('input', function () { syncColorPickerFromText(relationsKeywordColorEl, relationsKeywordColorPickerEl); });
-		tagsKeywordColorEl.addEventListener('input', function () { syncColorPickerFromText(tagsKeywordColorEl, tagsKeywordColorPickerEl); });
-		metadataKeyColorPickerEl.addEventListener('input', function () { syncColorTextFromPicker(metadataKeyColorEl, metadataKeyColorPickerEl); });
-		metadataValueColorPickerEl.addEventListener('input', function () { syncColorTextFromPicker(metadataValueColorEl, metadataValueColorPickerEl); });
-		relationsKeywordColorPickerEl.addEventListener('input', function () { syncColorTextFromPicker(relationsKeywordColorEl, relationsKeywordColorPickerEl); });
-		tagsKeywordColorPickerEl.addEventListener('input', function () { syncColorTextFromPicker(tagsKeywordColorEl, tagsKeywordColorPickerEl); });
-		refKeywordColorEl.addEventListener('input', function () { syncColorPickerFromText(refKeywordColorEl, refKeywordColorPickerEl); });
-		refValueColorEl.addEventListener('input', function () { syncColorPickerFromText(refValueColorEl, refValueColorPickerEl); });
-		refKeywordColorPickerEl.addEventListener('input', function () { syncColorTextFromPicker(refKeywordColorEl, refKeywordColorPickerEl); });
-		refValueColorPickerEl.addEventListener('input', function () { syncColorTextFromPicker(refValueColorEl, refValueColorPickerEl); });
 		function parseJsonArea(el, fallback) {
 			try { return JSON.parse(String(el.value || '')); } catch { return fallback; }
 		}
@@ -1267,24 +1376,7 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 				typeRef.shortcut = String(target.value != null ? target.value : '').trim();
 				return;
 			}
-			if (role === 'type-color') {
-				typeRef.color = String(target.value || '').trim();
-				var pickerA = body.querySelector('input[data-role="type-color-picker"]');
-				syncColorPickerFromText(target, pickerA);
-			}
-			if (role === 'type-color-picker') {
-				typeRef.color = String(target.value || '').trim().toLowerCase();
-				typeRef.useThemeColor = false;
-				var colorTextA = body.querySelector('input[data-role="type-color"]');
-				if (colorTextA) colorTextA.value = typeRef.color;
-			}
 			if (role === 'type-display-template') typeRef.displayTemplate = !!target.checked;
-			if (role === 'type-theme-color') {
-				typeRef.useThemeColor = !!target.checked;
-				if (typeRef.useThemeColor) typeRef.color = '';
-				renderMetadataTypes();
-				return;
-			}
 			var row = target.closest('tr[data-attr-index]');
 			if (row) {
 				var attrIndex = Number(row.getAttribute('data-attr-index'));
@@ -1305,7 +1397,6 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 							.filter(Boolean);
 						return;
 					}
-					if (role === 'attr-default') attr.default = String(target.value || '').trim();
 					if (role === 'attr-required') attr.required = !!target.checked;
 				}
 			}
@@ -1365,6 +1456,8 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 				if (!row) return;
 				var attrIndex = Number(row.getAttribute('data-attr-index'));
 				if (!Number.isFinite(attrIndex)) return;
+				var attrKey = metadataTypesState[typeIndex].attributes[attrIndex] && metadataTypesState[typeIndex].attributes[attrIndex].key;
+				if (isBuiltInAttributeKey(metadataTypesState[typeIndex].id, attrKey)) return;
 				metadataTypesState[typeIndex].attributes.splice(attrIndex, 1);
 				renderMetadataTypes();
 			}
@@ -1375,26 +1468,10 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 			var body = target.closest('[data-type-index]');
 			if (!body) return;
 			var typeIndex = Number(body.getAttribute('data-type-index'));
-			if (!Number.isFinite(typeIndex) || !fileLevelTypesState[typeIndex]) return;
+			var stateArr = body.getAttribute('data-source') === 'document' ? metadataTypesState : fileLevelTypesState;
+			if (!Number.isFinite(typeIndex) || !stateArr[typeIndex]) return;
 			var role = target.getAttribute('data-role');
-			var typeRef = fileLevelTypesState[typeIndex];
-			if (role === 'type-color') {
-				typeRef.color = String(target.value || '').trim();
-				var pickerA = body.querySelector('input[data-role="type-color-picker"]');
-				syncColorPickerFromText(target, pickerA);
-			}
-			if (role === 'type-color-picker') {
-				typeRef.color = String(target.value || '').trim().toLowerCase();
-				typeRef.useThemeColor = false;
-				var colorTextA = body.querySelector('input[data-role="type-color"]');
-				if (colorTextA) colorTextA.value = typeRef.color;
-			}
-			if (role === 'type-theme-color') {
-				typeRef.useThemeColor = !!target.checked;
-				if (typeRef.useThemeColor) typeRef.color = '';
-				renderFileLevelTypes();
-				return;
-			}
+			var typeRef = stateArr[typeIndex];
 			var row = target.closest('tr[data-attr-index]');
 			if (row) {
 				var attrIndex = Number(row.getAttribute('data-attr-index'));
@@ -1415,7 +1492,6 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 							.filter(Boolean);
 						return;
 					}
-					if (role === 'attr-default') attr.default = String(target.value || '').trim();
 					if (role === 'attr-required') attr.required = !!target.checked;
 				}
 			}
@@ -1428,12 +1504,13 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 			var scope = target.closest('[data-type-index]');
 			if (!scope) return;
 			var typeIndex = Number(scope.getAttribute('data-type-index'));
-			if (!Number.isFinite(typeIndex) || !fileLevelTypesState[typeIndex]) return;
+			var stateArr = scope.getAttribute('data-source') === 'document' ? metadataTypesState : fileLevelTypesState;
+			if (!Number.isFinite(typeIndex) || !stateArr[typeIndex]) return;
 			if (role === 'add-attr') {
 				ev.preventDefault();
 				ev.stopPropagation();
-				if (!Array.isArray(fileLevelTypesState[typeIndex].attributes)) fileLevelTypesState[typeIndex].attributes = [];
-				fileLevelTypesState[typeIndex].attributes.push({ key: '', kind: 'enum', values: [], default: '', required: false });
+				if (!Array.isArray(stateArr[typeIndex].attributes)) stateArr[typeIndex].attributes = [];
+				stateArr[typeIndex].attributes.push({ key: '', kind: 'enum', values: [], default: '', required: false });
 				renderFileLevelTypes();
 				return;
 			}
@@ -1444,44 +1521,43 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 				if (!row) return;
 				var attrIndex = Number(row.getAttribute('data-attr-index'));
 				if (!Number.isFinite(attrIndex)) return;
-				fileLevelTypesState[typeIndex].attributes.splice(attrIndex, 1);
+				var attrKey = stateArr[typeIndex].attributes[attrIndex] && stateArr[typeIndex].attributes[attrIndex].key;
+				if (isBuiltInAttributeKey(stateArr[typeIndex].id, attrKey)) return;
+				stateArr[typeIndex].attributes.splice(attrIndex, 1);
 				renderFileLevelTypes();
 			}
 		});
 		document.getElementById('btn-save-types').addEventListener('click', function () {
 			var types = collectTypesForSave();
 			vscode.postMessage({ type: 'updateSetting', key: 'metadataTypes', value: types.length ? types : defaultMetadataTypes });
-			vscode.postMessage({ type: 'updateSetting', key: 'metadataTypeColors', value: collectTypeColorsForSave() });
 		});
 		document.getElementById('btn-reset-types').addEventListener('click', function () {
-			if (!confirm('Revert document types to standard (.concept, .task, .issue, …)?')) return;
-			metadataTypesState = normalizeTypesFromSettings(defaultMetadataTypes, {});
+			metadataTypesState = normalizeTypesFromSettings(defaultMetadataTypes);
 			renderMetadataTypes();
+			renderFileLevelTypes();
 			vscode.postMessage({ type: 'updateSetting', key: 'metadataTypes', value: defaultMetadataTypes });
-			vscode.postMessage({ type: 'updateSetting', key: 'metadataTypeColors', value: {} });
 		});
 		document.getElementById('btn-save-file-types').addEventListener('click', function () {
+			// The Projects card edits issue too, and issue lives in metadataTypes — save both.
+			var types = collectTypesForSave();
 			vscode.postMessage({
 				type: 'updateSetting',
 				key: 'fileLevelMetadataTypes',
 				value: collectFileLevelTypesForSave()
 			});
-			vscode.postMessage({ type: 'updateSetting', key: 'metadataTypeColors', value: collectTypeColorsForSave() });
+			vscode.postMessage({ type: 'updateSetting', key: 'metadataTypes', value: types.length ? types : defaultMetadataTypes });
 		});
 		document.getElementById('btn-reset-file-types').addEventListener('click', function () {
-			if (!confirm('Revert special metadata types to standard (project, feature)?')) return;
-			fileLevelTypesState = normalizeTypesFromSettings(defaultFileLevelMetadataTypes, {});
+			fileLevelTypesState = normalizeTypesFromSettings(defaultFileLevelMetadataTypes);
+			resetIssueType();
 			renderFileLevelTypes();
 			vscode.postMessage({
 				type: 'updateSetting',
 				key: 'fileLevelMetadataTypes',
 				value: defaultFileLevelMetadataTypes
 			});
-		});
-		document.getElementById('btn-save-colors').addEventListener('click', function () {
-			vscode.postMessage({ type: 'updateSetting', key: 'metadataTypeColors', value: collectTypeColorsForSave() });
-			vscode.postMessage({ type: 'updateSetting', key: 'metadataKeyColor', value: String(metadataKeyColorEl.value || '').trim() });
-			vscode.postMessage({ type: 'updateSetting', key: 'metadataValueColor', value: String(metadataValueColorEl.value || '').trim() });
+			var types = collectTypesForSave();
+			vscode.postMessage({ type: 'updateSetting', key: 'metadataTypes', value: types.length ? types : defaultMetadataTypes });
 		});
 		document.getElementById('btn-save-metadata-panel').addEventListener('click', function () {
 			postBool(optTemplateEnabled, 'metadataTemplatesEnabled');
@@ -1490,7 +1566,6 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 			postBool(optTemplateIgnore, 'metadataIgnoreErrors');
 			postBool(optTemplateIndentErrors, 'metadataShowIndentErrors');
 			postBool(optHeadingHierarchyIndent, 'showHeadingHierarchyIndentErrors');
-			postBool(customColorsEnabledEl, 'metadataUseCustomColors');
 			var types = collectTypesForSave();
 			vscode.postMessage({ type: 'updateSetting', key: 'metadataTypes', value: types.length ? types : defaultMetadataTypes });
 			vscode.postMessage({
@@ -1498,17 +1573,6 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 				key: 'fileLevelMetadataTypes',
 				value: collectFileLevelTypesForSave()
 			});
-			vscode.postMessage({ type: 'updateSetting', key: 'metadataTypeColors', value: collectTypeColorsForSave() });
-			vscode.postMessage({ type: 'updateSetting', key: 'metadataKeyColor', value: String(metadataKeyColorEl.value || '').trim() });
-			vscode.postMessage({ type: 'updateSetting', key: 'metadataValueColor', value: String(metadataValueColorEl.value || '').trim() });
-		});
-		document.getElementById('btn-reset-colors').addEventListener('click', function () {
-			metadataKeyColorEl.value = '';
-			metadataValueColorEl.value = '';
-			syncColorPickerFromText(metadataKeyColorEl, metadataKeyColorPickerEl);
-			syncColorPickerFromText(metadataValueColorEl, metadataValueColorPickerEl);
-			vscode.postMessage({ type: 'updateSetting', key: 'metadataKeyColor', value: '' });
-			vscode.postMessage({ type: 'updateSetting', key: 'metadataValueColor', value: '' });
 		});
 		document.getElementById('btn-add-relation').addEventListener('click', function () {
 			relationsState.push({ name: 'new-relation', description: '', locked: false });
@@ -1556,33 +1620,9 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 				key: 'tagsRelationsConfig',
 				value: {
 					relations: rows,
-					allowed: allowed,
-					relationKeywordColor: String(relationsKeywordColorEl.value || '').trim(),
-					tagsKeywordColor: String(tagsKeywordColorEl.value || '').trim()
+					allowed: allowed
 				}
 			});
-		});
-		document.getElementById('btn-reset-relations-colors').addEventListener('click', function () {
-			relationsKeywordColorEl.value = '';
-			tagsKeywordColorEl.value = '';
-			syncColorPickerFromText(relationsKeywordColorEl, relationsKeywordColorPickerEl);
-			syncColorPickerFromText(tagsKeywordColorEl, tagsKeywordColorPickerEl);
-		});
-		document.getElementById('btn-save-ref-links').addEventListener('click', function () {
-			vscode.postMessage({
-				type: 'updateSetting',
-				key: 'refLinksConfig',
-				value: {
-					refKeywordColor: String(refKeywordColorEl.value || '').trim(),
-					refValueColor: String(refValueColorEl.value || '').trim()
-				}
-			});
-		});
-		document.getElementById('btn-reset-ref-links-colors').addEventListener('click', function () {
-			refKeywordColorEl.value = '';
-			refValueColorEl.value = '';
-			syncColorPickerFromText(refKeywordColorEl, refKeywordColorPickerEl);
-			syncColorPickerFromText(refValueColorEl, refValueColorPickerEl);
 		});
 		document.getElementById('btn-add-metadata-mark').addEventListener('click', function () {
 			metadataMarksState.push({ name: 'X', description: '', color: '', locked: false });
@@ -1651,12 +1691,23 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 			}
 			vscode.postMessage({ type: 'updateSetting', key: 'dripMetadataMarks', value: { marks: marks } });
 		});
-		document.getElementById('btn-reset-metadata-marks-colors').addEventListener('click', function () {
-			for (var i = 0; i < metadataMarksState.length; i++) {
-				metadataMarksState[i].markColor = '';
-				metadataMarksState[i].textColor = '';
-			}
-			renderMetadataMarks();
+		docColoringRowsEl.addEventListener('input', function (ev) {
+			var target = ev.target;
+			if (!target || target.getAttribute('data-role') !== 'doc-color-picker') return;
+			var row = target.closest('[data-slot]');
+			if (!row) return;
+			var slot = row.getAttribute('data-slot');
+			if (!slot || !(slot in docColorsState)) return;
+			docColorsState[slot] = String(target.value || '').trim().toLowerCase();
+			renderDocColoringSample();
+		});
+		document.getElementById('btn-save-doc-colors').addEventListener('click', function () {
+			vscode.postMessage({ type: 'updateSetting', key: 'dripnoteDocColors', value: docColorsState });
+		});
+		document.getElementById('btn-revert-doc-colors').addEventListener('click', function () {
+			docColorsState = { color1: '', color2: '', color3: '', color4: '', color5: '', color6: '' };
+			renderDocColoring();
+			vscode.postMessage({ type: 'updateSetting', key: 'dripnoteDocColors', value: docColorsState });
 		});
 		document.getElementById('btn-keys').addEventListener('click', function () {
 			vscode.postMessage({ type: 'openKeyboardShortcuts' });
@@ -1780,11 +1831,6 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 		document.getElementById('btn-user-settings').addEventListener('click', function () {
 			vscode.postMessage({ type: 'openDripUserSettings' });
 		});
-		if (optExperimentalEmbeddings) {
-			optExperimentalEmbeddings.addEventListener('change', function () {
-				vscode.postMessage({ type: 'updateSetting', key: 'experimentalEmbeddings', value: !!optExperimentalEmbeddings.checked });
-			});
-		}
 		function pushHeadingEditMode(mode) {
 			var viaRhs = mode === 'rhs';
 			vscode.postMessage({ type: 'updateSetting', key: 'editHeadingsViaRhs', value: viaRhs });
@@ -1800,10 +1846,6 @@ function getSettingsWebviewHtml(webview, opts = {}) {
 				if (optEditHeadingsFile.checked) pushHeadingEditMode('file');
 			});
 		}
-		document.getElementById('btn-save-embedding').addEventListener('click', function () {
-			vscode.postMessage({ type: 'updateSetting', key: 'experimentalEmbeddings', value: !!(optExperimentalEmbeddings && optExperimentalEmbeddings.checked) });
-			vscode.postMessage({ type: 'updateSetting', key: 'embeddingModel', value: String((embeddingModelIdEl && embeddingModelIdEl.value) || '').trim() });
-		});
 		document.getElementById('btn-embedding-benchmark').addEventListener('click', function () {
 			vscode.postMessage({ type: 'runEmbeddingBenchmark' });
 		});

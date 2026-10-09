@@ -11,10 +11,10 @@
  * the increase must be **at most one** indent step. Decreasing (jumping back to a shallower heading)
  * may be by any amount.
  *
- * Depends on `parseHeadingForValidation` from `dripnoteCanvasParse`.
+ * Depends on `parseHeadingForValidation` from `dripnoteHeadingParse`.
  */
 
-const { parseHeadingForValidation } = require('./dripnoteCanvasParse');
+const { parseHeadingForValidation } = require('./dripnoteHeadingParse');
 
 /** Same leading-whitespace width as heading tabDepth (tabs, spaces, NBSP… per parseHeadingForValidation). */
 function leadingWhitespaceIndentWidth(line) {

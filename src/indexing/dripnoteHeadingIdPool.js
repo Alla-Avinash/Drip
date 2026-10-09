@@ -1,6 +1,6 @@
 'use strict';
 
-const { collectHeadingSequenceValidated } = require('../document/parse/dripnoteCanvasParse');
+const { collectHeadingSequenceValidated } = require('../document/parse/dripnoteHeadingParse');
 const {
 	findSeparatorLineIndex,
 	findHeadingIdentityForNode,

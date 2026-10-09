@@ -1,18 +1,18 @@
 'use strict';
 
 /**
- * Heading embedding storage in `index.drip` (schema v11+).
+ * Heading embedding storage in `index.drip`.
  *
  * Tables:
  * - `heading_embedding_records` — embedding_id ↔ (file_id, heading_id)
- * - `heading_embedding_vectors` — sqlite-vec `vec0` float vectors
+ * - `heading_embedding_vectors` — ordinary table; `embedding` BLOB (Float32)
  *
+ * Search is a plain-JS L2 scan over all vectors (no sqlite-vec, no FAISS).
  * Global model/config lives in `index_meta` (not per row):
  *   embedding_model, embedding_dimensions, embedding_format_version, embedding_generation
- *
- * No content_hash / updated_at / model_id on rows (by design).
- * Inference / search wiring is later steps — this module is storage only.
  */
+
+const { l2Squared, coerceVector, toBlob } = require('./vectorMath');
 
 const DEFAULT_EMBEDDING_DIMENSIONS = 384;
 const DEFAULT_EMBEDDING_FORMAT_VERSION = '1';
@@ -68,10 +68,7 @@ function seedEmbeddingIndexMeta(db) {
 		'embedding_generation',
 		DEFAULT_EMBEDDING_GENERATION
 	]);
-	db.run(`INSERT OR IGNORE INTO index_meta(key, value) VALUES (?, ?)`, [
-		'next_embedding_id',
-		'1'
-	]);
+	db.run(`INSERT OR IGNORE INTO index_meta(key, value) VALUES (?, ?)`, ['next_embedding_id', '1']);
 }
 
 /**
@@ -83,35 +80,10 @@ function getEmbeddingMeta(db) {
 	return {
 		model: getMeta(db, 'embedding_model') || DEFAULT_EMBEDDING_MODEL,
 		dimensions:
-			Number.isFinite(dimensions) && dimensions > 0
-				? dimensions
-				: DEFAULT_EMBEDDING_DIMENSIONS,
+			Number.isFinite(dimensions) && dimensions > 0 ? dimensions : DEFAULT_EMBEDDING_DIMENSIONS,
 		formatVersion: getMeta(db, 'embedding_format_version') || DEFAULT_EMBEDDING_FORMAT_VERSION,
 		generation: getMeta(db, 'embedding_generation') || DEFAULT_EMBEDDING_GENERATION
 	};
-}
-
-/**
- * Point index_meta at a new embedding model and bump generation (invalidates FAISS manifest sync).
- * Does not clear vectors — caller must clear heading/folder tables.
- * @param {import('../db/dripSqlite').DripSqliteDatabase} db
- * @param {string} modelId
- * @param {{ dimensions?: number }} [opts]
- * @returns {{ model: string, dimensions: number, formatVersion: string, generation: string }}
- */
-function setEmbeddingModelMeta(db, modelId, opts) {
-	const nextModel = String(modelId || '').trim() || DEFAULT_EMBEDDING_MODEL;
-	setMeta(db, 'embedding_model', nextModel);
-	const prevGen = parseInt(getMeta(db, 'embedding_generation') || '0', 10);
-	const nextGen = Number.isFinite(prevGen) ? prevGen + 1 : 1;
-	setMeta(db, 'embedding_generation', String(nextGen));
-	if (opts && opts.dimensions != null) {
-		const d = Number(opts.dimensions);
-		if (Number.isFinite(d) && d > 0) {
-			setMeta(db, 'embedding_dimensions', String(d));
-		}
-	}
-	return getEmbeddingMeta(db);
 }
 
 /**
@@ -126,7 +98,7 @@ function vectorsTableExists(db) {
 }
 
 /**
- * Create mapping + vec0 tables and seed embedding meta. Idempotent.
+ * Create mapping + vector tables and seed embedding meta. Idempotent.
  * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  */
 function ensureHeadingEmbeddingStorage(db) {
@@ -141,19 +113,13 @@ function ensureHeadingEmbeddingStorage(db) {
 		);
 		CREATE INDEX IF NOT EXISTS idx_heading_embedding_file
 			ON ${RECORDS_TABLE}(file_id);
+		CREATE TABLE IF NOT EXISTS ${VECTORS_TABLE} (
+			embedding_id INTEGER PRIMARY KEY,
+			embedding BLOB NOT NULL
+		);
 	`);
 
 	seedEmbeddingIndexMeta(db);
-	const { dimensions } = getEmbeddingMeta(db);
-
-	if (!vectorsTableExists(db)) {
-		db.exec(`
-			CREATE VIRTUAL TABLE ${VECTORS_TABLE} USING vec0(
-				embedding_id INTEGER PRIMARY KEY,
-				embedding float[${dimensions}]
-			);
-		`);
-	}
 }
 
 /**
@@ -172,33 +138,12 @@ function allocateEmbeddingId(db) {
 
 /**
  * @param {import('../db/dripSqlite').DripSqliteDatabase} db
- * @returns {number}
- */
-function countHeadingEmbeddings(db) {
-	if (!vectorsTableExists(db)) {
-		return 0;
-	}
-	const stmt = db.prepare(`SELECT COUNT(*) FROM ${VECTORS_TABLE}`);
-	stmt.bind([]);
-	if (!stmt.step()) {
-		stmt.free();
-		return 0;
-	}
-	const n = Number(stmt.get()[0]) || 0;
-	stmt.free();
-	return n;
-}
-
-/**
- * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  * @param {number} fileId
  * @param {number} headingId
  * @returns {number | undefined}
  */
 function getEmbeddingId(db, fileId, headingId) {
-	const stmt = db.prepare(
-		`SELECT embedding_id FROM ${RECORDS_TABLE} WHERE file_id = ? AND heading_id = ?`
-	);
+	const stmt = db.prepare(`SELECT embedding_id FROM ${RECORDS_TABLE} WHERE file_id = ? AND heading_id = ?`);
 	stmt.bind([fileId, headingId]);
 	if (!stmt.step()) {
 		stmt.free();
@@ -210,17 +155,11 @@ function getEmbeddingId(db, fileId, headingId) {
 }
 
 /**
- * Delete vec0 row via native binding (PK must be BigInt for sqlite-vec).
  * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  * @param {number} embeddingId
  */
 function deleteVectorRow(db, embeddingId) {
-	if (!db.native || !vectorsTableExists(db)) {
-		return;
-	}
-	db.native
-		.prepare(`DELETE FROM ${VECTORS_TABLE} WHERE embedding_id = ?`)
-		.run(BigInt(embeddingId));
+	db.run(`DELETE FROM ${VECTORS_TABLE} WHERE embedding_id = ?`, [embeddingId]);
 }
 
 /**
@@ -263,10 +202,7 @@ function deleteFileEmbeddings(db, fileId) {
  * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  */
 function clearAllHeadingEmbeddings(db) {
-	if (vectorsTableExists(db)) {
-		// vec0 has no reliable DELETE FROM without WHERE in some builds — drop & recreate.
-		db.exec(`DROP TABLE IF EXISTS ${VECTORS_TABLE}`);
-	}
+	db.run(`DELETE FROM ${VECTORS_TABLE}`);
 	db.run(`DELETE FROM ${RECORDS_TABLE}`);
 	setMeta(db, 'next_embedding_id', '1');
 	ensureHeadingEmbeddingStorage(db);
@@ -284,36 +220,29 @@ function upsertHeadingEmbedding(db, fileId, headingId, embedding) {
 	const { dimensions } = getEmbeddingMeta(db);
 	const values = Array.from(embedding);
 	if (values.length !== dimensions) {
-		throw new Error(
-			`upsertHeadingEmbedding: expected ${dimensions} dims, got ${values.length}`
-		);
-	}
-	if (!db.native) {
-		throw new Error('upsertHeadingEmbedding: native DB handle missing');
+		throw new Error(`upsertHeadingEmbedding: expected ${dimensions} dims, got ${values.length}`);
 	}
 
 	let embeddingId = getEmbeddingId(db, fileId, headingId);
 	if (embeddingId == null) {
 		embeddingId = allocateEmbeddingId(db);
-		db.run(
-			`INSERT INTO ${RECORDS_TABLE} (embedding_id, file_id, heading_id) VALUES (?, ?, ?)`,
-			[embeddingId, fileId, headingId]
-		);
-	} else {
-		deleteVectorRow(db, embeddingId);
+		db.run(`INSERT INTO ${RECORDS_TABLE} (embedding_id, file_id, heading_id) VALUES (?, ?, ?)`, [
+			embeddingId,
+			fileId,
+			headingId
+		]);
 	}
 
-	db.native
-		.prepare(
-			`INSERT INTO ${VECTORS_TABLE} (embedding_id, embedding) VALUES (?, ?)`
-		)
-		.run(BigInt(embeddingId), JSON.stringify(values));
+	db.run(`INSERT OR REPLACE INTO ${VECTORS_TABLE} (embedding_id, embedding) VALUES (?, ?)`, [
+		embeddingId,
+		toBlob(values)
+	]);
 
 	return embeddingId;
 }
 
 /**
- * Exact KNN via sqlite-vec. Returns embedding_id + distance + file/heading ids.
+ * KNN by L2 distance over all heading vectors (plain-JS scan).
  * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  * @param {number[] | Float32Array} query
  * @param {number} k
@@ -323,122 +252,37 @@ function searchHeadingEmbeddingsExact(db, query, k) {
 	const { dimensions } = getEmbeddingMeta(db);
 	const values = Array.from(query);
 	if (values.length !== dimensions) {
-		throw new Error(
-			`searchHeadingEmbeddingsExact: expected ${dimensions} dims, got ${values.length}`
-		);
+		throw new Error(`searchHeadingEmbeddingsExact: expected ${dimensions} dims, got ${values.length}`);
 	}
 	if (!db.native || !vectorsTableExists(db)) {
 		return [];
 	}
 	const limit = Math.max(1, Number(k) || 1);
-	const rows = db.native
-		.prepare(
-			`
-			SELECT
-				v.embedding_id AS embedding_id,
-				v.distance AS distance,
-				r.file_id AS file_id,
-				r.heading_id AS heading_id
-			FROM ${VECTORS_TABLE} v
-			JOIN ${RECORDS_TABLE} r ON r.embedding_id = v.embedding_id
-			WHERE v.embedding MATCH ?
-			  AND k = ?
-			ORDER BY v.distance
-			`
-		)
-		.all(JSON.stringify(values), limit);
 
-	return rows.map(r => ({
-		embedding_id: Number(r.embedding_id),
-		distance: Number(r.distance),
-		file_id: Number(r.file_id),
-		heading_id: Number(r.heading_id)
-	}));
-}
+	/** @type {Map<number, { file_id: number, heading_id: number }>} */
+	const records = new Map();
+	for (const r of db.native.prepare(`SELECT embedding_id, file_id, heading_id FROM ${RECORDS_TABLE}`).all()) {
+		records.set(Number(r.embedding_id), { file_id: Number(r.file_id), heading_id: Number(r.heading_id) });
+	}
 
-/**
- * @param {Buffer | Float32Array | number[] | string} raw
- * @param {number} dimensions
- * @returns {number[]}
- */
-function coerceEmbeddingValues(raw, dimensions) {
-	if (Buffer.isBuffer(raw)) {
-		const floats = new Float32Array(raw.buffer, raw.byteOffset, Math.floor(raw.byteLength / 4));
-		return Array.from(floats);
-	}
-	if (raw instanceof Float32Array) {
-		return Array.from(raw);
-	}
-	if (Array.isArray(raw)) {
-		return raw.map(Number);
-	}
-	if (typeof raw === 'string') {
-		try {
-			const parsed = JSON.parse(raw);
-			if (Array.isArray(parsed)) {
-				return parsed.map(Number);
-			}
-		} catch {
-			/* fall through */
-		}
-	}
-	throw new Error(`coerceEmbeddingValues: unsupported payload (want ${dimensions} dims)`);
-}
-
-/**
- * Export all stored vectors for FAISS rebuild (sqlite-vec is authoritative).
- * @param {import('../db/dripSqlite').DripSqliteDatabase} db
- * @returns {{ embedding_id: number, embedding: number[] }[]}
- */
-function listAllHeadingEmbeddings(db) {
-	const { dimensions } = getEmbeddingMeta(db);
-	if (!db.native || !vectorsTableExists(db)) {
-		return [];
-	}
-	const rows = db.native
-		.prepare(
-			`
-			SELECT embedding_id, embedding
-			FROM ${VECTORS_TABLE}
-			ORDER BY embedding_id
-			`
-		)
-		.all();
-	/** @type {{ embedding_id: number, embedding: number[] }[]} */
-	const out = [];
-	for (const row of rows) {
+	/** @type {{ embedding_id: number, distance: number, file_id: number, heading_id: number }[]} */
+	const scored = [];
+	for (const row of db.native.prepare(`SELECT embedding_id, embedding FROM ${VECTORS_TABLE}`).all()) {
 		const embeddingId = Number(row.embedding_id);
-		const values = coerceEmbeddingValues(row.embedding, dimensions);
-		if (values.length !== dimensions) {
-			console.warn(
-				`[DRIP] skip embedding_id=${embeddingId}: dims ${values.length} !== ${dimensions}`
-			);
-			continue;
-		}
-		out.push({ embedding_id: embeddingId, embedding: values });
+		const rec = records.get(embeddingId);
+		if (!rec) continue;
+		const vec = coerceVector(row.embedding, dimensions);
+		if (!vec || vec.length !== dimensions) continue;
+		scored.push({
+			embedding_id: embeddingId,
+			distance: l2Squared(values, vec),
+			file_id: rec.file_id,
+			heading_id: rec.heading_id
+		});
 	}
-	return out;
-}
 
-/**
- * Read one vector by embedding_id (for incremental FAISS upsert).
- * @param {import('../db/dripSqlite').DripSqliteDatabase} db
- * @param {number} embeddingId
- * @returns {number[] | undefined}
- */
-function getHeadingEmbeddingVector(db, embeddingId) {
-	const { dimensions } = getEmbeddingMeta(db);
-	if (!db.native || !vectorsTableExists(db)) {
-		return undefined;
-	}
-	const row = db.native
-		.prepare(`SELECT embedding FROM ${VECTORS_TABLE} WHERE embedding_id = ?`)
-		.get(BigInt(embeddingId));
-	if (!row) {
-		return undefined;
-	}
-	const values = coerceEmbeddingValues(row.embedding, dimensions);
-	return values.length === dimensions ? values : undefined;
+	scored.sort((a, b) => a.distance - b.distance);
+	return scored.slice(0, limit);
 }
 
 module.exports = {
@@ -451,16 +295,11 @@ module.exports = {
 	ensureHeadingEmbeddingStorage,
 	seedEmbeddingIndexMeta,
 	getEmbeddingMeta,
-	setEmbeddingModelMeta,
-	countHeadingEmbeddings,
 	getEmbeddingId,
 	allocateEmbeddingId,
 	deleteHeadingEmbedding,
 	deleteFileEmbeddings,
 	clearAllHeadingEmbeddings,
 	upsertHeadingEmbedding,
-	searchHeadingEmbeddingsExact,
-	listAllHeadingEmbeddings,
-	getHeadingEmbeddingVector,
-	coerceEmbeddingValues
+	searchHeadingEmbeddingsExact
 };

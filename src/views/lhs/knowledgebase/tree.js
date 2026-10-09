@@ -18,7 +18,6 @@ const COMPONENT_ENTRIES = [
 	{ id: 'editor', label: 'Editor', command: 'drip.openKbEditor', icon: 'notebook' },
 	{ id: 'retriever', label: 'Retriever', command: 'drip.openRetriever', icon: 'search' },
 	{ id: 'tagsGraph', label: 'Tags Graph', command: 'drip.openTagsPanel', icon: 'graph' },
-	{ id: 'canvas', label: 'Canvas', command: 'drip.openCanvasView', icon: 'layout' },
 	{ id: 'projectView', label: 'Project View', command: 'drip.openProjectView', icon: 'folder-library' },
 	{ id: 'settings', label: 'DRIP Settings', command: 'drip.openDripSettingsView', icon: 'gear' }
 ];

@@ -6,10 +6,10 @@
  */
 
 const PROJECT_ISSUES_FILE_NAME = '_issues.d.txt';
-const FEATURE_RECENT_FILE_NAME = '_recent.d.txt';
-const FEATURE_RECENT_HEADING_TITLE = '_recent';
+const FEATURE_INBOX_FILE_NAME = '_inbox.d.txt';
+const FEATURE_INBOX_HEADING_TITLE = '_inbox';
 /** Plain (non-persistent) section in `_issues.d.txt` that holds newly created issues. */
-const PROJECT_ISSUES_RECENTS_HEADING_TITLE = 'recents';
+const PROJECT_ISSUES_INBOX_HEADING_TITLE = '_inbox';
 
 /** Issue entity id in headings / metadata: i-1, i-2, … */
 const ISSUE_ENTITY_ID_RE = /^i-(\d+)$/i;
@@ -36,8 +36,8 @@ function isProjectIssuesFileName(basename) {
  * @param {string} basename
  * @returns {boolean}
  */
-function isFeatureRecentFileName(basename) {
-	return String(basename || '').trim().toLowerCase() === FEATURE_RECENT_FILE_NAME;
+function isFeatureInboxFileName(basename) {
+	return String(basename || '').trim().toLowerCase() === FEATURE_INBOX_FILE_NAME;
 }
 
 /**
@@ -150,15 +150,15 @@ function formatFeatureEntityId(n) {
 
 module.exports = {
 	PROJECT_ISSUES_FILE_NAME,
-	FEATURE_RECENT_FILE_NAME,
-	FEATURE_RECENT_HEADING_TITLE,
-	PROJECT_ISSUES_RECENTS_HEADING_TITLE,
+	FEATURE_INBOX_FILE_NAME,
+	FEATURE_INBOX_HEADING_TITLE,
+	PROJECT_ISSUES_INBOX_HEADING_TITLE,
 	ISSUE_ENTITY_ID_RE,
 	ISSUE_TYPE_PREFIX_RE,
 	FEATURE_ENTITY_ID_RE,
 	ISSUE_PARENT_META_KEY,
 	isProjectIssuesFileName,
-	isFeatureRecentFileName,
+	isFeatureInboxFileName,
 	normalizeIssueEntityId,
 	normalizeFeatureEntityId,
 	parseIssueTypePrefix,

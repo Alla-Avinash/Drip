@@ -6,7 +6,7 @@
  * Exposes a thin sql.js-compatible surface (`run` / `exec` / `prepare`+`bind`+`step`+`get`+`free`)
  * so existing index callers and schema migrations keep working while we leave WASM sql.js.
  *
- * Native handle: `db.native` (better-sqlite3 Database) for future sqlite-vec loads.
+ * Native handle: `db.native` (better-sqlite3 Database) for direct prepared-statement access.
  */
 
 const fs = require('fs');
@@ -218,22 +218,11 @@ function openDripSqlite(fsPath) {
 	fs.mkdirSync(path.dirname(resolved), { recursive: true });
 	const native = new Database(resolved);
 	native.pragma('foreign_keys = ON');
-	loadSqliteVecExtension(native);
 	return new DripSqliteDatabase(native, resolved);
-}
-
-/**
- * Load sqlite-vec (`vec0`) into this connection. Required before creating/querying vector tables.
- * @param {import('better-sqlite3').Database} native
- */
-function loadSqliteVecExtension(native) {
-	const { getLoadablePath } = require('sqlite-vec');
-	native.loadExtension(getLoadablePath());
 }
 
 module.exports = {
 	openDripSqlite,
-	loadSqliteVecExtension,
 	DripSqliteDatabase,
 	DripSqliteStatement
 };

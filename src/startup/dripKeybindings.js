@@ -20,7 +20,6 @@ const SHORTCUT_COMMAND_IDS = [
 	'drip.openRetriever',
 	'drip.retrieverQuickOpen',
 	'drip.openTagsPanel',
-	'drip.openCanvasView',
 	'drip.openProjectView',
 	'drip.openKbEditor',
 	'drip.openTodayDailyNote',

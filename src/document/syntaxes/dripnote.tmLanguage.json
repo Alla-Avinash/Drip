@@ -4,10 +4,7 @@
   "scopeName": "source.dripnote",
   "patterns": [
     { "include": "#comments" },
-    { "include": "#fileHeaderFields" },
-    { "include": "#headings" },
-    { "include": "#typedNodeMarkers" },
-    { "include": "#separators" }
+    { "include": "#headings" }
   ],
   "repository": {
     "comments": {
@@ -18,120 +15,13 @@
         }
       ]
     },
-    "fileHeaderFields": {
-      "patterns": [
-        {
-          "match": "^[\\t ]*(filename)(\\s*:\\s*)(.+)$",
-          "captures": {
-            "1": { "name": "keyword.other.dripnote.metadata" },
-            "2": { "name": "punctuation.separator.key-value.dripnote" },
-            "3": { "name": "string.unquoted.dripnote.metadata" }
-          }
-        },
-        {
-          "match": "^[\\t ]*(created)(\\s*:\\s*)(.+)$",
-          "captures": {
-            "1": { "name": "keyword.other.dripnote.metadata" },
-            "2": { "name": "punctuation.separator.key-value.dripnote" },
-            "3": { "name": "constant.other.date.dripnote" }
-          }
-        },
-        {
-          "match": "^[\\t ]*(fileId)(\\s*:\\s*)(@[-_a-zA-Z0-9]+).*$",
-          "captures": {
-            "1": { "name": "keyword.other.dripnote.metadata" },
-            "2": { "name": "punctuation.separator.key-value.dripnote" },
-            "3": { "name": "constant.other.reference.link.dripnote" }
-          }
-        }
-      ]
-    },
-    "typedNodeMarkers": {
-      "patterns": [
-        {
-          "match": "^[\\t ]*(\\.(?:concept|task|project|p|t))\\b.*$",
-          "captures": {
-            "1": { "name": "storage.type.class.dripnote" }
-          },
-          "name": "meta.definition.type.dripnote"
-        }
-      ]
-    },
-    "knownMetadataFields": {
-      "patterns": [
-        {
-          "match": "^[\\t ]*(filename|created|fileId|status|deadline|difficulty|priority|importance)(\\s*:\\s*)(.+)$",
-          "captures": {
-            "1": { "name": "keyword.other.dripnote.metadata" },
-            "2": { "name": "punctuation.separator.key-value.dripnote" },
-            "3": { "name": "string.unquoted.dripnote.metadata" }
-          }
-        }
-      ]
-    },
-    "knownRelationListLines": {
-      "patterns": [
-        {
-          "match": "^[\\t ]*((?:tags|pre-req))(\\s*:\\s*)(\\[)([^\\]]*)(\\])\\s*$",
-          "captures": {
-            "1": { "name": "entity.name.tag.dripnote.relation" },
-            "2": { "name": "punctuation.separator.key-value.dripnote" },
-            "3": { "name": "punctuation.definition.bracket.square.begin.dripnote" },
-            "4": { "name": "variable.other.readwrite.dripnote.tag-list" },
-            "5": { "name": "punctuation.definition.bracket.square.end.dripnote" }
-          }
-        },
-        {
-          "match": "^[\\t ]*(ref)(\\s*:\\s*)(\\[)([^\\]]*)(\\])\\s*$",
-          "captures": {
-            "1": { "name": "keyword.other.dripnote.ref" },
-            "2": { "name": "punctuation.separator.key-value.dripnote" },
-            "3": { "name": "punctuation.definition.bracket.square.begin.dripnote" },
-            "4": { "name": "constant.other.reference.link.dripnote" },
-            "5": { "name": "punctuation.definition.bracket.square.end.dripnote" }
-          }
-        }
-      ]
-    },
-    "shorthandTagListLine": {
-      "patterns": [
-        {
-          "match": "^[\\t ]*(\\[)([^\\]]*)(\\])\\s*$",
-          "captures": {
-            "1": { "name": "punctuation.definition.bracket.square.begin.dripnote" },
-            "2": { "name": "variable.other.readwrite.dripnote.tag-list" },
-            "3": { "name": "punctuation.definition.bracket.square.end.dripnote" }
-          }
-        }
-      ]
-    },
-    "specialLinePrefixes": {
-      "patterns": []
-    },
     "headings": {
       "patterns": [
         {
-          "match": "^[\\t ]*(#{1,6})(\\s+)(\\.(?:concept|task|project|p|t)|[pt]\\.)(\\s+.*)?$",
+          "match": "^([\\t ]*#{1,6})(\\s+)",
           "captures": {
-            "1": { "name": "punctuation.definition.heading.dripnote" },
-            "3": { "name": "storage.type.class.dripnote" },
-            "4": { "name": "markup.heading.dripnote" }
+            "1": { "name": "punctuation.definition.heading.dripnote" }
           }
-        },
-        {
-          "match": "^[\\t ]*(#{1,6})(\\s+)(.*)$",
-          "captures": {
-            "1": { "name": "punctuation.definition.heading.dripnote" },
-            "3": { "name": "markup.heading.dripnote" }
-          }
-        }
-      ]
-    },
-    "separators": {
-      "patterns": [
-        {
-          "match": "^---\\s*$",
-          "name": "meta.separator.section.dripnote"
         }
       ]
     }

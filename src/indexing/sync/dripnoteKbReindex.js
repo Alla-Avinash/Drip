@@ -95,16 +95,10 @@ async function runKbReconcileReindex(kbRootUri, context, options) {
 
 	const cancelled = !!(options.token && options.token.isCancellationRequested);
 
-	// Full reset: block until every heading + folder vector is written, then clear search lock.
+	// Full reset: block until every heading + folder vector is written.
 	/** @type {{ headingsEncoded?: number, foldersEncoded?: number }} */
 	const embedStats = {};
 	if (options.resetDatabase && !cancelled) {
-		try {
-			const { clearHeadingEmbeddingSearchLock } = require('../embeddings/headingEmbeddingSearchMethod');
-			clearHeadingEmbeddingSearchLock(kbRootUri);
-		} catch {
-			/* optional */
-		}
 		try {
 			const { awaitHeadingEmbeddingsReady } = require('../embeddings/headingEmbeddingSync');
 			const h = await awaitHeadingEmbeddingsReady(kbRootUri, {
@@ -136,12 +130,6 @@ async function runKbReconcileReindex(kbRootUri, context, options) {
 				});
 				failed += 1;
 			}
-		}
-		try {
-			const { clearHeadingEmbeddingSearchLock } = require('../embeddings/headingEmbeddingSearchMethod');
-			clearHeadingEmbeddingSearchLock(kbRootUri);
-		} catch {
-			/* optional */
 		}
 		progress?.report({ message: 'Embeddings complete' });
 	}

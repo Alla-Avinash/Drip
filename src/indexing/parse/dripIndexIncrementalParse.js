@@ -6,7 +6,7 @@
  */
 
 /**
- * @param {import('../../document/parse/dripnoteCanvasParse').HeadingNodeFlat[]} nodes
+ * @param {import('../../document/parse/dripnoteHeadingParse').HeadingNodeFlat[]} nodes
  * @param {string[]} lines
  * @returns {{ start: number, end: number }[]}
  */
@@ -130,7 +130,7 @@ function findFirstBodyHeadingLine(lines) {
 }
 
 /**
- * @param {import('../../document/parse/dripnoteCanvasParse').HeadingNodeFlat[]} nodes
+ * @param {import('../../document/parse/dripnoteHeadingParse').HeadingNodeFlat[]} nodes
  * @param {{ start: number, end: number }[]} spans
  * @param {{ start: number, end: number }[]} changeRanges
  * @returns {number[]}
@@ -164,7 +164,7 @@ function findAffectedSubtreeRootIndices(nodes, spans, changeRanges) {
 }
 
 /**
- * @param {import('../../document/parse/dripnoteCanvasParse').HeadingNodeFlat[]} nodes
+ * @param {import('../../document/parse/dripnoteHeadingParse').HeadingNodeFlat[]} nodes
  * @param {number} rootIndex
  * @returns {number[]}
  */
@@ -181,7 +181,7 @@ function collectSubtreeNodeIndices(nodes, rootIndex) {
 }
 
 /**
- * @param {import('../../document/parse/dripnoteCanvasParse').HeadingNodeFlat[]} nodes
+ * @param {import('../../document/parse/dripnoteHeadingParse').HeadingNodeFlat[]} nodes
  * @param {{ start: number, end: number }[]} spans
  * @param {{ start: number, end: number }[]} changeRanges
  * @returns {Set<number>}
@@ -234,10 +234,6 @@ function mergeParsedNoteWithCache(previousParse, partialParse, reparsedHeadingId
 
 	return {
 		...partialParse,
-		references: [
-			...(previousParse.references || []).filter(keep),
-			...(partialParse.references || [])
-		],
 		searchtags: [
 			...(previousParse.searchtags || []).filter(keep),
 			...(partialParse.searchtags || [])

@@ -31,7 +31,7 @@ const {
 	isGuardedDocumentEditActive,
 	isExpectedDiskWrite
 } = require('../../shared/documentEditGuard');
-const { parseHeadingForValidation } = require('../../document/parse/dripnoteCanvasParse');
+const { parseHeadingForValidation } = require('../../document/parse/dripnoteHeadingParse');
 
 /** @type {Map<string, string>} */
 const lastTextByUri = new Map();

@@ -11,8 +11,8 @@ Issues are the individual units of work tracked in DRIP. They live under a proje
 
 ## Structure
 
-- Issues are stored in a project's `_issues.d.txt` inbox file, with a "recents" section holding newly created issues.
-- Each issue has a stable entity ID (`i-N`), a type prefix (`.i-N`), and metadata (priority, status, deadline).
+- Issues are stored in a project's `_issues.d.txt` inbox file, with an `_inbox` section holding newly created issues.
+- Each issue has a stable entity ID (`i-N`), a type prefix (`.i-N`), and metadata (priority, status, deadline, category).
 - A logical parent link (`parent`) lets one issue be a sub-issue of another.
 
 ## Sub-features
@@ -43,6 +43,6 @@ The full parent/child tree of an issue can be retrieved.
 
 ## Flow (plain steps)
 
-1. User creates an issue under a project or feature; it gets an `i-N` ID and lands in the inbox's recents.
+1. User creates an issue under a project or feature; it gets an `i-N` ID and lands in the inbox's `_inbox` section.
 2. The user can assign it to a feature or link a parent to make it a sub-issue.
 3. The Project View and MCP tools read the issue from the index, showing the tree and metadata.

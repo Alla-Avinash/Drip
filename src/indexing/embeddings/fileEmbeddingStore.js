@@ -8,11 +8,12 @@
  *
  * Tables (created lazily; dims follow the global embedding model):
  * - `file_embedding_records` — embedding_id ↔ file_path
- * - `file_embedding_vectors` — sqlite-vec `vec0` float vectors
- * Exact scoring only (no FAISS).
+ * - `file_embedding_vectors` — ordinary table; `embedding` BLOB (Float32)
+ * Scoring is a plain-JS L2 scan (no sqlite-vec / FAISS).
  */
 
 const { getEmbeddingMeta } = require('./headingEmbeddingStore');
+const { l2Squared, coerceVector, toBlob } = require('./vectorMath');
 
 const RECORDS_TABLE = 'file_embedding_records';
 const VECTORS_TABLE = 'file_embedding_vectors';
@@ -49,16 +50,11 @@ function ensureFileEmbeddingStorage(db) {
 			embedding_id INTEGER PRIMARY KEY AUTOINCREMENT,
 			file_path TEXT NOT NULL UNIQUE
 		);
+		CREATE TABLE IF NOT EXISTS ${VECTORS_TABLE} (
+			embedding_id INTEGER PRIMARY KEY,
+			embedding BLOB NOT NULL
+		);
 	`);
-	if (!tableExists(db, VECTORS_TABLE)) {
-		const { dimensions } = getEmbeddingMeta(db);
-		db.exec(`
-			CREATE VIRTUAL TABLE ${VECTORS_TABLE} USING vec0(
-				embedding_id INTEGER PRIMARY KEY,
-				embedding float[${dimensions}]
-			);
-		`);
-	}
 }
 
 /**
@@ -89,7 +85,7 @@ function listFileEmbeddingRecords(db) {
 function deleteFileEmbedding(db, filePath) {
 	const row = db.native.prepare(`SELECT embedding_id FROM ${RECORDS_TABLE} WHERE file_path = ?`).get(filePath);
 	if (!row) return;
-	db.native.prepare(`DELETE FROM ${VECTORS_TABLE} WHERE embedding_id = ?`).run(BigInt(row.embedding_id));
+	db.native.prepare(`DELETE FROM ${VECTORS_TABLE} WHERE embedding_id = ?`).run(row.embedding_id);
 	db.native.prepare(`DELETE FROM ${RECORDS_TABLE} WHERE embedding_id = ?`).run(row.embedding_id);
 }
 
@@ -108,26 +104,37 @@ function upsertFileEmbedding(db, filePath, embedding) {
 	const info = db.native.prepare(`INSERT INTO ${RECORDS_TABLE} (file_path) VALUES (?)`).run(filePath);
 	db.native
 		.prepare(`INSERT INTO ${VECTORS_TABLE} (embedding_id, embedding) VALUES (?, ?)`)
-		.run(BigInt(info.lastInsertRowid), JSON.stringify(values));
+		.run(info.lastInsertRowid, toBlob(values));
 }
 
 /**
- * L2 distance from `query` to every file vector (full scan — file counts stay small).
+ * L2 distance from `query` to every file vector (plain-JS scan — file counts stay small).
  * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  * @param {number[] | Float32Array} query
  * @returns {{ file_path: string, distance: number }[]} closest first
  */
 function scoreAllFileEmbeddings(db, query) {
 	if (!tableExists(db, VECTORS_TABLE) || !tableExists(db, RECORDS_TABLE)) return [];
-	return db.native
-		.prepare(
-			`SELECT r.file_path AS file_path, vec_distance_l2(v.embedding, ?) AS distance
-			FROM ${VECTORS_TABLE} v
-			JOIN ${RECORDS_TABLE} r ON r.embedding_id = v.embedding_id
-			ORDER BY distance`
-		)
-		.all(JSON.stringify(Array.from(query)))
-		.map(r => ({ file_path: String(r.file_path || ''), distance: Number(r.distance) }));
+	const { dimensions } = getEmbeddingMeta(db);
+	const values = Array.from(query);
+
+	/** @type {Map<number, string>} */
+	const paths = new Map();
+	for (const r of db.native.prepare(`SELECT embedding_id, file_path FROM ${RECORDS_TABLE}`).all()) {
+		paths.set(Number(r.embedding_id), String(r.file_path || ''));
+	}
+
+	/** @type {{ file_path: string, distance: number }[]} */
+	const out = [];
+	for (const row of db.native.prepare(`SELECT embedding_id, embedding FROM ${VECTORS_TABLE}`).all()) {
+		const path = paths.get(Number(row.embedding_id));
+		if (path == null) continue;
+		const vec = coerceVector(row.embedding, dimensions);
+		if (!vec || vec.length !== dimensions) continue;
+		out.push({ file_path: path, distance: l2Squared(values, vec) });
+	}
+	out.sort((a, b) => a.distance - b.distance);
+	return out;
 }
 
 module.exports = {

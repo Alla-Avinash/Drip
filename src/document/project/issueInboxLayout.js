@@ -4,13 +4,13 @@
  * Text layout for issue blocks (pure — no vscode):
  * - A heading owns every following line indented deeper than itself; the first non-blank line
  *   (text, identity line or heading) at the same or a shallower indent ends it (`sectionEnd`).
- * - `_issues.d.txt` keeps new issues under a plain `# recents` section (2 blank lines under `---`),
- *   newest last; file features use `# _recent` the same way.
+ * - `_issues.d.txt` keeps new issues under a plain `# _inbox` section (2 blank lines under `---`),
+ *   newest last; file features use `# _inbox` the same way.
  * - Sub-issues go under their parent heading, one tab deeper, as the parent's last child.
  */
 
 const {
-	PROJECT_ISSUES_RECENTS_HEADING_TITLE,
+	PROJECT_ISSUES_INBOX_HEADING_TITLE,
 	normalizeIssueEntityId
 } = require('./projectStructureRules');
 
@@ -136,7 +136,7 @@ function findIssueHeadingBlock(text, issueId) {
  * @param {string} title
  * @returns {number}
  */
-function findRecentsHeadingLine(lines, title) {
+function findInboxHeadingLine(lines, title) {
 	const esc = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 	const re = new RegExp(`^#\\s+${esc}\\s*$`, 'i');
 	return lines.findIndex(l => re.test(String(l)));
@@ -149,8 +149,8 @@ function findRecentsHeadingLine(lines, title) {
  * @param {string} title
  * @returns {{ lines: string[], headingLine: number }}
  */
-function ensureRecentsSection(lines, title) {
-	const existing = findRecentsHeadingLine(lines, title);
+function ensureInboxSection(lines, title) {
+	const existing = findInboxHeadingLine(lines, title);
 	if (existing >= 0) return { lines, headingLine: existing };
 	const out = lines.slice();
 	const heading = `# ${title}`;
@@ -195,16 +195,16 @@ function indentBlock(block, prefix) {
 }
 
 /**
- * Append an issue block (lines at indent 0) as the last child of `# recents`
- * (or another top-level section, e.g. a file feature's `# _recent`).
+ * Append an issue block (lines at indent 0) as the last child of `# _inbox`
+ * (or another top-level section, e.g. a file feature's `# _inbox`).
  *
  * @param {string} text
  * @param {string[]} block
  * @param {string} [sectionTitle]
  * @returns {string}
  */
-function appendIssueToRecents(text, block, sectionTitle = PROJECT_ISSUES_RECENTS_HEADING_TITLE) {
-	const ensured = ensureRecentsSection(toLines(text), sectionTitle);
+function appendIssueToInbox(text, block, sectionTitle = PROJECT_ISSUES_INBOX_HEADING_TITLE) {
+	const ensured = ensureInboxSection(toLines(text), sectionTitle);
 	const end = sectionEnd(ensured.lines, ensured.headingLine, 0);
 	return fromLines(insertBlock(ensured.lines, end, ensured.headingLine, indentBlock(block, '\t')));
 }
@@ -360,7 +360,7 @@ module.exports = {
 	sectionEnd,
 	outlineParentsByLine,
 	findIssueHeadingBlock,
-	appendIssueToRecents,
+	appendIssueToInbox,
 	appendSubIssueUnderParent,
 	insertSiblingBeforeIssue,
 	insertSiblingAfterIssue,

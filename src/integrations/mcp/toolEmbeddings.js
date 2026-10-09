@@ -2,7 +2,7 @@
 
 /**
  * `search_tools` ranking: tool-card vectors from the **same embedding model DRIP uses**
- * (the open KB's `index_meta.embedding_model`, else `drip.embeddingModel`).
+ * (the open KB's `index_meta.embedding_model`, else the fixed default model).
  *
  * Vectors persist in `<globalStorage>/mcp/tool-embeddings.json` and are reused while the model id
  * is unchanged; only cards whose text changed are re-embedded. Queries use the same model.
@@ -11,8 +11,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const vscode = require('vscode');
-const { getEmbeddingPipeline, truncate } = require('../../retrieval/embeddings');
+const { getEmbeddingPipeline, truncate, DEFAULT_MODEL_ID } = require('../../retrieval/embeddings');
 const { listToolCards, cardSearchText, cardHash } = require('./toolCatalog');
 
 const STORE_VERSION = 1;
@@ -40,22 +39,21 @@ function initToolEmbeddings(context) {
  * @returns {Promise<string>}
  */
 async function resolveToolEmbeddingModelId(kbRoot) {
-	const { normalizeEmbeddingModelId } = require('../../indexing/embeddings/embeddingModelChange');
 	if (kbRoot) {
 		try {
 			const { openDripIndexDb } = require('../../indexing/dripIndexDb');
 			const { getEmbeddingMeta } = require('../../indexing/embeddings/headingEmbeddingStore');
 			const handle = await openDripIndexDb(kbRoot);
 			try {
-				return normalizeEmbeddingModelId(getEmbeddingMeta(handle.db).model);
+				return getEmbeddingMeta(handle.db).model;
 			} finally {
 				handle.close();
 			}
 		} catch (err) {
-			console.warn('[DRIP MCP] could not read KB embedding model; using setting', err && err.message);
+			console.warn('[DRIP MCP] could not read KB embedding model; using default', err && err.message);
 		}
 	}
-	return normalizeEmbeddingModelId(vscode.workspace.getConfiguration('drip').get('embeddingModel'));
+	return DEFAULT_MODEL_ID;
 }
 
 /**

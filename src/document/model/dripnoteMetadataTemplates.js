@@ -11,10 +11,8 @@ const DEFAULT_METADATA_TYPES = [
 		shortcut: 'c',
 		color: '',
 		attributes: {
-			difficulty: { kind: 'enum', values: ['hard', 'medium', 'easy'], default: '' },
-			status: { kind: 'enum', values: ['in-progress', 'to-do'], default: '' },
-			priority: { kind: 'enum', values: ['high', 'low'], default: '' },
-			deadline: { kind: 'datetime', default: '' }
+			domain: { kind: 'enum', values: [], default: '' },
+			status: { kind: 'enum', values: ['in-progress', 'to-do'], default: '' }
 		}
 	},
 	{
@@ -23,10 +21,10 @@ const DEFAULT_METADATA_TYPES = [
 		shortcut: 't',
 		color: '',
 		attributes: {
-			difficulty: { kind: 'enum', values: ['hard', 'medium', 'easy'], default: '' },
 			status: { kind: 'enum', values: ['in-progress', 'to-do'], default: '' },
 			priority: { kind: 'enum', values: ['high', 'low'], default: '' },
-			deadline: { kind: 'datetime', default: '' }
+			deadline: { kind: 'datetime', default: '' },
+			category: { kind: 'enum', values: [], default: '' }
 		}
 	},
 	{
@@ -35,8 +33,10 @@ const DEFAULT_METADATA_TYPES = [
 		shortcut: 'i',
 		color: '',
 		attributes: {
-			priority: { kind: 'enum', values: ['high', 'medium', 'low'], default: '' },
 			status: { kind: 'enum', values: ['in-progress', 'to-do', 'completed'], default: '' },
+			priority: { kind: 'enum', values: ['high', 'medium', 'low'], default: '' },
+			deadline: { kind: 'datetime', default: '' },
+			category: { kind: 'enum', values: [], default: '' },
 			/**
 			 * Logical parent for Project View (`i-N`). Distinct from outline indent.
 			 * Auto-stamped when nesting under an issue; set manually to override.
@@ -71,7 +71,7 @@ const DEFAULT_FILE_LEVEL_METADATA_TYPES = [
 		shortcut: 'f',
 		color: '',
 		attributes: {
-			implemented: { kind: 'enum', values: ['true', 'false'], default: '' }
+			category: { kind: 'enum', values: [], default: '' }
 		}
 	}
 ];
@@ -430,11 +430,11 @@ async function migrateFileLevelMetadataTypesIfNeeded() {
 }
 
 /**
- * Heading-adjacent special keys (not type attributes): must sit under the heading before `.type`.
- * `workflow: true|false` marks a task as a workflow root; `parent: [tN,…]` links DAG deps.
- * Note: issue type attribute `parent: i-N` (after `.issue`) is separate — see projectStructureRules.
+ * Heading-adjacent special keys (not type attributes). None by default — task workflow
+ * (`workflow:`) and task `parent: [tN,…]` were removed; issue `parent: i-N` is a type
+ * attribute (after `.issue`), not a special key.
  */
-const HEADING_SPECIAL_KEYS = new Set(['workflow', 'parent']);
+const HEADING_SPECIAL_KEYS = new Set([]);
 
 /**
  * Resolve a type from the shortcut map, accepting dotted or plain keys.

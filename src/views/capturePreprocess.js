@@ -1,6 +1,6 @@
 'use strict';
 
-const { parseHeadingForValidation } = require('../document/parse/dripnoteCanvasParse');
+const { parseHeadingForValidation } = require('../document/parse/dripnoteHeadingParse');
 const {
 	findMetadataBlockEndExclusive,
 	isStructuredMetadataLine

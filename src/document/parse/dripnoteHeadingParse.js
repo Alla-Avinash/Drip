@@ -35,24 +35,8 @@ function splitFileTopRegion(lines) {
 }
 
 /**
- * @param {string} line
- * @returns {{ tabDepth: number, level: number, title: string, raw: string } | null}
- */
-function parseHeadingLine(line) {
-	const m = String(line || '').match(/^(\t*)(#{1,6})\s+(.*)$/);
-	if (!m) return null;
-	return {
-		tabDepth: m[1] ? m[1].length : 0,
-		level: m[2].length,
-		title: String(m[3] || '').trim(),
-		raw: line
-	};
-}
-
-/**
  * Heading detection for hierarchy validation and diagnostics. Accepts any leading whitespace
  * before `#` (tabs, spaces, NBSP from paste). Depth is the character length of that indent.
- * {@link parseHeadingLine} stays tab-only for strict note/canvas behavior elsewhere.
  * @param {string} line
  * @returns {{ tabDepth: number, level: number, title: string, usesNonTabIndent: boolean } | null}
  */
@@ -124,16 +108,6 @@ function computeDetachedFromTextBeforeFirstHeading(lines) {
 		}
 	}
 	return detached;
-}
-
-/**
- * Walk lines from startIdx; collect heading nodes with metadata lines until next heading
- * at same or lesser tab depth (sibling/parent). Does not validate hierarchy.
- * @deprecated Use collectHeadingSequenceValidated for parsing + validation.
- */
-function collectHeadingSequence(lines, startIdx) {
-	const { nodes } = collectHeadingSequenceValidated(lines, startIdx);
-	return { nodes, nextIdx: lines.length };
 }
 
 /**
@@ -295,7 +269,7 @@ function inferMarkerFromMeta(metaLines) {
  * @param {string} text full document
  * @returns {{ fileLines: string[], headingRoots: HeadingNode[], flat: HeadingNodeFlat[], hierarchyErrors: { lineIndex: number, message: string }[] }}
  */
-function parseNoteForCanvas(text) {
+function parseNoteHeadings(text) {
 	const lines = String(text || '').split(/\r?\n/);
 	const { topEnd, fileSlice } = splitFileTopRegion(lines);
 	const { nodes: flat, errors: hierarchyErrors } = collectHeadingSequenceValidated(lines, topEnd);
@@ -306,40 +280,6 @@ function parseNoteForCanvas(text) {
 		flat,
 		hierarchyErrors
 	};
-}
-
-/**
- * Find flat node index for heading at line (0-based).
- * @param {HeadingNodeFlat[]} flat
- * @param {number} lineIndex
- */
-function findFlatIndexByLine(flat, lineIndex) {
-	for (let i = 0; i < flat.length; i++) {
-		if (flat[i].lineIndex === lineIndex) return i;
-	}
-	return -1;
-}
-
-/**
- * Subtree: node at flat[idx] and descendants in tree structure (clone shallow).
- * @param {HeadingNode[]} _roots unused; kept for API symmetry
- * @param {HeadingNodeFlat[]} flat
- * @param {number} lineIndex
- * @returns {HeadingNode[] | null}
- */
-function extractSubtreeAtLine(_roots, flat, lineIndex) {
-	const idx = findFlatIndexByLine(flat, lineIndex);
-	if (idx < 0) return null;
-	const target = flat[idx];
-	if (target.valid === false) return null;
-	/** @type {HeadingNodeFlat[]} */
-	const slice = [target];
-	for (let j = idx + 1; j < flat.length; j++) {
-		if (flat[j].tabDepth <= target.tabDepth) break;
-		if (flat[j].valid === false) continue;
-		slice.push(flat[j]);
-	}
-	return buildHeadingTree(slice);
 }
 
 /**
@@ -363,14 +303,9 @@ function ancestorChain(flat, idx) {
 
 module.exports = {
 	splitFileTopRegion,
-	parseHeadingLine,
 	parseHeadingForValidation,
-	parseNoteForCanvas,
+	parseNoteHeadings,
 	inferMarkerFromMeta,
-	extractSubtreeAtLine,
-	findFlatIndexByLine,
-	buildHeadingTree,
-	collectHeadingSequence,
 	collectHeadingSequenceValidated,
 	ancestorChain
 };

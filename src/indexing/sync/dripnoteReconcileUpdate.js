@@ -20,7 +20,7 @@ const vscode = require('vscode');
 const { getMetadataSettings } = require('../../document/model/dripnoteMetadataTemplates');
 const { classifyPersistentHeadingTitle } = require('../../document/model/dripnotePersistentHeading');
 const { stripKbNoteExtension } = require('../../document/model/noteFileTypes');
-const { collectHeadingSequenceValidated } = require('../../document/parse/dripnoteCanvasParse');
+const { collectHeadingSequenceValidated } = require('../../document/parse/dripnoteHeadingParse');
 const {
 	allocateNextFileEntityNumber,
 	applyParsedNoteToIndex,

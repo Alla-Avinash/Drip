@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Project `_issues.d.txt` inbox + feature `_recent` mailbox.
+ * Project `_issues.d.txt` inbox + feature `_inbox` mailbox.
  * Assign = move issue heading block while preserving `i-N` name and `parent: i-N`.
  */
 
@@ -29,9 +29,9 @@ const { normalizeNoteIdentityFile } = require('../../indexing/dripnoteFileIdenti
 const { isHeadingIdentityLine } = require('../../indexing/dripnoteHeadingIdentity');
 const {
 	PROJECT_ISSUES_FILE_NAME,
-	FEATURE_RECENT_FILE_NAME,
-	FEATURE_RECENT_HEADING_TITLE,
-	PROJECT_ISSUES_RECENTS_HEADING_TITLE,
+	FEATURE_INBOX_FILE_NAME,
+	FEATURE_INBOX_HEADING_TITLE,
+	PROJECT_ISSUES_INBOX_HEADING_TITLE,
 	ISSUE_PARENT_META_KEY,
 	parseIssueTitleEntityId,
 	normalizeIssueEntityId
@@ -44,7 +44,7 @@ const {
 const { isDripFeatureFolderName } = require('../model/dripFeature');
 const {
 	findIssueHeadingBlock,
-	appendIssueToRecents,
+	appendIssueToInbox,
 	appendSubIssueUnderParent,
 	insertSiblingBeforeIssue,
 	insertSiblingAfterIssue,
@@ -190,9 +190,9 @@ async function writeSubIssueUnderParent(kbRootUri, projectFolderUri, prefix, par
 
 /**
  * Create an issue from Project View.
- * - Root issue → last child of `# recents` in `_issues.d.txt`.
+ * - Root issue → last child of `# _inbox` in `_issues.d.txt`.
  * - Sub-issue → indented under its parent heading (wherever it lives in the project).
- *   Falls back to `# recents` + `parent: i-N` only if the parent heading can't be found.
+ *   Falls back to `# _inbox` + `parent: i-N` only if the parent heading can't be found.
  *
  * @param {import('vscode').Uri} kbRootUri
  * @param {import('vscode').Uri} projectFolderUri
@@ -224,7 +224,7 @@ async function createIssueInProjectInbox(kbRootUri, projectFolderUri, opts = {})
 		if (!issuesUri) throw new Error('Could not create _issues.d.txt');
 		const text = await readTextFile(issuesUri);
 		const block = newIssueBlockLines({ issueId, title: opts.title, parentIssueId: parentId });
-		await writeTextFile(issuesUri, appendIssueToRecents(text, block));
+		await writeTextFile(issuesUri, appendIssueToInbox(text, block));
 		writtenUri = issuesUri;
 	}
 	try {
@@ -253,7 +253,7 @@ async function resolveFeatureMailboxTarget(featureUri) {
 		const folderUri = isDir ? featureUri : vscode.Uri.file(path.dirname(featureUri.fsPath));
 		return {
 			kind: 'folder',
-			mailboxUri: vscode.Uri.joinPath(folderUri, FEATURE_RECENT_FILE_NAME),
+			mailboxUri: vscode.Uri.joinPath(folderUri, FEATURE_INBOX_FILE_NAME),
 			isFolderIndex: true
 		};
 	}
@@ -316,7 +316,7 @@ async function moveIssueToFeatureMailbox(kbRootUri, projectFolderUri, featureUri
 		} catch {
 			const n = kbRootUri ? await allocateNextEntityNumber(kbRootUri).catch(() => 0) : 0;
 			mailboxText = buildNewNoteFile(
-				{ title: 'recent', content: '', metadataFilename: 'recent' },
+				{ title: 'inbox', content: '', metadataFilename: 'inbox' },
 				{ fileEntityNumber: n }
 			);
 		}
@@ -326,7 +326,7 @@ async function moveIssueToFeatureMailbox(kbRootUri, projectFolderUri, featureUri
 		const fileText = await readTextFile(target.mailboxUri);
 		await writeTextFile(
 			target.mailboxUri,
-			appendIssueToRecents(fileText, dedentedLines, FEATURE_RECENT_HEADING_TITLE)
+			appendIssueToInbox(fileText, dedentedLines, FEATURE_INBOX_HEADING_TITLE)
 		);
 	}
 
@@ -381,7 +381,7 @@ async function appendIssueBlockToTarget(kbRootUri, projectFolderUri, target, blo
 		const issuesText = await readTextFile(issuesUri);
 		await writeTextFile(
 			issuesUri,
-			appendIssueToRecents(issuesText, blockLines, PROJECT_ISSUES_RECENTS_HEADING_TITLE)
+			appendIssueToInbox(issuesText, blockLines, PROJECT_ISSUES_INBOX_HEADING_TITLE)
 		);
 		return issuesUri;
 	}
@@ -452,7 +452,7 @@ async function appendIssueBlockToTarget(kbRootUri, projectFolderUri, target, blo
 		} catch {
 			const n = kbRootUri ? await allocateNextEntityNumber(kbRootUri).catch(() => 0) : 0;
 			mailboxText = buildNewNoteFile(
-				{ title: 'recent', content: '', metadataFilename: 'recent' },
+				{ title: 'inbox', content: '', metadataFilename: 'inbox' },
 				{ fileEntityNumber: n }
 			);
 		}
@@ -463,7 +463,7 @@ async function appendIssueBlockToTarget(kbRootUri, projectFolderUri, target, blo
 	const fileText = await readTextFile(t.mailboxUri);
 	await writeTextFile(
 		t.mailboxUri,
-		appendIssueToRecents(fileText, blockLines, FEATURE_RECENT_HEADING_TITLE)
+		appendIssueToInbox(fileText, blockLines, FEATURE_INBOX_HEADING_TITLE)
 	);
 	return t.mailboxUri;
 }

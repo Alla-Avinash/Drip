@@ -14,7 +14,7 @@ const { isDripProjectFolderName, isProjectIndexFileName } = require('./dripProje
 const { isDripFeatureFolderName, isDripFeatureFileName } = require('./dripFeature');
 const {
 	isProjectIssuesFileName,
-	isFeatureRecentFileName
+	isFeatureInboxFileName
 } = require('../project/projectStructureRules');
 
 /**
@@ -202,7 +202,7 @@ function isAllowedProjectFolderChild(childBasename, fileType) {
 	if (isProjectIssuesFileName(name)) return true;
 	if (isProjectIndexFileName(name) && /\.p\.d\.txt$/i.test(name)) return true;
 	if (isDripFeatureFileName(name)) return true;
-	if (isFeatureRecentFileName(name)) return false;
+	if (isFeatureInboxFileName(name)) return false;
 	return false;
 }
 

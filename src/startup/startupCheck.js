@@ -47,12 +47,6 @@ function resetStartupCheckCache() {
 	reconciledStartupKbFsPath = '';
 	startupCheckWarned = false;
 	void setStartupCheckCompleteContext(false);
-	try {
-		const { clearHeadingEmbeddingSearchLock } = require('../indexing/embeddings/headingEmbeddingSearchMethod');
-		clearHeadingEmbeddingSearchLock();
-	} catch {
-		// ignore
-	}
 }
 
 function isStartupCheckReady() {
@@ -173,12 +167,6 @@ async function runStartupCheckInner(context, state) {
 		const { repairFileEmbeddingsInBackground } = require('../indexing/embeddings/fileEmbeddingSync');
 		void repairFileEmbeddingsInBackground(kbRoot).catch(err => {
 			console.error('[DRIP] startup file embedding repair failed', err);
-		});
-
-		// Lock exact vs FAISS once for this KB session (does not re-check on every search).
-		const { lockHeadingEmbeddingSearchMethod } = require('../indexing/embeddings/headingEmbeddingSearchMethod');
-		void lockHeadingEmbeddingSearchMethod(kbRoot, { force: true }).catch(err => {
-			console.error('[DRIP] heading embedding search lock failed', err);
 		});
 
 		reconciledStartupKbFsPath = key;

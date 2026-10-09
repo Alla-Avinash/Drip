@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
-const { collectHeadingSequenceValidated } = require('../document/parse/dripnoteCanvasParse');
+const { collectHeadingSequenceValidated } = require('../document/parse/dripnoteHeadingParse');
 const { getMetadataSettingsForIndex } = require('../document/model/dripnoteMetadataTemplates');
 const {
 	classifyPersistentHeadingTitle,
@@ -20,7 +20,6 @@ const {
 	mergeParsedNoteWithCache,
 	resolveReparsedNodeIndices
 } = require('./parse/dripIndexIncrementalParse');
-const { splitRefListRespectingParens } = require('../document/parse/dripnoteRefLinks');
 const { outlineParentsByLine } = require('../document/project/issueInboxLayout');
 
 /**
@@ -79,54 +78,6 @@ function parseHeadingMetaBlock(metaLines) {
 }
 
 /**
- * Parse `ref: [@f26 (topic), @f3]` targets into numeric file ids.
- * Optional `(topic description)` is display-only and not stored in the index.
- * Heading targets (`@fN:hM`) are rejected.
- *
- * @param {string} token
- * @returns {{ target_file_id: number } | null}
- */
-function parseRefTargetFromToken(token) {
-	const t = String(token || '').trim();
-	if (!t) {
-		return null;
-	}
-
-	const m = t.match(/^@+\s*f(\d+)(?:\s*\(([^)]*)\))?\s*$/i);
-	if (!m) {
-		return null;
-	}
-	const targetFileId = parseInt(m[1], 10);
-	if (!Number.isFinite(targetFileId) || targetFileId < 0) {
-		return null;
-	}
-	return { target_file_id: targetFileId };
-}
-
-/**
- * @param {string} bracketInner
- * @returns {{ target_file_id: number }[]}
- */
-function parseRefTargetsFromBracketList(bracketInner) {
-	const inner = String(bracketInner || '').trim();
-	if (!inner) {
-		return [];
-	}
-
-	/** @type {{ target_file_id: number }[]} */
-	const out = [];
-	const seen = new Set();
-	for (const rawToken of splitRefListRespectingParens(inner)) {
-		const single = parseRefTargetFromToken(rawToken);
-		if (!single) continue;
-		if (seen.has(single.target_file_id)) continue;
-		seen.add(single.target_file_id);
-		out.push(single);
-	}
-	return out;
-}
-
-/**
  * @param {string} raw
  * @returns {string[]}
  */
@@ -153,7 +104,7 @@ function isStructuredHeadingMetadataLine(line) {
 	if (HEADING_IDENTITY_LINE_RE.test(s)) return false;
 	if (/^\s*\/\//.test(s)) return false;
 	if (/^\s*\.(\w[\w-]*)\b/i.test(t)) return true;
-	if (/^\s*(tags|pre-req|ref)\s*:\s*\[/i.test(s)) return true;
+	if (/^\s*(tags|pre-req)\s*:\s*\[/i.test(s)) return true;
 	if (/^\s*\[[^\]]*\]\s*$/.test(t)) return true;
 	if (/^\s*[a-z][a-z0-9_-]*\s*:\s*.+$/i.test(t)) return true;
 	return false;
@@ -190,7 +141,7 @@ function parseHeadingIdentityAbove(lines, headingLineIndex) {
 
 /**
  * Parse searchable tag lines: `tags: [a, b]` or shorthand `[a, b]`.
- * Tokens are always plain text tag names — never @f / heading references.
+ * Tokens are always plain text tag names.
  *
  * @param {string[]} lines
  * @param {number} sourceHeadingId heading that owns this metadata block
@@ -202,10 +153,6 @@ function collectSearchTagsFromLines(lines, sourceHeadingId, knownTagsLower) {
 	const searchtags = [];
 
 	for (const line of lines || []) {
-		if (/^\s*ref\s*:/i.test(String(line || ''))) {
-			continue;
-		}
-
 		let inner = '';
 		const bracket = String(line || '').match(BRACKET_RELATION_LINE_RE);
 		if (bracket) {
@@ -239,8 +186,7 @@ function collectSearchTagsFromLines(lines, sourceHeadingId, knownTagsLower) {
 
 /**
  * Parse relation lines like `pre-req: [react, javascript]`.
- * Tokens are plain text tag names (same as searchable tags), not @f references.
- * Cross-file links use `ref: [@f32 (topic), @f3]` → heading_references (file id only).
+ * Tokens are plain text tag names (same as searchable tags).
  *
  * @param {string[]} lines
  * @param {number} sourceHeadingId
@@ -252,10 +198,6 @@ function collectRelationsFromLines(lines, sourceHeadingId, knownTagsLower) {
 	const relations = [];
 
 	for (const line of lines || []) {
-		if (/^\s*ref\s*:/i.test(String(line || ''))) {
-			continue;
-		}
-
 		const bracket = String(line || '').match(BRACKET_RELATION_LINE_RE);
 		if (!bracket) {
 			continue;
@@ -296,37 +238,6 @@ function collectTagsAndRelationsFromLines(lines, sourceHeadingId, knownTagsLower
 }
 
 /**
- * @param {string} line
- * @returns {{ target_file_id: number }[]}
- */
-function parseRefLine(line) {
-	const m = String(line || '').match(/^\s*ref\s*:\s*\[(.*)\]\s*$/i);
-	if (!m) {
-		return [];
-	}
-	return parseRefTargetsFromBracketList(m[1]);
-}
-
-/**
- * @param {string[]} lines
- * @param {number} sourceHeadingId
- * @returns {{ source_heading_id: number, target_file_id: number }[]}
- */
-function collectReferencesFromLines(lines, sourceHeadingId) {
-	/** @type {{ source_heading_id: number, target_file_id: number }[]} */
-	const out = [];
-	for (const line of lines || []) {
-		for (const target of parseRefLine(line)) {
-			out.push({
-				source_heading_id: sourceHeadingId,
-				target_file_id: target.target_file_id
-			});
-		}
-	}
-	return out;
-}
-
-/**
  * @param {string} title
  * @param {string} metadataType
  * @param {string[]} metaLines
@@ -345,7 +256,7 @@ function computeHeadingHash(title, metadataType, metaLines) {
  * Parse one heading node into index rows (heading + scoped edges).
  *
  * @param {string[]} lines
- * @param {import('../document/parse/dripnoteCanvasParse').HeadingNodeFlat} node
+ * @param {import('../document/parse/dripnoteHeadingParse').HeadingNodeFlat} node
  * @param {Set<string> | undefined} knownTagsLower
  * @param {number} nextAutoHeadingId
  * @param {{ includeDetails?: boolean, metadataType?: string | null, headingIdOverride?: number | null }} [options]
@@ -382,8 +293,6 @@ function parseHeadingNodeForIndex(lines, node, knownTagsLower, nextAutoHeadingId
 		hash
 	};
 
-	/** @type {{ source_heading_id: number, target_file_id: number }[]} */
-	const references = [];
 	/** @type {{ source_heading_id: number, tag_name: string }[]} */
 	const searchtags = [];
 	/** @type {{ source_heading_id: number, relation_type: string, tag_name: string }[]} */
@@ -392,7 +301,6 @@ function parseHeadingNodeForIndex(lines, node, knownTagsLower, nextAutoHeadingId
 	const typedMetadata = [];
 
 	if (includeDetails) {
-		references.push(...collectReferencesFromLines(node.metaLines || [], headingId));
 		searchtags.push(...collectSearchTagsFromLines(node.metaLines || [], headingId, knownTagsLower));
 		relations.push(...collectRelationsFromLines(node.metaLines || [], headingId, knownTagsLower));
 		const typed = parseTypedMetadataForHeading(headingId, metadataType, node.metaLines || []);
@@ -403,7 +311,6 @@ function parseHeadingNodeForIndex(lines, node, knownTagsLower, nextAutoHeadingId
 
 	return {
 		heading,
-		references,
 		searchtags,
 		relations,
 		typedMetadata,
@@ -417,7 +324,7 @@ function parseHeadingNodeForIndex(lines, node, knownTagsLower, nextAutoHeadingId
  * indent close a section — see `outlineParentsByLine`).
  *
  * @param {string[]} lines
- * @param {import('../document/parse/dripnoteCanvasParse').HeadingNodeFlat[]} nodes
+ * @param {import('../document/parse/dripnoteHeadingParse').HeadingNodeFlat[]} nodes
  * @param {Map<number, number>} headingIdByNodeIndex
  * @param {{ heading_id: number, parent?: number | null }[]} headings
  */
@@ -442,7 +349,7 @@ function assignHeadingParentsFromIndent(lines, nodes, headingIdByNodeIndex, head
 
 /**
  * @param {string[]} lines
- * @param {import('../document/parse/dripnoteCanvasParse').HeadingNodeFlat[]} nodes
+ * @param {import('../document/parse/dripnoteHeadingParse').HeadingNodeFlat[]} nodes
  * @param {Set<string> | undefined} knownTagsLower
  * @param {{ onlyDetailForNodeIndices?: Set<number>, knownMetadataTypeIds?: Set<string> }} [options]
  */
@@ -460,8 +367,6 @@ function parseAllHeadingNodesForIndex(lines, nodes, knownTagsLower, options) {
 
 	/** @type {object[]} */
 	const headings = [];
-	/** @type {object[]} */
-	const references = [];
 	/** @type {object[]} */
 	const searchtags = [];
 	/** @type {object[]} */
@@ -506,7 +411,6 @@ function parseAllHeadingNodesForIndex(lines, nodes, knownTagsLower, options) {
 		headingIdByNodeIndex.set(nodeIndex, parsed.heading.heading_id);
 
 		headings.push(parsed.heading);
-		references.push(...parsed.references);
 		searchtags.push(...parsed.searchtags);
 		relations.push(...parsed.relations);
 		typedMetadata.push(...parsed.typedMetadata);
@@ -514,7 +418,7 @@ function parseAllHeadingNodesForIndex(lines, nodes, knownTagsLower, options) {
 
 	assignHeadingParentsFromIndent(lines, nodes, headingIdByNodeIndex, headings);
 
-	return { headings, references, searchtags, relations, typedMetadata, headingIdByNodeIndex };
+	return { headings, searchtags, relations, typedMetadata, headingIdByNodeIndex };
 }
 
 /**
@@ -601,9 +505,6 @@ module.exports = {
 	parseHeadingNodeForIndex,
 	assignHeadingParentsFromIndent,
 	computeHeadingHash,
-	parseRefLine,
-	parseRefTargetFromToken,
-	parseRefTargetsFromBracketList,
 	collectSearchTagsFromLines,
 	collectRelationsFromLines,
 	collectTagsAndRelationsFromLines

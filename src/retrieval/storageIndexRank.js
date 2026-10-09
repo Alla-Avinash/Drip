@@ -2,7 +2,7 @@
 
 /**
  * Storage placement ranking from `index.drip` embeddings (no full-KB file walk).
- * Used when `drip.experimentalEmbeddings` is on.
+ * Embeddings are always used for ranking.
  *
  * - Top folders → folder vec search (exact sqlite-vec)
  * - Inside a folder → child folders + notes ranked by heading embeddings under that path

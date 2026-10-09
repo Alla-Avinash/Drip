@@ -2,26 +2,26 @@
 
 const { collectValidatedMetadataKeyValues, parseDatetimeToUnixSeconds } = require('./dripIndexMetadataValidate');
 
-/** Metadata type id → typed SQLite table (schema v10). Types without a table use EAV only. */
+/** Metadata type id → typed SQLite table. Registry-backed types (project/feature) have no typed table. */
 const METADATA_TYPE_TABLE = {
 	concept: 'concept_metadata',
-	project: 'project_metadata',
 	task: 'task_metadata',
-	issue: 'issue_metadata',
-	decision: 'decision_metadata'
+	issue: 'issue_metadata'
 };
 
 /**
  * Hot keys stored as typed columns. Everything else → metadata_remaining_keys.
+ * `project`/`feature` are captured here too so their known fields never spill to EAV;
+ * they are written to the `projects` / `features` registries instead of a typed table.
  * Values: 'text' | 'int' (unix deadline / numeric).
  * @type {Record<string, Record<string, 'text' | 'int'>>}
  */
 const TYPED_COLUMNS_BY_TYPE = {
-	concept: { status: 'text' },
-	project: { status: 'text', deadline: 'int', priority: 'text' },
+	concept: { domain: 'text', status: 'text' },
 	task: { status: 'text', category: 'text', deadline: 'int', priority: 'text' },
 	issue: { status: 'text', category: 'text', deadline: 'int', priority: 'text', parent: 'text' },
-	decision: { category: 'text' }
+	project: { status: 'text', deadline: 'int', priority: 'text' },
+	feature: { category: 'text' }
 };
 
 /**

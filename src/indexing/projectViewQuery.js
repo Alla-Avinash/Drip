@@ -7,9 +7,7 @@
 
 const path = require('path');
 const { openDripIndexDb } = require('./dripIndexDb');
-const {
-	isDripFeatureFolderName
-} = require('../document/model/dripFeature');
+const { isDripFeatureFolderName } = require('../document/model/dripFeature');
 const { isProjectIndexFileName } = require('../document/model/dripProjectFolder');
 
 /**
@@ -103,6 +101,90 @@ async function listProjectsFromIndex(kbRootUri) {
 }
 
 /**
+ * Derive feature entries straight from the `files` table. Used only as a fallback for
+ * indexes built before the `features` registry existed (v16) so existing KBs keep showing
+ * their features without a full reindex.
+ * @param {import('./db/dripSqlite').DripSqliteDatabase} db
+ * @param {string} like
+ * @returns {{
+ *   fileId: number,
+ *   headingId: number,
+ *   title: string,
+ *   path: string,
+ *   folderPrefix: string | null,
+ *   isFolderIndex: boolean,
+ *   category: string | null
+ * }[]}
+ */
+function deriveFeaturesFromFiles(db, like) {
+	const fileRows = db.native
+		.prepare(
+			`SELECT id AS fileId, path AS path
+			 FROM files
+			 WHERE REPLACE(path, '\\', '/') LIKE ?
+			 ORDER BY LOWER(path) ASC`
+		)
+		.all(like);
+
+	/** @type {Map<string, { fileId: number, path: string, folderPrefix: string | null, isFolderIndex: boolean }>} */
+	const featuresByKey = new Map();
+	for (const r of fileRows || []) {
+		const row = asRow(r);
+		const filePath = String(row.path || '').replace(/\\/g, '/');
+		const base = path.posix.basename(filePath);
+		const parentDir = path.posix.dirname(filePath);
+		const parentBase = path.posix.basename(parentDir);
+		const fileId = Number(row.fileId) || 0;
+
+		// Standalone feature file (`Name.f.d.txt`).
+		if (/\.f\.d\.txt$/i.test(base) && !isProjectIndexFileName(base)) {
+			if (!featuresByKey.has(filePath)) {
+				featuresByKey.set(filePath, { fileId, path: filePath, folderPrefix: null, isFolderIndex: false });
+			}
+			continue;
+		}
+		// Note inside a `.f` feature folder → one entry per folder.
+		if (isDripFeatureFolderName(parentBase)) {
+			const featPrefix = parentDir.endsWith('/') ? parentDir : parentDir + '/';
+			// `_inbox.d.txt` is the folder's mailbox, not its identity — never a feature entry.
+			if (/_inbox\.d\.txt$/i.test(base)) continue;
+			const existing = featuresByKey.get(featPrefix);
+			const preferIndex = isProjectIndexFileName(base);
+			if (!existing || preferIndex) {
+				featuresByKey.set(featPrefix, { fileId, path: filePath, folderPrefix: featPrefix, isFolderIndex: true });
+			}
+		}
+	}
+
+	const features = [];
+	for (const f of featuresByKey.values()) {
+		const enrich = db.native
+			.prepare(
+				`SELECT heading_id AS headingId, title AS title
+				 FROM headings WHERE file_id = ? AND heading_id = 0 LIMIT 1`
+			)
+			.get(f.fileId);
+		const er = asRow(enrich);
+		const folderBase = f.folderPrefix
+			? path.posix.basename(f.folderPrefix.replace(/\/+$/, ''))
+			: path.posix.basename(f.path).replace(/\.f\.d\.txt$/i, '');
+		features.push({
+			fileId: f.fileId,
+			headingId: er.headingId != null ? Number(er.headingId) : 0,
+			title: (er.title != null && String(er.title).trim()) || folderBase || 'Untitled',
+			path: f.path,
+			folderPrefix: f.folderPrefix,
+			isFolderIndex: f.isFolderIndex,
+			category: null
+		});
+	}
+	features.sort((a, b) =>
+		String(a.title).toLowerCase().localeCompare(String(b.title).toLowerCase())
+	);
+	return features;
+}
+
+/**
  * @param {import('vscode').Uri} kbRootUri
  * @param {string} projectFolderPrefix
  * @returns {Promise<{
@@ -112,7 +194,8 @@ async function listProjectsFromIndex(kbRootUri) {
  *     title: string,
  *     path: string,
  *     folderPrefix: string | null,
- *     isFolderIndex: boolean
+ *     isFolderIndex: boolean,
+ *     category: string | null
  *   }[],
  *   issues: {
  *     projectId: number,
@@ -148,85 +231,35 @@ async function listProjectChildrenFromIndex(kbRootUri, projectFolderPrefix) {
 			.get(prefix + '/', prefix);
 		const projectId = projectRow ? Number(projectRow.projectId) : 0;
 
-		const fileRows = db.native
+		// Features come from the `features` registry (`.f` folders under this project).
+		const featureRows = db.native
 			.prepare(
-				`SELECT id AS fileId, path AS path
-				 FROM files
-				 WHERE REPLACE(path, '\\', '/') LIKE ?
-				 ORDER BY LOWER(path) ASC`
+				`SELECT f.feature_id AS featureId, f.folder_prefix AS folderPrefix, f.title AS title,
+				        f.category AS category, f.index_file_id AS indexFileId, files.path AS path
+				 FROM features f
+				 LEFT JOIN files ON files.id = f.index_file_id
+				 WHERE REPLACE(f.folder_prefix, '\\', '/') LIKE ?
+				 ORDER BY LOWER(COALESCE(f.title, f.folder_prefix)) ASC`
 			)
 			.all(like);
 
-		/** @type {Map<string, {
-		 *   fileId: number,
-		 *   path: string,
-		 *   folderPrefix: string | null,
-		 *   isFolderIndex: boolean
-		 * }>} */
-		const featuresByKey = new Map();
-		for (const r of fileRows || []) {
-			const row = asRow(r);
-			const filePath = String(row.path || '').replace(/\\/g, '/');
-			const base = path.posix.basename(filePath);
-			const parentDir = path.posix.dirname(filePath);
-			const parentBase = path.posix.basename(parentDir);
-			const fileId = Number(row.fileId) || 0;
-
-			// Standalone feature files (`Name.f.d.txt`). Folder index notes (`_Name.f.d.txt`) must
-			// fall through to the folder branch below, or the `.f` folder is never detected as a
-			// folder feature and issue assign would target the index file instead of `_recent.d.txt`.
-			if (/\.f\.d\.txt$/i.test(base) && !isProjectIndexFileName(base)) {
-				if (!featuresByKey.has(filePath)) {
-					featuresByKey.set(filePath, {
-						fileId,
-						path: filePath,
-						folderPrefix: null,
-						isFolderIndex: false
-					});
-				}
-				continue;
-			}
-			if (isDripFeatureFolderName(parentBase)) {
-				const featPrefix = parentDir.endsWith('/') ? parentDir : parentDir + '/';
-				// `_recent.d.txt` is the folder's mailbox, not its identity — never a feature entry.
-				if (/_recent\.d\.txt$/i.test(base)) continue;
-				const existing = featuresByKey.get(featPrefix);
-				const preferIndex = isProjectIndexFileName(base);
-				if (!existing || preferIndex) {
-					featuresByKey.set(featPrefix, {
-						fileId,
-						path: filePath,
-						folderPrefix: featPrefix,
-						isFolderIndex: true
-					});
-				}
-			}
-		}
-
-		const features = [];
-		for (const f of featuresByKey.values()) {
-			const enrich = db.native
-				.prepare(
-					`SELECT heading_id AS headingId, title AS title
-					 FROM headings WHERE file_id = ? AND heading_id = 0 LIMIT 1`
-				)
-				.get(f.fileId);
-			const er = asRow(enrich);
-			const folderBase = f.folderPrefix
-				? path.posix.basename(f.folderPrefix.replace(/\/+$/, ''))
-				: path.posix.basename(f.path).replace(/\.f\.d\.txt$/i, '');
-			features.push({
-				fileId: f.fileId,
-				headingId: er.headingId != null ? Number(er.headingId) : 0,
-				title: (er.title != null && String(er.title).trim()) || folderBase || 'Untitled',
-				path: f.path,
-				folderPrefix: f.folderPrefix,
-				isFolderIndex: f.isFolderIndex
-			});
-		}
-		features.sort((a, b) =>
-			String(a.title).toLowerCase().localeCompare(String(b.title).toLowerCase())
-		);
+		// Existing (pre-v16) indexes have an empty `features` registry — derive from files.
+		const features = (featureRows || []).length
+			? (featureRows || []).map(r => {
+					const row = asRow(r);
+					const folderPrefix = String(row.folderPrefix || '').replace(/\\/g, '/');
+					return {
+						fileId: Number(row.indexFileId) || 0,
+						headingId: 0,
+						title:
+							String(row.title || path.posix.basename(folderPrefix.replace(/\/+$/, '')) || 'Untitled'),
+						path: String(row.path || folderPrefix),
+						folderPrefix,
+						isFolderIndex: true,
+						category: row.category != null ? String(row.category) : null
+					};
+			  })
+			: deriveFeaturesFromFiles(db, like);
 
 		/** @type {any[]} */
 		let issueRows = [];

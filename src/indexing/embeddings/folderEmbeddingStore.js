@@ -5,18 +5,18 @@
  *
  * Tables:
  * - `folder_embedding_records` — embedding_id ↔ folder_path
- * - `folder_embedding_vectors` — sqlite-vec `vec0` float vectors
+ * - `folder_embedding_vectors` — ordinary table; `embedding` BLOB (Float32)
  *
- * Uses the same global embedding_* index_meta as heading vectors (one model).
+ * Shares the global embedding_* index_meta with heading vectors (one model).
  * Separate id allocator: `next_folder_embedding_id`.
- * Exact search only (no FAISS) — folder counts stay small.
+ * Search is a plain-JS L2 scan (no sqlite-vec / FAISS) — folder counts stay small.
  */
 
 const {
 	getEmbeddingMeta,
-	DEFAULT_EMBEDDING_DIMENSIONS,
-	coerceEmbeddingValues
+	DEFAULT_EMBEDDING_DIMENSIONS
 } = require('./headingEmbeddingStore');
+const { l2Squared, coerceVector, toBlob } = require('./vectorMath');
 
 const RECORDS_TABLE = 'folder_embedding_records';
 const VECTORS_TABLE = 'folder_embedding_vectors';
@@ -53,9 +53,7 @@ function setMeta(db, key, value) {
  * @returns {boolean}
  */
 function folderVectorsTableExists(db) {
-	const info = db.exec(
-		`SELECT name FROM sqlite_master WHERE type='table' AND name='${VECTORS_TABLE}'`
-	);
+	const info = db.exec(`SELECT name FROM sqlite_master WHERE type='table' AND name='${VECTORS_TABLE}'`);
 	return info.length > 0 && info[0].values.length > 0;
 }
 
@@ -70,18 +68,12 @@ function ensureFolderEmbeddingStorage(db) {
 		);
 		CREATE INDEX IF NOT EXISTS idx_folder_embedding_path
 			ON ${RECORDS_TABLE}(folder_path);
+		CREATE TABLE IF NOT EXISTS ${VECTORS_TABLE} (
+			embedding_id INTEGER PRIMARY KEY,
+			embedding BLOB NOT NULL
+		);
 	`);
 	db.run(`INSERT OR IGNORE INTO index_meta(key, value) VALUES (?, ?)`, [NEXT_ID_META_KEY, '1']);
-
-	const { dimensions } = getEmbeddingMeta(db);
-	if (!folderVectorsTableExists(db)) {
-		db.exec(`
-			CREATE VIRTUAL TABLE ${VECTORS_TABLE} USING vec0(
-				embedding_id INTEGER PRIMARY KEY,
-				embedding float[${dimensions}]
-			);
-		`);
-	}
 }
 
 /**
@@ -96,25 +88,6 @@ function allocateFolderEmbeddingId(db) {
 	}
 	setMeta(db, NEXT_ID_META_KEY, String(next + 1));
 	return next;
-}
-
-/**
- * @param {import('../db/dripSqlite').DripSqliteDatabase} db
- * @returns {number}
- */
-function countFolderEmbeddings(db) {
-	if (!folderVectorsTableExists(db)) {
-		return 0;
-	}
-	const stmt = db.prepare(`SELECT COUNT(*) FROM ${VECTORS_TABLE}`);
-	stmt.bind([]);
-	if (!stmt.step()) {
-		stmt.free();
-		return 0;
-	}
-	const n = Number(stmt.get()[0]) || 0;
-	stmt.free();
-	return n;
 }
 
 /**
@@ -138,19 +111,6 @@ function getFolderEmbeddingId(db, folderPath) {
 
 /**
  * @param {import('../db/dripSqlite').DripSqliteDatabase} db
- * @param {number} embeddingId
- */
-function deleteFolderVectorRow(db, embeddingId) {
-	if (!db.native || !folderVectorsTableExists(db)) {
-		return;
-	}
-	db.native
-		.prepare(`DELETE FROM ${VECTORS_TABLE} WHERE embedding_id = ?`)
-		.run(BigInt(embeddingId));
-}
-
-/**
- * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  * @param {string} folderPath
  */
 function deleteFolderEmbedding(db, folderPath) {
@@ -158,7 +118,7 @@ function deleteFolderEmbedding(db, folderPath) {
 	if (embeddingId == null) {
 		return;
 	}
-	deleteFolderVectorRow(db, embeddingId);
+	db.run(`DELETE FROM ${VECTORS_TABLE} WHERE embedding_id = ?`, [embeddingId]);
 	db.run(`DELETE FROM ${RECORDS_TABLE} WHERE embedding_id = ?`, [embeddingId]);
 }
 
@@ -166,9 +126,7 @@ function deleteFolderEmbedding(db, folderPath) {
  * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  */
 function clearAllFolderEmbeddings(db) {
-	if (folderVectorsTableExists(db)) {
-		db.exec(`DROP TABLE IF EXISTS ${VECTORS_TABLE}`);
-	}
+	db.run(`DELETE FROM ${VECTORS_TABLE}`);
 	db.run(`DELETE FROM ${RECORDS_TABLE}`);
 	setMeta(db, NEXT_ID_META_KEY, '1');
 	ensureFolderEmbeddingStorage(db);
@@ -186,12 +144,7 @@ function upsertFolderEmbedding(db, folderPath, embedding) {
 	const { dimensions } = getEmbeddingMeta(db);
 	const values = Array.from(embedding);
 	if (values.length !== dimensions) {
-		throw new Error(
-			`upsertFolderEmbedding: expected ${dimensions} dims, got ${values.length}`
-		);
-	}
-	if (!db.native) {
-		throw new Error('upsertFolderEmbedding: native DB handle missing');
+		throw new Error(`upsertFolderEmbedding: expected ${dimensions} dims, got ${values.length}`);
 	}
 
 	let embeddingId = getFolderEmbeddingId(db, folder);
@@ -201,19 +154,18 @@ function upsertFolderEmbedding(db, folderPath, embedding) {
 			embeddingId,
 			folder
 		]);
-	} else {
-		deleteFolderVectorRow(db, embeddingId);
 	}
 
-	db.native
-		.prepare(`INSERT INTO ${VECTORS_TABLE} (embedding_id, embedding) VALUES (?, ?)`)
-		.run(BigInt(embeddingId), JSON.stringify(values));
+	db.run(`INSERT OR REPLACE INTO ${VECTORS_TABLE} (embedding_id, embedding) VALUES (?, ?)`, [
+		embeddingId,
+		toBlob(values)
+	]);
 
 	return embeddingId;
 }
 
 /**
- * Exact KNN for folders.
+ * KNN by L2 distance for folders (plain-JS scan).
  * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  * @param {number[] | Float32Array} query
  * @param {number} k
@@ -223,35 +175,36 @@ function searchFolderEmbeddingsExact(db, query, k) {
 	const { dimensions } = getEmbeddingMeta(db);
 	const values = Array.from(query);
 	if (values.length !== dimensions) {
-		throw new Error(
-			`searchFolderEmbeddingsExact: expected ${dimensions} dims, got ${values.length}`
-		);
+		throw new Error(`searchFolderEmbeddingsExact: expected ${dimensions} dims, got ${values.length}`);
 	}
 	if (!db.native || !folderVectorsTableExists(db)) {
 		return [];
 	}
 	const limit = Math.max(1, Number(k) || 1);
-	const rows = db.native
-		.prepare(
-			`
-			SELECT
-				v.embedding_id AS embedding_id,
-				v.distance AS distance,
-				r.folder_path AS folder_path
-			FROM ${VECTORS_TABLE} v
-			JOIN ${RECORDS_TABLE} r ON r.embedding_id = v.embedding_id
-			WHERE v.embedding MATCH ?
-			  AND k = ?
-			ORDER BY v.distance
-			`
-		)
-		.all(JSON.stringify(values), limit);
 
-	return rows.map(r => ({
-		embedding_id: Number(r.embedding_id),
-		distance: Number(r.distance),
-		folder_path: String(r.folder_path || '.')
-	}));
+	/** @type {Map<number, string>} */
+	const paths = new Map();
+	for (const r of db.native.prepare(`SELECT embedding_id, folder_path FROM ${RECORDS_TABLE}`).all()) {
+		paths.set(Number(r.embedding_id), String(r.folder_path || '.'));
+	}
+
+	/** @type {{ embedding_id: number, distance: number, folder_path: string }[]} */
+	const scored = [];
+	for (const row of db.native.prepare(`SELECT embedding_id, embedding FROM ${VECTORS_TABLE}`).all()) {
+		const embeddingId = Number(row.embedding_id);
+		const folderPath = paths.get(embeddingId);
+		if (folderPath == null) continue;
+		const vec = coerceVector(row.embedding, dimensions);
+		if (!vec || vec.length !== dimensions) continue;
+		scored.push({
+			embedding_id: embeddingId,
+			distance: l2Squared(values, vec),
+			folder_path: folderPath
+		});
+	}
+
+	scored.sort((a, b) => a.distance - b.distance);
+	return scored.slice(0, limit);
 }
 
 /**
@@ -265,10 +218,7 @@ function listFolderEmbeddingRecords(db) {
 	const out = [];
 	while (stmt.step()) {
 		const row = stmt.get();
-		out.push({
-			embedding_id: Number(row[0]),
-			folder_path: String(row[1] || '.')
-		});
+		out.push({ embedding_id: Number(row[0]), folder_path: String(row[1] || '.') });
 	}
 	stmt.free();
 	return out;
@@ -280,7 +230,6 @@ module.exports = {
 	NEXT_ID_META_KEY,
 	DEFAULT_EMBEDDING_DIMENSIONS,
 	ensureFolderEmbeddingStorage,
-	countFolderEmbeddings,
 	getFolderEmbeddingId,
 	allocateFolderEmbeddingId,
 	deleteFolderEmbedding,
@@ -288,6 +237,5 @@ module.exports = {
 	upsertFolderEmbedding,
 	searchFolderEmbeddingsExact,
 	listFolderEmbeddingRecords,
-	folderVectorsTableExists,
-	coerceEmbeddingValues
+	folderVectorsTableExists
 };

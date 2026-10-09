@@ -1,17 +1,18 @@
 'use strict';
 
 /**
- * Tag embedding storage in `index.drip` (sqlite-vec exact only — no FAISS).
+ * Tag embedding storage in `index.drip` (plain-JS L2 scan — no sqlite-vec / FAISS).
  *
  * Tables:
  * - `tag_embedding_records` — embedding_id ↔ tag_id
- * - `tag_embedding_vectors` — sqlite-vec `vec0` float vectors
+ * - `tag_embedding_vectors` — ordinary table; `embedding` BLOB (Float32)
  *
  * Shares global embedding_* index_meta with heading/folder vectors.
  * Allocator: `next_tag_embedding_id`.
  */
 
 const { getEmbeddingMeta } = require('./headingEmbeddingStore');
+const { l2Squared, coerceVector, toBlob } = require('./vectorMath');
 
 const RECORDS_TABLE = 'tag_embedding_records';
 const VECTORS_TABLE = 'tag_embedding_vectors';
@@ -48,9 +49,7 @@ function setMeta(db, key, value) {
  * @returns {boolean}
  */
 function tagVectorsTableExists(db) {
-	const info = db.exec(
-		`SELECT name FROM sqlite_master WHERE type='table' AND name='${VECTORS_TABLE}'`
-	);
+	const info = db.exec(`SELECT name FROM sqlite_master WHERE type='table' AND name='${VECTORS_TABLE}'`);
 	return info.length > 0 && info[0].values.length > 0;
 }
 
@@ -66,18 +65,12 @@ function ensureTagEmbeddingStorage(db) {
 		);
 		CREATE INDEX IF NOT EXISTS idx_tag_embedding_tag
 			ON ${RECORDS_TABLE}(tag_id);
+		CREATE TABLE IF NOT EXISTS ${VECTORS_TABLE} (
+			embedding_id INTEGER PRIMARY KEY,
+			embedding BLOB NOT NULL
+		);
 	`);
 	db.run(`INSERT OR IGNORE INTO index_meta(key, value) VALUES (?, ?)`, [NEXT_ID_META_KEY, '1']);
-
-	const { dimensions } = getEmbeddingMeta(db);
-	if (!tagVectorsTableExists(db)) {
-		db.exec(`
-			CREATE VIRTUAL TABLE ${VECTORS_TABLE} USING vec0(
-				embedding_id INTEGER PRIMARY KEY,
-				embedding float[${dimensions}]
-			);
-		`);
-	}
 }
 
 /**
@@ -113,25 +106,6 @@ function getTagEmbeddingId(db, tagId) {
 
 /**
  * @param {import('../db/dripSqlite').DripSqliteDatabase} db
- * @param {number} embeddingId
- */
-function deleteTagVectorRow(db, embeddingId) {
-	if (!db.native || !tagVectorsTableExists(db)) {
-		return;
-	}
-	try {
-		db.native.prepare(`DELETE FROM ${VECTORS_TABLE} WHERE embedding_id = ?`).run(BigInt(embeddingId));
-	} catch {
-		try {
-			db.native.prepare(`DELETE FROM ${VECTORS_TABLE} WHERE embedding_id = ?`).run(Number(embeddingId));
-		} catch {
-			// ignore
-		}
-	}
-}
-
-/**
- * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  * @param {number} tagId
  * @param {number[] | Float32Array} embedding
  * @returns {number}
@@ -143,24 +117,17 @@ function upsertTagEmbedding(db, tagId, embedding) {
 	if (values.length !== dimensions) {
 		throw new Error(`upsertTagEmbedding: expected ${dimensions} dims, got ${values.length}`);
 	}
-	if (!db.native) {
-		throw new Error('upsertTagEmbedding: native DB handle missing');
-	}
 
 	let embeddingId = getTagEmbeddingId(db, tagId);
 	if (embeddingId == null) {
 		embeddingId = allocateTagEmbeddingId(db);
-		db.run(`INSERT INTO ${RECORDS_TABLE} (embedding_id, tag_id) VALUES (?, ?)`, [
-			embeddingId,
-			tagId
-		]);
-	} else {
-		deleteTagVectorRow(db, embeddingId);
+		db.run(`INSERT INTO ${RECORDS_TABLE} (embedding_id, tag_id) VALUES (?, ?)`, [embeddingId, tagId]);
 	}
 
-	db.native
-		.prepare(`INSERT INTO ${VECTORS_TABLE} (embedding_id, embedding) VALUES (?, ?)`)
-		.run(BigInt(embeddingId), JSON.stringify(values));
+	db.run(`INSERT OR REPLACE INTO ${VECTORS_TABLE} (embedding_id, embedding) VALUES (?, ?)`, [
+		embeddingId,
+		toBlob(values)
+	]);
 
 	return embeddingId;
 }
@@ -172,12 +139,12 @@ function upsertTagEmbedding(db, tagId, embedding) {
 function deleteTagEmbedding(db, tagId) {
 	const embeddingId = getTagEmbeddingId(db, tagId);
 	if (embeddingId == null) return;
-	deleteTagVectorRow(db, embeddingId);
+	db.run(`DELETE FROM ${VECTORS_TABLE} WHERE embedding_id = ?`, [embeddingId]);
 	db.run(`DELETE FROM ${RECORDS_TABLE} WHERE tag_id = ?`, [tagId]);
 }
 
 /**
- * Exact KNN for tags via sqlite-vec.
+ * KNN by L2 distance for tags (plain-JS scan).
  * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  * @param {number[] | Float32Array} query
  * @param {number} k
@@ -188,40 +155,42 @@ function searchTagEmbeddingsExact(db, query, k) {
 	const { dimensions } = getEmbeddingMeta(db);
 	const values = Array.from(query);
 	if (values.length !== dimensions) {
-		throw new Error(
-			`searchTagEmbeddingsExact: expected ${dimensions} dims, got ${values.length}`
-		);
+		throw new Error(`searchTagEmbeddingsExact: expected ${dimensions} dims, got ${values.length}`);
 	}
 	if (!db.native || !tagVectorsTableExists(db)) {
 		return [];
 	}
 	const limit = Math.max(1, Number(k) || 1);
-	const rows = db.native
-		.prepare(
-			`
-			SELECT
-				v.embedding_id AS embedding_id,
-				v.distance AS distance,
-				r.tag_id AS tag_id,
-				t.tag_name AS tag_name
-			FROM ${VECTORS_TABLE} v
-			JOIN ${RECORDS_TABLE} r ON r.embedding_id = v.embedding_id
-			JOIN tags t ON t.tag_id = r.tag_id
-			WHERE v.embedding MATCH ?
-			  AND k = ?
-			ORDER BY v.distance
-			`
-		)
-		.all(JSON.stringify(values), limit);
 
-	return rows.map(r => ({
-		embedding_id: Number(r.embedding_id),
-		distance: Number(r.distance),
-		tag_id: Number(r.tag_id),
-		tag_name: String(r.tag_name || '')
-			.trim()
-			.toLowerCase()
-	}));
+	/** @type {Map<number, number>} */
+	const tagByEmbedding = new Map();
+	for (const r of db.native.prepare(`SELECT embedding_id, tag_id FROM ${RECORDS_TABLE}`).all()) {
+		tagByEmbedding.set(Number(r.embedding_id), Number(r.tag_id));
+	}
+	/** @type {Map<number, string>} */
+	const nameByTag = new Map();
+	for (const r of db.native.prepare(`SELECT tag_id, tag_name FROM tags`).all()) {
+		nameByTag.set(Number(r.tag_id), String(r.tag_name || '').trim().toLowerCase());
+	}
+
+	/** @type {{ embedding_id: number, distance: number, tag_id: number, tag_name: string }[]} */
+	const scored = [];
+	for (const row of db.native.prepare(`SELECT embedding_id, embedding FROM ${VECTORS_TABLE}`).all()) {
+		const embeddingId = Number(row.embedding_id);
+		const tagId = tagByEmbedding.get(embeddingId);
+		if (tagId == null) continue;
+		const vec = coerceVector(row.embedding, dimensions);
+		if (!vec || vec.length !== dimensions) continue;
+		scored.push({
+			embedding_id: embeddingId,
+			distance: l2Squared(values, vec),
+			tag_id: tagId,
+			tag_name: nameByTag.get(tagId) || ''
+		});
+	}
+
+	scored.sort((a, b) => a.distance - b.distance);
+	return scored.slice(0, limit);
 }
 
 /**
@@ -244,9 +213,7 @@ function listTagsMissingEmbeddings(db) {
 		.all();
 	return rows.map(r => ({
 		tag_id: Number(r.tag_id),
-		tag_name: String(r.tag_name || '')
-			.trim()
-			.toLowerCase()
+		tag_name: String(r.tag_name || '').trim().toLowerCase()
 	}));
 }
 

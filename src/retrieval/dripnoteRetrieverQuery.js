@@ -3,7 +3,7 @@
 const path = require('path');
 const vscode = require('vscode');
 const { forEachKnowledgeBaseNote } = require('../document/kbNoteOps');
-const { parseNoteForCanvas, inferMarkerFromMeta, ancestorChain } = require('../document/parse/dripnoteCanvasParse');
+const { parseNoteHeadings, inferMarkerFromMeta, ancestorChain } = require('../document/parse/dripnoteHeadingParse');
 const { getMetadataSettings } = require('../document/model/dripnoteMetadataTemplates');
 const { extractFileIdFromHeader } = require('../graph/dripnoteReferenceSync');
 
@@ -262,7 +262,7 @@ async function buildRetrieverIndex(kbRootUri, opts) {
 				mtime = 0;
 			}
 
-			const { fileLines, flat } = parseNoteForCanvas(note.text);
+			const { fileLines, flat } = parseNoteHeadings(note.text);
 			const fileId = extractFileIdFromHeader(note.text) || '';
 			const fileParsed = parseMetaSlice(fileLines);
 			const fileKv = fileParsed.kv;

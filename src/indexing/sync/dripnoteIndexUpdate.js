@@ -12,7 +12,7 @@ const { enqueueHeadingEmbeddingUpserts } = require('../embeddings/headingEmbeddi
 const { computeIndexPersistenceSignature } = require('./dripnoteDocumentWatch');
 const { forEachKnowledgeBaseNote } = require('../../document/kbNoteOps');
 const { fileNameMatchesKbNote } = require('../../document/model/noteFileTypes');
-const { collectHeadingSequenceValidated } = require('../../document/parse/dripnoteCanvasParse');
+const { collectHeadingSequenceValidated } = require('../../document/parse/dripnoteHeadingParse');
 const { collectHeadingVersusAboveLineIndentErrors } = require('../../document/parse/dripnoteHeadingAboveIndent');
 const {
 	collectHeadingIdentityDiagnostics,

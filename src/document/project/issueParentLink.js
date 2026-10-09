@@ -42,7 +42,7 @@ function issueIdFromHeadingTitle(title) {
  * @returns {string | null}
  */
 function findNearestOutlineAncestorIssueId(docText, targetHeadingLine) {
-	const { parseHeadingForValidation } = require('../parse/dripnoteCanvasParse');
+	const { parseHeadingForValidation } = require('../parse/dripnoteHeadingParse');
 	const { outlineParentsByLine } = require('./issueInboxLayout');
 	const target = Math.floor(Number(targetHeadingLine));
 	if (!Number.isFinite(target) || target < 0) return null;

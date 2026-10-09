@@ -29,7 +29,7 @@ const {
 	needsHeadingIdentityReconcile,
 	hasDuplicateHeadingIdsInFile
 } = require('./dripnoteHeadingIdentity');
-const { parseHeadingForValidation } = require('../document/parse/dripnoteCanvasParse');
+const { parseHeadingForValidation } = require('../document/parse/dripnoteHeadingParse');
 const {
 	buildHeadingIdPoolFromText,
 	syncHeadingIdPoolFromAllocator,
@@ -257,30 +257,11 @@ function registerDripnoteIndexSync(context, state) {
 	 * @param {string} title
 	 */
 	function findHeadingLineIndex(lines, indent, title) {
-		let titleRest = String(title || '').trim();
-		try {
-			const { matchTaskTitleShortcut } = require('../document/workflow/dripnoteWorkflowParse');
-			const matched = matchTaskTitleShortcut(titleRest);
-			if (matched.matchedPrefix) {
-				titleRest = titleRest.slice(matched.matchedPrefix.length).replace(/^\s+/, '');
-			}
-		} catch {
-			/* ignore */
-		}
+		const titleRest = String(title || '').trim();
 		for (let i = 0; i < lines.length; i++) {
 			const info = parseHeadingLineInfo(lines[i]);
 			if (!info || info.indent !== indent) continue;
-			let rest = info.title;
-			try {
-				const { matchTaskTitleShortcut } = require('../document/workflow/dripnoteWorkflowParse');
-				const matched = matchTaskTitleShortcut(rest);
-				if (matched.matchedPrefix) {
-					rest = rest.slice(matched.matchedPrefix.length).replace(/^\s+/, '');
-				}
-			} catch {
-				/* ignore */
-			}
-			if (rest === titleRest) return i;
+			if (info.title === titleRest) return i;
 		}
 		return -1;
 	}
@@ -474,38 +455,6 @@ function registerDripnoteIndexSync(context, state) {
 		const sepBefore = findSeparatorLineIndexInLines(linesBefore);
 		const sepAfter = findSeparatorLineIndexInLines(linesAfter);
 
-		/**
-		 * @param {string} title
-		 * @returns {string}
-		 */
-		function titleRestAfterTaskShortcut(title) {
-			try {
-				const { matchTaskTitleShortcut } = require('../document/workflow/dripnoteWorkflowParse');
-				const matched = matchTaskTitleShortcut(title);
-				if (matched.matchedPrefix) {
-					return String(title || '')
-						.trim()
-						.slice(matched.matchedPrefix.length)
-						.replace(/^\s+/, '');
-				}
-			} catch {
-				/* ignore */
-			}
-			return String(title || '').trim().replace(/^\.t\d*\s*/i, '');
-		}
-
-		/**
-		 * @param {string} a
-		 * @param {string} b
-		 */
-		function isTaskIdOnlyHeadingChange(beforeLine, afterLine) {
-			const pb = parseHeadingForValidation(beforeLine);
-			const pa = parseHeadingForValidation(afterLine);
-			if (!pb || !pa) return false;
-			if (pb.tabDepth !== pa.tabDepth || pb.level !== pa.level) return false;
-			return titleRestAfterTaskShortcut(pb.title) === titleRestAfterTaskShortcut(pa.title);
-		}
-
 		let bi = 0;
 		let ai = 0;
 		while (bi < linesBefore.length || ai < linesAfter.length) {
@@ -539,16 +488,6 @@ function registerDripnoteIndexSync(context, state) {
 				ai += 1;
 				continue;
 			}
-			if (
-				bi < linesBefore.length &&
-				ai < linesAfter.length &&
-				isTaskIdOnlyHeadingChange(linesBefore[bi], linesAfter[ai])
-			) {
-				replacements.push({ line: bi, text: linesAfter[ai] });
-				bi += 1;
-				ai += 1;
-				continue;
-			}
 			return null;
 		}
 		return { inserts, replacements };
@@ -571,27 +510,6 @@ function registerDripnoteIndexSync(context, state) {
 			if (isHeadingIdentityLine(linesBefore[i]) && isHeadingIdentityLine(linesAfter[i])) {
 				replacements.push({ line: i, text: linesAfter[i] });
 				continue;
-			}
-			const pb = parseHeadingForValidation(linesBefore[i]);
-			const pa = parseHeadingForValidation(linesAfter[i]);
-			if (pb && pa) {
-				try {
-					const { matchTaskTitleShortcut } = require('../document/workflow/dripnoteWorkflowParse');
-					const mb = matchTaskTitleShortcut(pb.title);
-					const ma = matchTaskTitleShortcut(pa.title);
-					const restB = mb.matchedPrefix
-						? String(pb.title).trim().slice(mb.matchedPrefix.length).replace(/^\s+/, '')
-						: String(pb.title).trim();
-					const restA = ma.matchedPrefix
-						? String(pa.title).trim().slice(ma.matchedPrefix.length).replace(/^\s+/, '')
-						: String(pa.title).trim();
-					if (pb.tabDepth === pa.tabDepth && restB === restA) {
-						replacements.push({ line: i, text: linesAfter[i] });
-						continue;
-					}
-				} catch {
-					/* fall through */
-				}
 			}
 			return null;
 		}
@@ -735,24 +653,15 @@ function registerDripnoteIndexSync(context, state) {
 
 	async function reconcileKbNoteText(kbRoot, text, noteUri, options = {}) {
 		const normalized = String(text || '').replace(/\r\n/g, '\n');
-		const {
-			reconcileConceptNumbersInText
-		} = require('../document/concept/dripnoteConceptNumbering');
-		const conceptResult = reconcileConceptNumbersInText(normalized);
-		const headingResult = await reconcileHeadingIdentitiesForKbNote(kbRoot, conceptResult.text, {
+		const headingResult = await reconcileHeadingIdentitiesForKbNote(kbRoot, normalized, {
 			previousFullText: normalized,
 			noteUri,
 			...options
 		});
-		const { reconcileWorkflowTaskIdsForKbNote } = require('../document/workflow/dripnoteWorkflowTaskIdentity');
-		const wfResult = await reconcileWorkflowTaskIdsForKbNote(kbRoot, headingResult.text, {
-			noteUri,
-			lockedFile: headingResult.lockedFile || null
-		});
 		return {
 			...headingResult,
-			text: wfResult.text,
-			changed: Boolean(conceptResult.changed || headingResult.changed || wfResult.changed)
+			text: headingResult.text,
+			changed: Boolean(headingResult.changed)
 		};
 	}
 
@@ -862,24 +771,7 @@ function registerDripnoteIndexSync(context, state) {
 		const key = document.uri.toString();
 		const prev = pendingIdAllocateTimers.get(key);
 		if (prev) clearTimeout(prev);
-		const text = document.getText().replace(/\r\n/g, '\n');
 		let delay = HEADING_ID_ALLOCATION_DEBOUNCE_MS;
-		try {
-			const {
-				needsImmediateWorkflowTaskIdAllocation
-			} = require('../document/workflow/dripnoteWorkflowTaskIdentity');
-			if (needsImmediateWorkflowTaskIdAllocation(text)) delay = 120;
-		} catch {
-			/* ignore */
-		}
-		try {
-			const {
-				needsImmediateConceptNumbering
-			} = require('../document/concept/dripnoteConceptNumbering');
-			if (needsImmediateConceptNumbering(text)) delay = 120;
-		} catch {
-			/* ignore */
-		}
 		if (options.refreshHashes) delay = Math.min(delay, 350);
 		const timer = setTimeout(() => {
 			pendingIdAllocateTimers.delete(key);

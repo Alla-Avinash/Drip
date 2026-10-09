@@ -4,7 +4,7 @@
  * Wire heading embeddings to index updates:
  * - Enqueue upserts when title / semantic tags change (or vector missing)
  * - Keep existing vector when only non-input fields change (body, workflow meta, …)
- * - Async drain: encode via Transformers.js → upsert into sqlite-vec
+ * - Async drain: encode via Transformers.js → upsert into SQLite (plain BLOB)
  * - Startup / rebuild: enqueue headings that lack a vector
  */
 
@@ -177,8 +177,6 @@ async function processOneJob(kbRootUri, job) {
 	if (job.reason === 'delete') {
 		const handle = await openDripIndexDb(kbRootUri);
 		try {
-			const { syncFaissBeforeHeadingDelete } = require('./headingEmbeddingFaiss');
-			syncFaissBeforeHeadingDelete(kbRootUri, handle.db, job.fileId, job.headingId);
 			deleteHeadingEmbedding(handle.db, job.fileId, job.headingId);
 		} finally {
 			handle.close();
@@ -213,9 +211,7 @@ async function processOneJob(kbRootUri, job) {
 		if (getHeadingTitle(handle2.db, job.fileId, job.headingId) === undefined) {
 			return;
 		}
-		const embeddingId = upsertHeadingEmbedding(handle2.db, job.fileId, job.headingId, vector);
-		const { syncFaissAfterUpsert } = require('./headingEmbeddingFaiss');
-		syncFaissAfterUpsert(kbRootUri, handle2.db, embeddingId);
+		upsertHeadingEmbedding(handle2.db, job.fileId, job.headingId, vector);
 	} finally {
 		handle2.close();
 	}
@@ -225,17 +221,7 @@ async function processOneJob(kbRootUri, job) {
  * @param {import('vscode').Uri} kbRootUri
  */
 async function runHeadingEmbeddingDrain(kbRootUri) {
-	const result = await drainHeadingEmbeddingQueue(kbRootUri, job => processOneJob(kbRootUri, job));
-	// One-shot: if we wrote vectors, drop a prior `method=none` lock so the next search re-counts.
-	if (result && result.processed > 0) {
-		try {
-			const { clearHeadingEmbeddingSearchLock } = require('./headingEmbeddingSearchMethod');
-			clearHeadingEmbeddingSearchLock(kbRootUri);
-		} catch {
-			/* optional */
-		}
-	}
-	return result;
+	return drainHeadingEmbeddingQueue(kbRootUri, job => processOneJob(kbRootUri, job));
 }
 
 /**

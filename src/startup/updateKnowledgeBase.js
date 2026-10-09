@@ -55,12 +55,6 @@ async function updateKnowledgeBase(context, kbRootUri, options) {
 		console.error('[DRIP] folder embedding repair failed', err);
 	});
 
-	// Re-lock search method after rebuild (vector count may have changed).
-	const { lockHeadingEmbeddingSearchMethod } = require('../indexing/embeddings/headingEmbeddingSearchMethod');
-	void lockHeadingEmbeddingSearchMethod(kbRootUri, { force: true }).catch(err => {
-		console.error('[DRIP] heading embedding search lock failed', err);
-	});
-
 	if (!quiet) {
 		void vscode.window.showInformationMessage('DRIP knowledge base index updated.');
 	}

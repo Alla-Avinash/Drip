@@ -17,13 +17,9 @@
 		"onCommand:drip.openTagsPanel",
 		"onCommand:drip.openRetriever",
 		"onCommand:drip.retrieverQuickOpen",
-		"onCommand:drip.openCanvasView",
 		"onCommand:drip.openProjectView",
-		"onCommand:drip.openHeadingInCanvas",
-		"onCommand:drip.openFileInCanvas",
 		"onWebviewPanel:drip.tagsGraph",
 		"onWebviewPanel:drip.retriever",
-		"onWebviewPanel:drip.canvas",
 		"onCommand:drip.captureSelectionToComposer",
 		"onCommand:drip.selectKnowledgeBase",
 		"onCommand:drip.openDripSettingsView",
@@ -170,28 +166,10 @@
 				"icon": "$(list-selection)"
 			},
 			{
-				"command": "drip.openCanvasView",
-				"title": "Open Canvas",
-				"category": "DRIP",
-				"icon": "$(layout)"
-			},
-			{
 				"command": "drip.openProjectView",
 				"title": "Open Project View",
 				"category": "DRIP",
 				"icon": "$(folder-library)"
-			},
-			{
-				"command": "drip.openHeadingInCanvas",
-				"title": "Open in Canvas View",
-				"category": "DRIP",
-				"icon": "$(layout)"
-			},
-			{
-				"command": "drip.openFileInCanvas",
-				"title": "Open File in Canvas",
-				"category": "DRIP",
-				"icon": "$(layout)"
 			},
 			{
 				"command": "drip.captureSelectionToComposer",
@@ -456,11 +434,6 @@
 					"default": true,
 					"description": "Edit persistent headings via the RHS Heading form (recommended). Opens after a space following . / type shortcut; soft-locks title/metadata in the editor."
 				},
-				"drip.experimentalEmbeddings": {
-					"type": "boolean",
-					"default": true,
-					"description": "Use Transformers.js (ONNX) sentence embeddings for Suggestions (top folders + next folder/file picks) and AI deep-match in DRIP Storage, instead of token overlap. First use downloads the model into the DRIP extension folder (.cache/transformers), not the system Hugging Face cache."
-				},
 				"drip.mcp.enabled": {
 					"type": "boolean",
 					"default": false,
@@ -470,11 +443,6 @@
 					"type": "number",
 					"default": 39217,
 					"description": "Local port for the DRIP MCP server (http://127.0.0.1:<port>/mcp). Only one DRIP window can serve a port."
-				},
-				"drip.embeddingModel": {
-					"type": "string",
-					"default": "Xenova/all-MiniLM-L6-v2",
-					"description": "Sentence embedding model id (Xenova ONNX build). Changing this deletes and rebuilds heading and folder embeddings only (not note IDs or metadata). Example: Xenova/all-MiniLM-L6-v2"
 				},
 				"drip.llm.enabled": {
 					"type": "boolean",
@@ -511,6 +479,19 @@
 					"type": "object",
 					"default": {},
 					"description": "Optional custom colors for .d.txt markdown tokens. Map token to color (e.g. { \".idea\": \"#ffcc00\", \"tags\": \"#66ccff\" })."
+				},
+				"drip.dripnoteDocColors": {
+					"type": "object",
+					"default": {},
+					"description": "Optional overrides for the six DRIP document colors. Keys: color1 (type/shortcut), color2 (heading), color3 (metadata key), color4 (tag/relation key), color5 (values + separators), color6 (file identity key). Each value is a hex color; empty means follow the theme palette.",
+					"properties": {
+						"color1": { "type": "string" },
+						"color2": { "type": "string" },
+						"color3": { "type": "string" },
+						"color4": { "type": "string" },
+						"color5": { "type": "string" },
+						"color6": { "type": "string" }
+					}
 				},
 				"drip.metadataTemplatesEnabled": {
 					"type": "boolean",
@@ -557,34 +538,19 @@
 							"color": "",
 							"displayTemplate": true,
 							"attributes": {
-								"difficulty": {
+								"domain": {
 									"kind": "enum",
 									"default": "",
 									"required": false,
-									"values": [
-										"hard",
-										"medium",
-										"easy"
-									]
+									"values": []
 								},
 								"status": {
 									"kind": "enum",
 									"default": "",
 									"required": false,
 									"values": [
-										"completed",
-										"active",
-										"pending",
-										"do-research"
-									]
-								},
-								"importance": {
-									"kind": "enum",
-									"default": "",
-									"required": false,
-									"values": [
-										"high",
-										"low"
+										"in-progress",
+										"to-do"
 									]
 								}
 							}
@@ -596,16 +562,6 @@
 							"color": "",
 							"displayTemplate": true,
 							"attributes": {
-								"difficulty": {
-									"kind": "enum",
-									"default": "",
-									"required": false,
-									"values": [
-										"hard",
-										"medium",
-										"easy"
-									]
-								},
 								"status": {
 									"kind": "enum",
 									"default": "",
@@ -630,28 +586,11 @@
 									"default": "",
 									"required": true
 								},
-								"duration": {
-									"kind": "duration",
-									"default": "",
-									"required": false
-								}
-							}
-						},
-						{
-							"id": "implementation",
-							"marker": ".implementation",
-							"shortcut": "impl",
-							"color": "",
-							"displayTemplate": true,
-							"attributes": {
-								"implemented": {
+								"category": {
 									"kind": "enum",
 									"default": "",
 									"required": false,
-									"values": [
-										"true",
-										"false"
-									]
+									"values": []
 								}
 							}
 						},
@@ -686,6 +625,12 @@
 									"kind": "datetime",
 									"default": "",
 									"required": false
+								},
+								"category": {
+									"kind": "enum",
+									"default": "",
+									"required": false,
+									"values": []
 								}
 							}
 						}
@@ -736,14 +681,11 @@
 							"color": "",
 							"displayTemplate": true,
 							"attributes": {
-								"implemented": {
+								"category": {
 									"kind": "enum",
 									"default": "",
 									"required": false,
-									"values": [
-										"true",
-										"false"
-									]
+									"values": []
 								}
 							}
 						}
@@ -781,14 +723,6 @@
 						"tagsKeywordColor": ""
 					},
 					"description": "Allowed relation names for bracket-list relations in .d.txt metadata."
-				},
-				"drip.refLinksConfig": {
-					"type": "object",
-					"default": {
-						"refKeywordColor": "",
-						"refValueColor": ""
-					},
-					"description": "Editor colors for ref: [@fN, @fN:hN] cross-file reference lines in .d.txt metadata."
 				},
 				"drip.dripMetadataMarks": {
 					"type": "object",
@@ -856,19 +790,6 @@
 					"type": "string",
 					"default": "",
 					"description": "Optional global override color for metadata values."
-				},
-				"drip.canvasVisibleTypeIds": {
-					"type": "array",
-					"items": {
-						"type": "string"
-					},
-					"default": [],
-					"description": "Metadata type ids to show in DRIP Canvas (empty = all types). Controlled from the Canvas settings gear."
-				},
-				"drip.canvasShowHeadingsWithoutType": {
-					"type": "boolean",
-					"default": true,
-					"description": "When filtering Canvas by metadata type, still show headings whose section has no .type line."
 				}
 			}
 		},
@@ -970,16 +891,6 @@
 				}
 			],
 			"editor/context": [
-				{
-					"command": "drip.openHeadingInCanvas",
-					"when": "editorLangId == dripnote",
-					"group": "navigation@100"
-				},
-				{
-					"command": "drip.openFileInCanvas",
-					"when": "editorLangId == dripnote",
-					"group": "navigation@101"
-				},
 				{
 					"command": "drip.copyHeadingIdentity",
 					"when": "editorLangId == dripnote",
@@ -1104,6 +1015,71 @@
 				"path": "./src/document/syntaxes/dripnote.tmLanguage.json"
 			}
 		],
+		"semanticTokenTypes": [
+			{
+				"id": "metatype",
+				"superType": "type",
+				"description": "DRIP metadata type name/shortcut (e.g. .concept, .c)."
+			},
+			{
+				"id": "heading",
+				"superType": "string",
+				"description": "DRIP heading line text (rendered bold)."
+			},
+			{
+				"id": "metakey",
+				"superType": "keyword",
+				"description": "DRIP metadata key (e.g. status, deadline)."
+			},
+			{
+				"id": "relationkey",
+				"superType": "property",
+				"description": "DRIP tag/relation key (e.g. tags, pre-req)."
+			},
+			{
+				"id": "metavalue",
+				"superType": "string",
+				"description": "DRIP value: metadata value, tag list item, identity value, or section separator."
+			},
+			{
+				"id": "fileidentity",
+				"superType": "label",
+				"description": "DRIP file-level identity field (filename, fileid, headings)."
+			}
+		],
+		"semanticTokenScopes": [
+			{
+				"language": "dripnote",
+				"scopes": {
+					"metatype": [
+						"entity.name.type.dripnote"
+					],
+					"metatype.declaration": [
+						"entity.name.type.dripnote",
+						"markup.bold"
+					],
+					"heading": [
+						"markup.heading.dripnote"
+					],
+					"heading.declaration": [
+						"markup.heading.dripnote",
+						"markup.bold"
+					],
+					"metakey": [
+						"keyword.other.dripnote.metadata"
+					],
+					"relationkey": [
+						"entity.name.tag.dripnote.relation"
+					],
+					"metavalue": [
+						"string.unquoted.dripnote.metadata"
+					],
+					"fileidentity": [
+						"constant.other.reference.link.dripnote"
+					]
+				}
+			}
+		],
 		"keybindings": [
 			{
 				"command": "drip.openComposer",
@@ -1142,8 +1118,6 @@
 	},
 	"dependencies": {
 		"@xenova/transformers": "^2.17.2",
-		"better-sqlite3": "^13.0.3",
-		"faiss-node": "^0.5.1",
-		"sqlite-vec": "^0.1.9"
+		"better-sqlite3": "^13.0.3"
 	}
 }

@@ -1,12 +1,13 @@
 
 drip application what to work on next :
-    project view modifications which are to be similar to linear
-    build proper skills for the workflows for the tasks that has to be done in drip when you have certain specific tasks that you are asking to be done in drip
-    ship it properly and put it in github and push it as maketplace to ask dk about how the application is working
+	project view modifications properly integrate the features into the project view..
+	
+	build proper skills for the workflows for the tasks that has to be done in drip when you have certain specific tasks that you are asking to be done in drip
+	ship it properly and put it in github and push it as maketplace to ask dk about how the application is working
 
 prompt which is saved
-    now i want to develop the current project view even further to have it properly designed to be more like in the case with the features of how linear structures to have filters and sort options.. and i also want the assign button to not be present in the features as the issues in the features are already assigned to the features, you can have something like a button to change the affiliation to another feature or just list it in the project issues directly.. and for the project issues you can have the assign but they have to be like a small button rather than a big one..
-    and when i click the assign button.. I don't want the dropbox to appear at the very top near the menu bar.. I want it where we clicked the button so that the user can easily know what is happening.. and the same goes for the 'sub' button.. where i want the user to click on this button and have a sub section created where he can type in the name of the sub issue rather than it goint to the top of the section for creating a sub issue.. there is no visual cue for the user in understanding what is happening.. also i need to have a search bar at the top of the project view to search for the projects when we open the project view with all the relevant filters, sort options and other things which we usually had in the retriever and when the user opens up a project, in the project view, I need to have a search bar here too with searching for the issues present in the current project in the same format of having them in different sections like in the project issues, and varous features present..
+	now i want to develop the current project view even further to have it properly designed to be more like in the case with the features of how linear structures to have filters and sort options.. and i also want the assign button to not be present in the features as the issues in the features are already assigned to the features, you can have something like a button to change the affiliation to another feature or just list it in the project issues directly.. and for the project issues you can have the assign but they have to be like a small button rather than a big one..
+	and when i click the assign button.. I don't want the dropbox to appear at the very top near the menu bar.. I want it where we clicked the button so that the user can easily know what is happening.. and the same goes for the 'sub' button.. where i want the user to click on this button and have a sub section created where he can type in the name of the sub issue rather than it goint to the top of the section for creating a sub issue.. there is no visual cue for the user in understanding what is happening.. also i need to have a search bar at the top of the project view to search for the projects when we open the project view with all the relevant filters, sort options and other things which we usually had in the retriever and when the user opens up a project, in the project view, I need to have a search bar here too with searching for the issues present in the current project in the same format of having them in different sections like in the project issues, and varous features present..
 
 BROKEN DOWN — work ONE at a time
 --------------------------------
@@ -86,4 +87,55 @@ G. [DONE] Board view (project list)
    - List header shown once (not per group); list groups + board rows are collapsible; board row legend on the left (values once).
 
 H. Issue-level wiring — pending (same toolbar against issues, options vary by project vs issue).
+
+---- Settings & editor cleanup batch (per latest prompt) ----
+
+1. [done] Remove ref: [] references feature entirely
+   - Remove the "Ref Links" settings panel + nav button.
+   - Remove `refLinksConfig` from package.json / settings.drip.json / initializeDripIndex.js / activate.js.
+   - Delete `dripnoteRefLinks.js` and all `ref:` parsing/indexing (`heading_references` table), decorations, and diagnostics.
+   - Keep the separate `L.` link feature (dripnoteReferenceSync etc.) untouched.
+
+2. [done] Embeddings settings: remove checkbox, add model-storage info
+   - Remove the "Use sentence embeddings instead of token overlap" checkbox (embeddings always on).
+   - Add info text explaining weights live in the DRIP extension folder (.cache/transformers) so uninstalling the extension cleans up cleanly.
+
+3. [done] Unified theme for buttons/components (VS Code theme vars)
+   - Buttons, inputs, cards, sections, icons, fonts should all use --vscode-* variables that adapt to light/dark.
+
+4. [done] Remove metadata color customization
+   - Remove global/per-type/relations/ref color pickers and custom-colors checkboxes; use theme default coloring only.
+
+5. [done] Metadata type keys: no delete for built-in template keys
+   - Template keys (domain, status, priority, deadline, category, parent) cannot be deleted; only user-added keys show a delete button.
+
+6. [done] Remove "Default" column from metadata settings table
+   - Drop the Default column; no default value handling in the settings UI.
+
+---- Settings UI polish + document coloring + project view batch (per latest prompt) ----
+
+1. [done] Markdown marks: drop "revert to theme default"
+   - Remove the "Revert Mark Colors To Theme Defaults" button; empty color = plain text color (no special color).
+   - Change "theme default" placeholders to "no color (plain text)".
+   - Add a small "Mark: text" usage example next to the "Manage markdown marks" note.
+
+2. [done] Metadata built-in keys: lock data type; issue `parent` special
+   - Built-in keys' data-type (kind) dropdown is locked (read-only); user can only edit enum values.
+   - Issue `parent` key is treated as a special (fixed) key.
+
+3. [done] Settings heading + collapsible sidebar + independent scroll
+   - "DRIP Settings" shown large (drop "All settings in one place.").
+   - Collapsible sidebar menu for main sections (Knowledge Base, Editor, …).
+   - Sidebar and center panel scroll independently (sidebar always visible).
+
+4. [done] Unified document coloring (single pass, theme palette)
+   - color1: metadata name/shortcut (e.g. `.`, `.c`, `.concept`); color2: heading line (bold); color3: metadata keys; color4: tag/relation keys; color5: all values (metadata + tags/relations + file-level identity values + line-break); color6: file-level identity (filename/fileid/heading).
+   - Colors come from the current theme palette (no fixed hex); paint once, not multiple passes.
+
+5. [pending] Project view bug: features + their issues not listed
+   - Restore feature sections and their issues in the open project's view.
+
+6. [DONE] Rename `_recents` → `_inbox`
+   - `_inbox.d.txt` / `_inbox` heading (was `_recent.d.txt` / `# _recent`) for issues ingested into features.
+   - Project `_issues.d.txt` section heading renamed `# recents` → `# _inbox`.
 

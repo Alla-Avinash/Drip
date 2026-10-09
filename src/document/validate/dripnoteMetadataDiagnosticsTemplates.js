@@ -9,24 +9,16 @@ const {
 	inferTypeFromHeadingLine,
 	inferTypeFromMarkerLine,
 	getTypeRule,
-	HEADING_SPECIAL_KEYS,
 	matchHeadingTitleTypePrefix
 } = require('../model/dripnoteMetadataTemplates');
 const { normalizeDateTimeValue } = require('../parse/dripnoteDatetime');
 const { isValidDurationValue, normalizeDurationValue, resolveDurationUnits } = require('../parse/dripnoteDuration');
-const { collectHeadingSequenceValidated, splitFileTopRegion } = require('../parse/dripnoteCanvasParse');
+const { collectHeadingSequenceValidated, splitFileTopRegion } = require('../parse/dripnoteHeadingParse');
 const { collectHeadingVersusAboveLineIndentErrors } = require('../parse/dripnoteHeadingAboveIndent');
-const {
-	REF_LINE_RE,
-	isRefLine,
-	isValidRefTargetToken,
-	parseRefTokenRangesFromLine
-} = require('../parse/dripnoteRefLinks');
 const {
 	collectHeadingIdentityDiagnostics,
 	parseHeadingIdentityLine
 } = require('../../indexing/dripnoteHeadingIdentity');
-const { collectWorkflowDiagnostics } = require('../workflow/dripnoteWorkflowDiagnostics');
 const { parseFileEntityIdNumber } = require('../../indexing/dripnoteEntityIds');
 const {
 	isProtectedFolderIndexNotePath,
@@ -146,65 +138,8 @@ function collectDiagnosticsForBlock(lines, start, endExclusive, blockTypeId, set
 			continue;
 		}
 		const relationMatch = trimmed.match(RELATION_RE);
-		if (isRefLine(trimmed)) {
-			seenNonSpecialMeta = true;
-			if (indentChecksOn) {
-				const lineIndent = leadingWhitespaceCount(line);
-				if (lineIndent <= headingIndent) {
-					diagnostics.push(
-						new vscode.Diagnostic(
-							new vscode.Range(i, 0, i, line.length),
-							'ref: lines must be indented under the heading.',
-							vscode.DiagnosticSeverity.Error
-						)
-					);
-				}
-			}
-			for (const tok of parseRefTokenRangesFromLine(line)) {
-				if (isValidRefTargetToken(tok.label)) continue;
-				const d = new vscode.Diagnostic(
-					new vscode.Range(i, tok.start, i, tok.end),
-					`Invalid ref target "${tok.label}". Use @fN or @fN (topic) (e.g. @f26, @f45 (intro)). Heading targets @fN:hN are not allowed.`,
-					vscode.DiagnosticSeverity.Error
-				);
-				d.code = 'drip.invalidRefTarget';
-				diagnostics.push(d);
-			}
-			continue;
-		}
 		if (relationMatch) {
 			const k = String(relationMatch[1] || '').toLowerCase();
-			if (k === 'parent') {
-				if (indentChecksOn && leadingWhitespaceCount(line) <= headingIndent) {
-					diagnostics.push(
-						new vscode.Diagnostic(
-							new vscode.Range(i, 0, i, line.length),
-							'parent: must be indented under the heading.',
-							vscode.DiagnosticSeverity.Error
-						)
-					);
-				}
-				if (markerSeen || seenNonSpecialMeta) {
-					diagnostics.push(
-						new vscode.Diagnostic(
-							new vscode.Range(i, 0, i, line.length),
-							'parent: must be on the line(s) immediately under the heading (before .task and other metadata).',
-							vscode.DiagnosticSeverity.Error
-						)
-					);
-				}
-				const typeId = activeTypeId || blockTypeId;
-				if (typeId && typeId !== 'task') {
-					diagnostics.push(
-						new vscode.Diagnostic(
-							new vscode.Range(i, 0, i, line.length),
-							'parent: is only valid on task headings (.task / .t / .tN) under a task with workflow: true.',
-							vscode.DiagnosticSeverity.Error
-						)
-					);
-				}
-				continue;
-			}
 			seenNonSpecialMeta = true;
 			if (indentChecksOn) {
 				const lineIndent = leadingWhitespaceCount(line);
@@ -218,7 +153,6 @@ function collectDiagnosticsForBlock(lines, start, endExclusive, blockTypeId, set
 					);
 				}
 			}
-			if (k === 'ref') continue;
 			if (settings.useTemplates && settings.strictValidation && !settings.ignoreErrors && !settings.allowedRelations.has(k)) {
 				diagnostics.push(new vscode.Diagnostic(new vscode.Range(i, 0, i, line.length), `Unknown relation "${k}" for current DRIP settings.`, vscode.DiagnosticSeverity.Error));
 			}
@@ -250,47 +184,6 @@ function collectDiagnosticsForBlock(lines, start, endExclusive, blockTypeId, set
 		if (!kv) continue;
 		const key = String(kv[1] || '').toLowerCase();
 		const value = String(kv[2] || '').trim();
-		if (HEADING_SPECIAL_KEYS.has(key) && key === 'workflow') {
-			if (indentChecksOn && leadingWhitespaceCount(line) <= headingIndent) {
-				diagnostics.push(
-					new vscode.Diagnostic(
-						new vscode.Range(i, 0, i, line.length),
-						'workflow: must be indented under the heading.',
-						vscode.DiagnosticSeverity.Error
-					)
-				);
-			}
-			if (markerSeen || seenNonSpecialMeta) {
-				diagnostics.push(
-					new vscode.Diagnostic(
-						new vscode.Range(i, 0, i, line.length),
-						'workflow: must be on the line(s) immediately under the heading (before .task and other metadata).',
-						vscode.DiagnosticSeverity.Error
-					)
-				);
-			}
-			const typeId = activeTypeId || blockTypeId;
-			if (typeId && typeId !== 'task') {
-				diagnostics.push(
-					new vscode.Diagnostic(
-						new vscode.Range(i, 0, i, line.length),
-						'workflow: is only valid on task headings (.task / .t / .tN).',
-						vscode.DiagnosticSeverity.Error
-					)
-				);
-			}
-			const low = value.toLowerCase();
-			if (low !== 'true' && low !== 'false') {
-				diagnostics.push(
-					new vscode.Diagnostic(
-						new vscode.Range(i, 0, i, line.length),
-						'workflow: must be true or false.',
-						vscode.DiagnosticSeverity.Error
-					)
-				);
-			}
-			continue;
-		}
 		seenNonSpecialMeta = true;
 		if (indentChecksOn) {
 			const lineIndent = leadingWhitespaceCount(line);
@@ -749,7 +642,7 @@ function registerDripnoteMetadataDiagnostics(context) {
 					started = true;
 				}
 				if (!t) break;
-				if (TYPE_RE.test(t) || RELATION_RE.test(t) || REF_LINE_RE.test(t) || SHORTHAND_RE.test(t) || KEY_VALUE_RE.test(t) || HEADING_ID_LINE_RE.test(t)) continue;
+				if (TYPE_RE.test(t) || RELATION_RE.test(t) || SHORTHAND_RE.test(t) || KEY_VALUE_RE.test(t) || HEADING_ID_LINE_RE.test(t)) continue;
 				break;
 			}
 			const headingType = inferExplicitHeadingType(hLine, settings);
@@ -822,7 +715,6 @@ function registerDripnoteMetadataDiagnostics(context) {
 			}
 			collectDiagnosticsForBlock(lines, start, end, blockType || '', settings, diagnostics, knownTags, true, headingIndent);
 		}
-		collectWorkflowDiagnostics(lines, settings, diagnostics);
 		collection.set(document.uri, diagnostics);
 	}
 

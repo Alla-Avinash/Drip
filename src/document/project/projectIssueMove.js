@@ -17,7 +17,7 @@ const path = require('path');
 const { listProjectChildrenFromIndex } = require('../../indexing/projectViewQuery');
 const { moveIssueBlock } = require('./projectIssuesMailbox');
 const { collectSelfAndDescendants } = require('./issueParentLink');
-const { normalizeIssueEntityId, parseIssueTitleEntityId, isFeatureRecentFileName } = require('./projectStructureRules');
+const { normalizeIssueEntityId, parseIssueTitleEntityId, isFeatureInboxFileName } = require('./projectStructureRules');
 const { fileNameMatchesKbNote } = require('../model/noteFileTypes');
 const { buildHeadingTreeFromBody, splitFileHeaderAndBody, readTextFile } = require('../kbNoteOps');
 const { openDripIndexDb } = require('../../indexing/dripIndexDb');
@@ -137,9 +137,9 @@ async function readFeatureDir(folderUri) {
 			if (name === '.img') continue;
 			folders.push({ name, uri: vscode.Uri.joinPath(folderUri, name).toString() });
 		} else if (type === vscode.FileType.File && fileNameMatchesKbNote(name)) {
-			// Picking the feature directly routes to its `_recent` mailbox, so the mailbox note
+			// Picking the feature directly routes to its `_inbox` mailbox, so the mailbox note
 			// and the folder's `_Name.f.d.txt` index note are redundant here — hide them.
-			if (isFeatureRecentFileName(name)) continue;
+			if (isFeatureInboxFileName(name)) continue;
 			if (/^_.+\.f\.d\.txt$/i.test(name)) continue;
 			files.push({ name, uri: vscode.Uri.joinPath(folderUri, name).toString() });
 		}

@@ -138,12 +138,6 @@ async function bindKnowledgeBaseRoot(context, kbRootUri) {
 	if (!isDriplockKnowledgeBaseUri(kbRootUri)) {
 		throw new Error('Knowledge base root must be a .driplock folder.');
 	}
-	try {
-		const { clearHeadingEmbeddingSearchLock } = require('../indexing/embeddings/headingEmbeddingSearchMethod');
-		clearHeadingEmbeddingSearchLock();
-	} catch {
-		// ignore
-	}
 	await context.workspaceState.update(KB_ROOT_KEY, kbRootUri.toString());
 	await ensureDripIndexSkeleton(kbRootUri);
 	await loadKbSidecar(context, kbRootUri);

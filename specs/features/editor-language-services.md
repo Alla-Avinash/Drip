@@ -12,8 +12,14 @@ When a `.d.txt` file is open in the editor, DRIP provides VS Code language featu
 
 ### Semantic tokens (coloring)
 
-- Metadata keys, values, tags, type markers, headings, and special prefixes are colored distinctly.
-- Colors can be customized per metadata type or token in settings.
+- The whole note is colored in one pass by a single tokenizer that emits six roles, using theme-palette colors that follow the active light/dark theme.
+  1. **Metadata type name / shortcut** — the leading `.concept`, `.c`, or plain `c` marker on a heading or type line.
+  2. **Heading line** — the entire heading line (the `#` prefix, the type marker/shortcut, and the title text) rendered bold.
+  3. **Metadata keys** — typed field keys like `status`, `deadline`, `parent`.
+  4. **Tag / relation keys** — `tags`, `pre-req`, and other configured relation keys.
+  5. **Values** — metadata values, tag-list items, file identity values, and the `---` section separator.
+  6. **File-level identity** — the `filename`, `fileid`, and `headings` header fields.
+- Each role defaults to a theme token. In the **Doc Coloring** settings panel the user can override any role with a custom hex color; empty overrides keep the theme color. Custom colors layer over the semantic tokens as editor decorations, so they only affect `.d.txt` notes.
 
 ### Metadata diagnostics
 
@@ -26,9 +32,9 @@ When a `.d.txt` file is open in the editor, DRIP provides VS Code language featu
 - **Metadata completion** — suggests valid metadata keys/values while typing, and auto-inserts missing template keys when a type marker is entered.
 - **Tag completion** — suggests existing tags from the tag graphs while typing tag lists.
 
-### Custom decorations
+### Custom decorations (markdown marks)
 
-- Heading identity and special markers get editor decorations (e.g. subtle visuals for stable IDs and prefixes).
+- User-defined markdown marks (`L:`, `Q:`, `R:`, …) get their own editor decorations using the color the user assigned in settings; a mark with no assigned color stays plain text.
 
 ### Document symbols
 

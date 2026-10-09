@@ -1,0 +1,176 @@
+# DRIP — Production Readiness Changes
+
+Working log of decisions and changes to make DRIP production-ready.
+Each item below is one decision/change. Keep it short and update it as we go.
+
+Status legend: [planned] -> [in-progress] -> [done]
+
+---
+
+## 1. Replace sqlite-vec with plain SQLite for embeddings
+Status: [planned]
+
+Decision:
+- Stop using sqlite-vec (native SQLite extension) for vector search.
+- Keep better-sqlite3 as the only database engine.
+
+Why:
+- sqlite-vec ships platform-specific binaries (.dll / .dylib / .so) that are loaded
+  at runtime, which is a cross-platform risk on Windows vs macOS.
+- At DRIP's scale (a personal knowledge base, thousands of headings), exact vector
+  search can be done in plain JavaScript over vectors stored in regular SQLite
+  tables. No native vector extension is needed.
+
+What changes (rough):
+- Store embeddings as plain rows (BLOB or JSON) in a normal table instead of a
+  vec0 virtual table.
+- Replace the sqlite-vec KNN query with an in-JS similarity scan (cosine / L2)
+  over the stored vectors.
+- Remove the `loadSqliteVecExtension` call and the vec0 table creation.
+
+## 2. Remove faiss-node entirely — single search implementation
+Status: [planned]
+
+Decision:
+- Remove faiss-node and the persisted FAISS HNSW index under `.dripindex/`.
+- Have exactly ONE embedding-search implementation that is used regardless of
+  how many embeddings exist. No cutover, no dual paths, no second algorithm.
+
+Why:
+- faiss-node is native and platform-specific (same risk category as sqlite-vec).
+- The current code has two implementations (exact via sqlite-vec below 1000
+  vectors, FAISS ANN above 1000) with a lock that switches between them. This
+  dual-path complexity is unwanted.
+- A single in-JS similarity scan is fast enough at this scale, so there is no
+  reason to keep a second, more complex implementation.
+
+What changes (rough):
+- Delete the `heading-embeddings.faiss` / `heading-embeddings.faiss.json` sidecars.
+- Remove the `exact` vs `faiss` search-method lock and its threshold entirely.
+- One search path for all vector counts: read vectors from SQLite, score in JS.
+
+## 3. Confirm better-sqlite3 stays
+Status: [planned]
+
+Note:
+- better-sqlite3 is itself a native module, but it is mature and reliable:
+  prebuilds for Windows/macOS/Linux (x64 + arm64), plus source-compile fallback.
+- This is the one native dependency worth keeping as the core database engine.
+
+---
+
+## 4. Simplify settings: two metadata-type groups only
+Status: [planned]
+
+Decision:
+- In DRIP Settings, show exactly TWO groups of metadata types (nothing else):
+  - Document KB (note zone): `concept`, `task`
+  - Projects: `project`, `feature`, `issue`
+- Remove the `decision` and `implementation` types entirely.
+- Remove the DRIP Canvas section: delete the canvas settings AND all canvas code/views.
+
+Why:
+- Keeps the settings surface small and predictable.
+- Standard types let the rest of the app rely on fixed keys instead of reading
+  settings for every search/retrieve.
+
+## 5. Remove concept/task numbering (`.c#`, `.c12`)
+Status: [planned]
+
+Decision:
+- Remove the numeric-suffix heading numbering for concept/task (e.g. `.c1`, `.c12`,
+  `.t3`, and the hyphen form `.i-34` numbering logic).
+- Headings keep only the plain marker/shortcut (e.g. `.concept` / `.c`), no auto id.
+
+Why:
+- Numbering adds parsing and reconciliation complexity with no real benefit.
+
+## 6. Remove task workflow logic
+Status: [planned]
+
+Decision:
+- Remove the workflow logic for tasks (workflow roots, task DAG dependency links,
+  the `workflow:` special key, and the `parent: [tN,…]` task-linking key).
+
+Why:
+- Workflow tracking is out of scope for a simple, standardized note format.
+
+## 7. Remove `parent` key from the task metadata type
+Status: [planned]
+
+Decision:
+- Task no longer has a `parent` key. The built-in `parent` key remains ONLY on
+  `issue` (logical parent issue `i-N`, used by Project View).
+
+Why:
+- Parent linkage is a project/issue concern, not a document task concern.
+
+## 8. Standard (fixed) schema per metadata type
+Status: [planned]
+
+Decision: each built-in type has a fixed set of keys that are ALWAYS stored in
+dedicated columns of that type's DB table. Extra/custom keys go to the shared
+`metadata_remaining_keys` table (unchanged from today).
+
+Fixed columns (target):
+
+- concept  ->  `domain` (enum) + `status` (enum)  ->  `concept_metadata` table
+- task     ->  `status`, `priority`, `deadline`, `category`  ->  `task_metadata` table
+- project  ->  `status`, `priority`, `deadline`  ->  project table
+- feature  ->  `category` (enum)  ->  feature table
+- issue    ->  `status`, `priority`, `deadline`, `category`, `parent` (built-in)
+              ->  issue table; same as today: fixed keys go in the issue table,
+                  everything else goes to `metadata_remaining_keys`
+
+Standard datatypes available for user-added keys: `enum`, `datetime`, `duration`.
+
+Note (to resolve during implementation): today project fields live in BOTH the
+`projects` registry and `project_metadata`. Target should be a single project
+table. Same for feature (today there is no dedicated feature table — only
+`feature` file-level type; a `feature_metadata` table is needed).
+
+### Target schema (fixed, static — no dynamic table creation)
+
+```
+-- Fixed metadata type lookup (ids: concept, task, project, feature, issue)
+metadata_types(metadata_type_id INTEGER PK, metadata_type_name TEXT UNIQUE)
+
+-- Document KB typed tables
+concept_metadata(file_id, heading_id, domain TEXT, status TEXT, PK(file_id,heading_id))
+task_metadata   (file_id, heading_id, status TEXT, priority TEXT, deadline INTEGER, category TEXT, PK(file_id,heading_id))
+
+-- Project: fields live on the projects registry row (no separate project_metadata)
+projects(project_id PK, folder_prefix UNIQUE, index_file_id, title, status TEXT, deadline INTEGER, priority TEXT)
+
+-- Feature: category lives on a dedicated feature table
+feature_metadata(file_id, heading_id, category TEXT, PK(file_id,heading_id))
+
+-- Issue typed table + canonical issue store (same fields)
+issue_metadata(file_id, heading_id, status TEXT, category TEXT, deadline INTEGER, priority TEXT, parent_issue_key TEXT, PK(file_id,heading_id))
+issues(project_id, issue_key, file_id, heading_id, title, parent_issue_key, status, category, deadline, priority, PK(project_id, issue_key))
+
+-- Custom keys: EAV (unchanged)
+metadata_remaining_keys(file_id, heading_id, metadata_type_id, key, value, PK(file_id,heading_id,metadata_type_id,key))
+```
+
+Removed tables: `decision_metadata` (and the `decision`/`implementation` types).
+
+## 9. Template rules (what the user can and cannot change)
+Status: [planned]
+
+Decision:
+- The built-in fields above are FIXED: the user cannot delete them, but CAN edit
+  the values in their enums.
+- The user CAN add new keys to any metadata type, using the standard datatypes
+  (enum / datetime / duration). Any added key is stored directly in the shared
+  `metadata_remaining_keys` table.
+
+Why (the whole point):
+- The app now has a standardized format with fixed keys it can rely on for
+  search/retrieve without always reading DRIP Settings.
+- Fixed keys produce better, more complete templates.
+- Only user-defined extra fields need to be looked up from DRIP Settings.
+
+---
+
+(More items get added here as we plan the rest of the production-readiness work.)

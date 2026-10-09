@@ -2574,8 +2574,10 @@
 		}
 
 		if (foot) {
+			const isEmbeddingRank =
+				searchMethod === 'exact' || String(searchMethod).startsWith('recommended:');
 			const methodHint =
-				qActive && (searchMethod === 'exact' || searchMethod === 'faiss')
+				qActive && isEmbeddingRank
 					? ' · ranked by embedding (' + searchMethod + ')'
 					: qActive && searchMethod && searchMethod !== 'index-browse'
 						? ' · ' + searchMethod
