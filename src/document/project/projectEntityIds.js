@@ -13,7 +13,7 @@
  * Value JSON: `{ "nextIssue": N, "nextFeature": M }` — nextIssue is a cache only.
  */
 
-const { openDripIndexDb } = require('../../indexing/dripIndexDb');
+const { openDripProjectsDb } = require('../../indexing/dripProjectDb');
 const {
 	formatIssueEntityId,
 	formatFeatureEntityId,
@@ -205,7 +205,7 @@ function maxLiveIssueNumber(db, projectFolderPrefix) {
  * @param {{ maxIssue?: number, maxFeature?: number }} seen
  */
 async function ensureAllocAtLeast(kbRootUri, projectFolderPrefix, seen) {
-	const handle = await openDripIndexDb(kbRootUri);
+	const handle = await openDripProjectsDb(kbRootUri);
 	try {
 		const key = allocMetaKey(projectFolderPrefix);
 		const cur = readAlloc(handle.db, key);
@@ -231,7 +231,7 @@ async function ensureAllocAtLeast(kbRootUri, projectFolderPrefix, seen) {
  * @returns {Promise<string>} normalized `i-N`
  */
 async function allocateNextIssueEntityId(kbRootUri, projectFolderPrefix) {
-	const handle = await openDripIndexDb(kbRootUri);
+	const handle = await openDripProjectsDb(kbRootUri);
 	try {
 		const key = allocMetaKey(projectFolderPrefix);
 		const cur = readAlloc(handle.db, key);
@@ -279,7 +279,7 @@ async function allocateNextIssueEntityId(kbRootUri, projectFolderPrefix) {
  * @returns {Promise<string>} normalized `f-N`
  */
 async function allocateNextFeatureEntityId(kbRootUri, projectFolderPrefix) {
-	const handle = await openDripIndexDb(kbRootUri);
+	const handle = await openDripProjectsDb(kbRootUri);
 	try {
 		const key = allocMetaKey(projectFolderPrefix);
 		const cur = readAlloc(handle.db, key);

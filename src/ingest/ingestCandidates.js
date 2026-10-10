@@ -108,11 +108,6 @@ async function findIngestCandidates(kbRoot, queryText, corpusRaw) {
 
 		const knn = searchHeadingEmbeddingsExact(db, vector, HEADING_POOL);
 		const cards = loadCardsForEmbeddingIds(db, knn.map(k => k.embedding_id), kbRoot);
-		const parentStmt = db.native.prepare(
-			`SELECT p.title AS title FROM headings h
-			JOIN headings p ON p.file_id = h.file_id AND p.heading_id = h.parent
-			WHERE h.file_id = ? AND h.heading_id = ? AND p.heading_id > 0`
-		);
 		/** @type {HeadingCandidate[]} */
 		const pool = [];
 		for (const k of knn) {
@@ -120,18 +115,29 @@ async function findIngestCandidates(kbRoot, queryText, corpusRaw) {
 			if (!card || Number(card.heading_id) <= 0) continue;
 			if (!(await visible(kbRoot, card.relPath, corpusOpts))) continue;
 			const fileScore = (fileScores.get(card.relPath) || { score: 0 }).score;
-			const parent = parentStmt.get(card.file_id, card.heading_id);
 			pool.push({
 				path: card.relPath,
 				fileId: Number(card.file_id),
 				headingId: Number(card.heading_id),
 				title: card.title,
-				parentTitle: parent ? String(parent.title || '') : '',
+				parentTitle: '',
 				score: HEADING_WEIGHT * distanceToScore(k.distance) + (1 - HEADING_WEIGHT) * fileScore
 			});
 		}
 		pool.sort((a, b) => b.score - a.score);
 		const headings = pool.slice(0, HEADING_LIMIT);
+
+		// Parent titles are display-only for the LLM prompt, so fetch them for the
+		// finalists only (up to HEADING_LIMIT) — not the whole pool.
+		const parentStmt = db.native.prepare(
+			`SELECT p.title AS title FROM headings h
+			JOIN headings p ON p.file_id = h.file_id AND p.heading_id = h.parent
+			WHERE h.file_id = ? AND h.heading_id = ? AND p.heading_id > 0`
+		);
+		for (const h of headings) {
+			const parent = parentStmt.get(h.fileId, h.headingId);
+			h.parentTitle = parent ? String(parent.title || '') : '';
+		}
 
 		/** @type {FolderCandidate[]} */
 		const folders = [];

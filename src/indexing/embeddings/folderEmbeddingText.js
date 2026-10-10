@@ -15,6 +15,7 @@
  */
 
 const path = require('path');
+const { isProjectNotePath } = require('../projectIndex');
 
 /**
  * @param {string | null | undefined} folderPath
@@ -93,6 +94,8 @@ function ancestorFolderPathsOfNote(noteRelPath) {
 
 /**
  * Distinct folder paths implied by indexed note paths (ancestors of every file).
+ * Project-zone notes are skipped so `.p`/`.f` folders (and their subfolders) never get a
+ * folder vector in the document index.
  * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  * @returns {string[]}
  */
@@ -102,7 +105,8 @@ function listFolderPathsFromFiles(db) {
 	/** @type {Set<string>} */
 	const set = new Set();
 	while (stmt.step()) {
-		const notePath = String(stmt.get()[0] || '');
+		const notePath = String(stmt.get()[0] || '').replace(/\\/g, '/');
+		if (isProjectNotePath(notePath)) continue;
 		for (const fp of ancestorFolderPathsOfNote(notePath)) {
 			set.add(fp);
 		}

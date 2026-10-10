@@ -8,6 +8,7 @@ const {
 	rebuildDripIndex,
 	initEmptyDripIndexFile
 } = require('../indexing/dripIndexDb');
+const { initEmptyDripProjectsFile } = require('../indexing/dripProjectDb');
 const { reconcileAllKbNoteHeadingIdentities } = require('../indexing/dripnoteHeadingIdentityReconcile');
 
 /**
@@ -24,6 +25,7 @@ async function updateKnowledgeBase(context, kbRootUri, options) {
 
 	await ensureDripIndexSkeleton(kbRootUri);
 	await initEmptyDripIndexFile(kbRootUri);
+	await initEmptyDripProjectsFile(kbRootUri);
 
 	const needsUpdate = force || (await dripIndexNeedsRebuild(kbRootUri));
 	if (!needsUpdate) {

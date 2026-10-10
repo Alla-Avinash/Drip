@@ -5,17 +5,22 @@ const vscode = require('vscode');
 const { INDEX_FILE, getDripIndexRootUri } = require('../startup/initializeDripIndex');
 const {
 	SCHEMA_VERSION,
-	TYPED_METADATA_TABLES,
+	TYPED_METADATA_TABLES: DOCUMENT_TYPED_METADATA_TABLES,
 	REMAINING_METADATA_TABLE,
 	ensureDripIndexSchema
 } = require('./dbSchema/dripIndexSchema');
+const {
+	TYPED_METADATA_TABLES: PROJECT_TYPED_METADATA_TABLES
+} = require('./dbSchema/dripProjectSchema');
 const {
 	resolveProjectIdForFile,
 	resolveFeatureIdForFile,
 	ensureProjectRow,
 	upsertIssueRow,
-	issueKeyFromHeadingTitle
+	issueKeyFromHeadingTitle,
+	classifyNoteZone
 } = require('./projectIndex');
+const { openDripProjectsDb } = require('./dripProjectDb');
 const { openDripSqlite } = require('./db/dripSqlite');
 const {
 	deleteFileEmbeddings,
@@ -65,18 +70,33 @@ function ensureSchema(db) {
 }
 
 /**
+ * Typed metadata tables owned by a zone. Project notes index issue metadata only;
+ * document notes index concept/task metadata only.
+ * @param {'project' | 'document'} zone
+ * @returns {string[]}
+ */
+function typedMetadataTablesForZone(zone) {
+	return zone === 'project' ? PROJECT_TYPED_METADATA_TABLES : DOCUMENT_TYPED_METADATA_TABLES;
+}
+
+/**
  * Remove all heading-scoped rows for a file (typed metadata + tags + refs).
  * @param {import('./db/dripSqlite').DripSqliteDatabase} db
  * @param {number} fileId
+ * @param {'project' | 'document'} zone
  */
-function deleteFileHeadingScopedRows(db, fileId) {
-	deleteFileEmbeddings(db, fileId);
+function deleteFileHeadingScopedRows(db, fileId, zone) {
+	if (zone !== 'project') {
+		deleteFileEmbeddings(db, fileId);
+	}
 	db.run('DELETE FROM searchtags WHERE file_id = ?', [fileId]);
 	db.run('DELETE FROM relations WHERE from_file_id = ?', [fileId]);
-	for (const table of TYPED_METADATA_TABLES) {
+	for (const table of typedMetadataTablesForZone(zone)) {
 		db.run(`DELETE FROM ${table} WHERE file_id = ?`, [fileId]);
 	}
-	db.run(`DELETE FROM issues WHERE file_id = ?`, [fileId]);
+	if (zone === 'project') {
+		db.run(`DELETE FROM issues WHERE file_id = ?`, [fileId]);
+	}
 	db.run(`DELETE FROM ${REMAINING_METADATA_TABLE} WHERE file_id = ?`, [fileId]);
 	db.run('DELETE FROM headings WHERE file_id = ?', [fileId]);
 }
@@ -87,9 +107,10 @@ function deleteFileHeadingScopedRows(db, fileId) {
  * @param {number} fileId
  * @param {number} headingId
  * @param {{ keepEmbedding?: boolean }} [options] — when true, leave sqlite-vec row (title/tags unchanged)
+ * @param {'project' | 'document'} zone
  */
-function deleteHeadingScopedRows(db, fileId, headingId, options) {
-	if (!(options && options.keepEmbedding)) {
+function deleteHeadingScopedRows(db, fileId, headingId, options, zone) {
+	if (zone !== 'project' && !(options && options.keepEmbedding)) {
 		deleteHeadingEmbedding(db, fileId, headingId);
 	}
 	db.run('DELETE FROM searchtags WHERE file_id = ? AND heading_id = ?', [fileId, headingId]);
@@ -97,10 +118,12 @@ function deleteHeadingScopedRows(db, fileId, headingId, options) {
 		fileId,
 		headingId
 	]);
-	for (const table of TYPED_METADATA_TABLES) {
+	for (const table of typedMetadataTablesForZone(zone)) {
 		db.run(`DELETE FROM ${table} WHERE file_id = ? AND heading_id = ?`, [fileId, headingId]);
 	}
-	db.run(`DELETE FROM issues WHERE file_id = ? AND heading_id = ?`, [fileId, headingId]);
+	if (zone === 'project') {
+		db.run(`DELETE FROM issues WHERE file_id = ? AND heading_id = ?`, [fileId, headingId]);
+	}
 	db.run(`DELETE FROM ${REMAINING_METADATA_TABLE} WHERE file_id = ? AND heading_id = ?`, [
 		fileId,
 		headingId
@@ -286,9 +309,11 @@ function loadTypeLookupMaps(db) {
  *   issueKeyByHeadingId?: Map<number, string>,
  *   filePath?: string
  * }} [ctx]
+ * @param {'project' | 'document'} zone
  */
-function insertTypedMetadataRows(db, fileId, typedMetadata, metadataTypeIdByLower, ctx) {
+function insertTypedMetadataRows(db, fileId, typedMetadata, metadataTypeIdByLower, ctx, zone) {
 	const metaMap = metadataTypeIdByLower || new Map();
+	const typedTables = typedMetadataTablesForZone(zone);
 	for (const entry of typedMetadata || []) {
 		const table = String(entry.table || '');
 		const fields = entry.fields || {};
@@ -319,7 +344,7 @@ function insertTypedMetadataRows(db, fileId, typedMetadata, metadataTypeIdByLowe
 			}
 		}
 
-		if (table && TYPED_METADATA_TABLES.includes(table) && Object.keys(fields).length) {
+		if (table && typedTables.includes(table) && Object.keys(fields).length) {
 			if (table === 'concept_metadata') {
 				db.run(`INSERT INTO concept_metadata (file_id, heading_id, domain, status) VALUES (?, ?, ?, ?)`, [
 					fileId,
@@ -491,6 +516,7 @@ function insertSearchTagsAndRelations(db, sourceFileId, parsed, tagIdByLower, re
  * @param {Map<string, number>} tagIdByLower
  * @param {Map<string, number>} [metadataTypeIdByLower]
  * @param {Map<string, number>} [relationTypeIdByLower]
+ * @param {'project' | 'document'} zone
  */
 function insertParsedHeadingsAndReferences(
 	db,
@@ -498,13 +524,16 @@ function insertParsedHeadingsAndReferences(
 	parsed,
 	tagIdByLower,
 	metadataTypeIdByLower,
-	relationTypeIdByLower
+	relationTypeIdByLower,
+	zone
 ) {
 	const metaMap = metadataTypeIdByLower || new Map();
 	const relMap = relationTypeIdByLower || new Map();
 	const filePath = String((parsed.file && parsed.file.path) || '');
-	const projectId = resolveProjectIdForFile(db, filePath, fileId);
-	const featureId = resolveFeatureIdForFile(db, filePath, fileId);
+	// Project/feature scoping only exists in projects.drip; document headings carry none.
+	const isProject = zone === 'project';
+	const projectId = isProject ? resolveProjectIdForFile(db, filePath, fileId) : null;
+	const featureId = isProject ? resolveFeatureIdForFile(db, filePath, fileId) : null;
 	/** @type {Map<number, string>} */
 	const titleByHeadingId = new Map();
 	/** @type {Map<number, number|null>} */
@@ -541,22 +570,22 @@ function insertParsedHeadingsAndReferences(
 						typeName,
 						metaMap
 					);
-		db.run(
-			`INSERT INTO headings (file_id, heading_id, title, metadata_type_id, hash, parent, project_id, feature_id)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			[
-				fileId,
-				headingId,
-				heading.title,
-				metadataTypeId,
-				heading.hash,
-				heading.parent != null && Number.isFinite(Number(heading.parent))
-					? Math.floor(Number(heading.parent))
-					: null,
-				projectId,
-				featureId
-			]
-		);
+		const parent = heading.parent != null && Number.isFinite(Number(heading.parent))
+			? Math.floor(Number(heading.parent))
+			: null;
+		if (isProject) {
+			db.run(
+				`INSERT INTO headings (file_id, heading_id, title, metadata_type_id, hash, parent, project_id, feature_id)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+				[fileId, headingId, heading.title, metadataTypeId, heading.hash, parent, projectId, featureId]
+			);
+		} else {
+			db.run(
+				`INSERT INTO headings (file_id, heading_id, title, metadata_type_id, hash, parent)
+				 VALUES (?, ?, ?, ?, ?, ?)`,
+				[fileId, headingId, heading.title, metadataTypeId, heading.hash, parent]
+			);
+		}
 	}
 	insertSearchTagsAndRelations(db, fileId, parsed, tagIdByLower, relMap);
 	insertTypedMetadataRows(db, fileId, parsed.typedMetadata, metaMap, {
@@ -565,7 +594,7 @@ function insertParsedHeadingsAndReferences(
 		parentByHeadingId,
 		issueKeyByHeadingId,
 		filePath
-	});
+	}, zone);
 }
 
 /**
@@ -882,17 +911,19 @@ async function syncFileHeadingAllocatorFromUsedIds(kbRootUri, fileId, usedNonH0I
 }
 
 /**
- * Full rebuild of index.drip from KB notes on disk.
+ * Full rebuild of both index.drip and projects.drip from KB notes on disk.
  * @param {import('vscode').Uri} kbRootUri
  * @param {import('vscode').ExtensionContext | null | undefined} [context]
  */
 async function rebuildDripIndex(kbRootUri, context) {
 	const handle = await openDripIndexDb(kbRootUri);
+	const projectHandle = openDripProjectsDb(kbRootUri);
 	const usedFileIds = new Set();
 	let nextFileId = 0;
 	const knownTagsLower = collectKnownTagNamesLower(context);
 
 	try {
+		// Reset document scope.
 		handle.db.run('BEGIN');
 		clearAllHeadingEmbeddings(handle.db);
 		try {
@@ -907,14 +938,30 @@ async function rebuildDripIndex(kbRootUri, context) {
 		}
 		handle.db.run('DELETE FROM searchtags');
 		handle.db.run('DELETE FROM relations');
-		for (const table of TYPED_METADATA_TABLES) {
+		for (const table of DOCUMENT_TYPED_METADATA_TABLES) {
 			handle.db.run(`DELETE FROM ${table}`);
 		}
 		handle.db.run(`DELETE FROM ${REMAINING_METADATA_TABLE}`);
 		handle.db.run('DELETE FROM headings');
 		handle.db.run('DELETE FROM files');
+
+		// Reset project scope.
+		projectHandle.db.run('BEGIN');
+		projectHandle.db.run('DELETE FROM searchtags');
+		projectHandle.db.run('DELETE FROM relations');
+		for (const table of PROJECT_TYPED_METADATA_TABLES) {
+			projectHandle.db.run(`DELETE FROM ${table}`);
+		}
+		projectHandle.db.run(`DELETE FROM ${REMAINING_METADATA_TABLE}`);
+		projectHandle.db.run('DELETE FROM issues');
+		projectHandle.db.run('DELETE FROM headings');
+		projectHandle.db.run('DELETE FROM features');
+		projectHandle.db.run('DELETE FROM projects');
+
 		const tagIdByLower = syncTagsTableFromGraph(handle.db, context, { replaceAll: true });
 		const { metadataTypeIdByLower, relationTypeIdByLower } = loadTypeLookupMaps(handle.db);
+		const projectTagIdByLower = syncTagsTableFromGraph(projectHandle.db, context, { replaceAll: true });
+		const projectLookup = loadTypeLookupMaps(projectHandle.db);
 
 		await forEachKnowledgeBaseNote(
 			kbRootUri,
@@ -924,6 +971,7 @@ async function rebuildDripIndex(kbRootUri, context) {
 				}
 
 				const relPath = normalizeRelPath(kbRootUri.fsPath, note.uri.fsPath);
+				const zone = classifyNoteZone(relPath);
 				let stat;
 				try {
 					stat = await vscode.workspace.fs.stat(note.uri);
@@ -951,6 +999,7 @@ async function rebuildDripIndex(kbRootUri, context) {
 				}
 				usedFileIds.add(fileId);
 
+				// Shared `files` registry always lives in index.drip.
 				handle.db.run(
 					`INSERT INTO files (id, path, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
 					[
@@ -962,19 +1011,25 @@ async function rebuildDripIndex(kbRootUri, context) {
 					]
 				);
 
+				const scopeDb = zone === 'project' ? projectHandle.db : handle.db;
+				const scopeTags = zone === 'project' ? projectTagIdByLower : tagIdByLower;
+				const scopeLookup = zone === 'project' ? projectLookup : { metadataTypeIdByLower, relationTypeIdByLower };
 				insertParsedHeadingsAndReferences(
-					handle.db,
+					scopeDb,
 					fileId,
 					parsed,
-					tagIdByLower,
-					metadataTypeIdByLower,
-					relationTypeIdByLower
+					scopeTags,
+					scopeLookup.metadataTypeIdByLower,
+					scopeLookup.relationTypeIdByLower,
+					zone
 				);
 			},
 			{ yieldEvery: 20 }
 		);
 
+		projectHandle.db.run('COMMIT');
 		handle.db.run('COMMIT');
+
 		const maxRow = queryOne(handle.db, 'SELECT COALESCE(MAX(id), -1) FROM files', []);
 		const nextFileIdCounter = maxRow ? Number(maxRow[0]) + 1 : 0;
 		handle.db.run(`INSERT OR REPLACE INTO index_meta(key, value) VALUES ('next_file_id', ?)`, [
@@ -983,136 +1038,185 @@ async function rebuildDripIndex(kbRootUri, context) {
 		await handle.save();
 	} catch (err) {
 		try {
+			projectHandle.db.run('ROLLBACK');
+		} catch {
+			// ignore rollback failure
+		}
+		try {
 			handle.db.run('ROLLBACK');
 		} catch {
 			// ignore rollback failure
 		}
 		throw err;
 	} finally {
+		projectHandle.close();
 		handle.close();
 	}
 }
 
 /**
- * Write parsed note rows into an open transaction (caller owns BEGIN/COMMIT).
- * @param {import('./db/dripSqlite').DripSqliteDatabase} db
+ * Write parsed note rows into `index.drip` (shared `files` + document rows) and, for
+ * project-zone notes, into `projects.drip` (project headings/issues). Owns its transactions.
+ * @param {import('vscode').Uri} kbRootUri
  * @param {string} relPath
  * @param {ReturnType<typeof parseNoteForIndex>} parsed
  * @param {import('vscode').ExtensionContext | null | undefined} [context]
  * @param {{ incremental?: boolean, embeddingUpserts?: { fileId: number, headingId: number }[] }} [options]
  * @returns {number} resolved file id
  */
-function applyParsedNoteToIndex(db, relPath, parsed, context, options) {
+async function applyParsedNoteToIndex(kbRootUri, relPath, parsed, context, options) {
 	const normalizedPath = String(relPath || '').replace(/\\/g, '/');
 	const incremental = !(options && options.incremental === false);
 	const embeddingUpserts =
 		options && Array.isArray(options.embeddingUpserts) ? options.embeddingUpserts : null;
-	const tagIdByLower = syncTagsTableFromGraph(db, context);
-	const { metadataTypeIdByLower, relationTypeIdByLower } = loadTypeLookupMaps(db);
+	const zone = classifyNoteZone(normalizedPath);
 
-	const existing = queryOne(db, 'SELECT id FROM files WHERE path = ?', [normalizedPath]);
-	let fileId = parsed.fileId;
-	if (existing) {
-		fileId = Number(existing[0]);
-		db.run(`UPDATE files SET name = ?, updated_at = ? WHERE id = ?`, [
-			parsed.file.name,
-			parsed.file.updated_at,
-			fileId
-		]);
+	const fileHandle = await openDripIndexDb(kbRootUri);
+	const scopeHandle = zone === 'project' ? openDripProjectsDb(kbRootUri) : fileHandle;
+	try {
+		const fileDb = fileHandle.db;
+		const scopeDb = scopeHandle.db;
+		const tagIdByLower = syncTagsTableFromGraph(scopeDb, context);
+		const { metadataTypeIdByLower, relationTypeIdByLower } = loadTypeLookupMaps(scopeDb);
 
-		if (incremental && parsed._parseMode === 'incremental-subtree') {
-			const dirtyIds = Array.isArray(parsed._dirtyHeadingIds)
-				? [...new Set(parsed._dirtyHeadingIds.map(Number).filter(Number.isFinite))]
-				: findDirtyHeadingIdsByHash(db, fileId, parsed.headings || []);
-			if (dirtyIds.length) {
-				const dirtySet = new Set(dirtyIds);
-				/** @type {Set<number>} */
-				const upsertSet = new Set();
-				for (const headingId of dirtyIds) {
-					const stillPresent = (parsed.headings || []).some(
-						h => Number(h.heading_id) === Number(headingId)
+		fileDb.run('BEGIN');
+		if (scopeHandle !== fileHandle) {
+			scopeDb.run('BEGIN');
+		}
+		try {
+			let fileId = parsed.fileId;
+			const existing = queryOne(fileDb, 'SELECT id FROM files WHERE path = ?', [normalizedPath]);
+			if (existing) {
+				fileId = Number(existing[0]);
+				fileDb.run(`UPDATE files SET name = ?, updated_at = ? WHERE id = ?`, [
+					parsed.file.name,
+					parsed.file.updated_at,
+					fileId
+				]);
+
+				if (incremental && parsed._parseMode === 'incremental-subtree') {
+					const dirtyIds = Array.isArray(parsed._dirtyHeadingIds)
+						? [...new Set(parsed._dirtyHeadingIds.map(Number).filter(Number.isFinite))]
+						: findDirtyHeadingIdsByHash(scopeDb, fileId, parsed.headings || []);
+					if (dirtyIds.length) {
+						const dirtySet = new Set(dirtyIds);
+						/** @type {Set<number>} */
+						const upsertSet = new Set();
+						for (const headingId of dirtyIds) {
+							const stillPresent = (parsed.headings || []).some(
+								h => Number(h.heading_id) === Number(headingId)
+							);
+							if (!stillPresent) {
+								deleteHeadingScopedRows(scopeDb, fileId, headingId, undefined, zone);
+								continue;
+							}
+							const plan =
+								zone === 'project'
+									? { needUpsert: false, keepEmbedding: true }
+									: planHeadingEmbeddingRewrite(scopeDb, fileId, headingId, parsed);
+							if (plan.needUpsert) {
+								upsertSet.add(headingId);
+							}
+							deleteHeadingScopedRows(scopeDb, fileId, headingId, {
+								keepEmbedding: plan.keepEmbedding
+							}, zone);
+						}
+						const slice = filterParsedByHeadingIds(parsed, dirtySet);
+						insertParsedHeadingsAndReferences(
+							scopeDb,
+							fileId,
+							slice,
+							tagIdByLower,
+							metadataTypeIdByLower,
+							relationTypeIdByLower,
+							zone
+						);
+						if (embeddingUpserts && zone === 'document') {
+							for (const headingId of upsertSet) {
+								embeddingUpserts.push({ fileId, headingId });
+							}
+						}
+					}
+				} else {
+					// A full parse (including reconcile-update) replaces this file's derived rows.
+					// This guarantees metadata-only changes cannot be hidden by a stale identity hash.
+					deleteFileHeadingScopedRows(scopeDb, fileId, zone);
+					insertParsedHeadingsAndReferences(
+						scopeDb,
+						fileId,
+						parsed,
+						tagIdByLower,
+						metadataTypeIdByLower,
+						relationTypeIdByLower,
+						zone
 					);
-					if (!stillPresent) {
-						deleteHeadingScopedRows(db, fileId, headingId);
-						continue;
+					if (embeddingUpserts && zone === 'document') {
+						embeddingUpserts.push(...collectAllHeadingEmbeddingTargets(fileId, parsed));
 					}
-					const plan = planHeadingEmbeddingRewrite(db, fileId, headingId, parsed);
-					if (plan.needUpsert) {
-						upsertSet.add(headingId);
-					}
-					deleteHeadingScopedRows(db, fileId, headingId, {
-						keepEmbedding: plan.keepEmbedding
-					});
 				}
-				const slice = filterParsedByHeadingIds(parsed, dirtySet);
+			} else {
+				if (fileId == null || !Number.isFinite(fileId) || fileId < 0) {
+					const maxRow = queryOne(fileDb, 'SELECT COALESCE(MAX(id), -1) FROM files', []);
+					const maxId = maxRow ? Number(maxRow[0]) : -1;
+					fileId = Math.max(0, maxId + 1);
+				} else {
+					const idOwner = queryOne(fileDb, 'SELECT path FROM files WHERE id = ?', [fileId]);
+					if (idOwner && String(idOwner[0] || '').replace(/\\/g, '/') !== normalizedPath) {
+						const maxRow = queryOne(fileDb, 'SELECT COALESCE(MAX(id), -1) FROM files', []);
+						const maxId = maxRow ? Number(maxRow[0]) : -1;
+						fileId = Math.max(0, maxId + 1);
+					}
+				}
+				fileDb.run(
+					`INSERT INTO files (id, path, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+					[
+						fileId,
+						parsed.file.path,
+						parsed.file.name,
+						parsed.file.created_at,
+						parsed.file.updated_at
+					]
+				);
 				insertParsedHeadingsAndReferences(
-					db,
+					scopeDb,
 					fileId,
-					slice,
+					parsed,
 					tagIdByLower,
 					metadataTypeIdByLower,
-					relationTypeIdByLower
+					relationTypeIdByLower,
+					zone
 				);
-				if (embeddingUpserts) {
-					for (const headingId of upsertSet) {
-						embeddingUpserts.push({ fileId, headingId });
-					}
+				if (embeddingUpserts && zone === 'document') {
+					embeddingUpserts.push(...collectAllHeadingEmbeddingTargets(fileId, parsed));
 				}
 			}
-		} else {
-			// A full parse (including reconcile-update) replaces this file's derived rows.
-			// This guarantees metadata-only changes cannot be hidden by a stale identity hash.
-			deleteFileHeadingScopedRows(db, fileId);
-			insertParsedHeadingsAndReferences(
-				db,
-				fileId,
-				parsed,
-				tagIdByLower,
-				metadataTypeIdByLower,
-				relationTypeIdByLower
-			);
-			if (embeddingUpserts) {
-				embeddingUpserts.push(...collectAllHeadingEmbeddingTargets(fileId, parsed));
-			}
-		}
-	} else {
-		if (fileId == null || !Number.isFinite(fileId) || fileId < 0) {
-			const maxRow = queryOne(db, 'SELECT COALESCE(MAX(id), -1) FROM files', []);
-			const maxId = maxRow ? Number(maxRow[0]) : -1;
-			fileId = Math.max(0, maxId + 1);
-		} else {
-			const idOwner = queryOne(db, 'SELECT path FROM files WHERE id = ?', [fileId]);
-			if (idOwner && String(idOwner[0] || '').replace(/\\/g, '/') !== normalizedPath) {
-				const maxRow = queryOne(db, 'SELECT COALESCE(MAX(id), -1) FROM files', []);
-				const maxId = maxRow ? Number(maxRow[0]) : -1;
-				fileId = Math.max(0, maxId + 1);
-			}
-		}
-		db.run(
-			`INSERT INTO files (id, path, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
-			[
-				fileId,
-				parsed.file.path,
-				parsed.file.name,
-				parsed.file.created_at,
-				parsed.file.updated_at
-			]
-		);
-		insertParsedHeadingsAndReferences(
-			db,
-			fileId,
-			parsed,
-			tagIdByLower,
-			metadataTypeIdByLower,
-			relationTypeIdByLower
-		);
-		if (embeddingUpserts) {
-			embeddingUpserts.push(...collectAllHeadingEmbeddingTargets(fileId, parsed));
-		}
-	}
 
-	bumpNextFileIdCounter(db, fileId);
-	return fileId;
+			bumpNextFileIdCounter(fileDb, fileId);
+			if (scopeHandle !== fileHandle) {
+				scopeDb.run('COMMIT');
+			}
+			fileDb.run('COMMIT');
+		} catch (err) {
+			try {
+				if (scopeHandle !== fileHandle) scopeDb.run('ROLLBACK');
+			} catch {
+				// ignore
+			}
+			try {
+				fileDb.run('ROLLBACK');
+			} catch {
+				// ignore
+			}
+			throw err;
+		}
+		fileHandle.save();
+		return fileId;
+	} finally {
+		if (scopeHandle !== fileHandle) {
+			scopeHandle.close();
+		}
+		fileHandle.close();
+	}
 }
 
 /**
@@ -1121,7 +1225,9 @@ function applyParsedNoteToIndex(db, relPath, parsed, context, options) {
  */
 async function removeFileFromDripIndex(kbRootUri, relPath) {
 	const normalized = String(relPath || '').replace(/\\/g, '/');
+	const zone = classifyNoteZone(normalized);
 	const handle = await openDripIndexDb(kbRootUri);
+	const scopeHandle = zone === 'project' ? openDripProjectsDb(kbRootUri) : handle;
 	try {
 		const row = queryOne(handle.db, 'SELECT id FROM files WHERE path = ?', [normalized]);
 		if (!row) {
@@ -1129,18 +1235,39 @@ async function removeFileFromDripIndex(kbRootUri, relPath) {
 		}
 		const fileId = Number(row[0]);
 		handle.db.run('BEGIN');
-		deleteFileHeadingScopedRows(handle.db, fileId);
-		handle.db.run('DELETE FROM files WHERE id = ?', [fileId]);
-		handle.db.run('COMMIT');
-		await handle.save();
-	} catch (err) {
-		try {
-			handle.db.run('ROLLBACK');
-		} catch {
-			// ignore
+		if (scopeHandle !== handle) {
+			scopeHandle.db.run('BEGIN');
 		}
-		throw err;
+		try {
+			deleteFileHeadingScopedRows(scopeHandle.db, fileId, zone);
+			if (zone === 'project') {
+				// Mirror the old `ON DELETE SET NULL` FK on project/feature index notes.
+				scopeHandle.db.run('UPDATE projects SET index_file_id = NULL WHERE index_file_id = ?', [fileId]);
+				scopeHandle.db.run('UPDATE features SET index_file_id = NULL WHERE index_file_id = ?', [fileId]);
+			}
+			handle.db.run('DELETE FROM files WHERE id = ?', [fileId]);
+			if (scopeHandle !== handle) {
+				scopeHandle.db.run('COMMIT');
+			}
+			handle.db.run('COMMIT');
+			await handle.save();
+		} catch (err) {
+			try {
+				if (scopeHandle !== handle) scopeHandle.db.run('ROLLBACK');
+			} catch {
+				// ignore
+			}
+			try {
+				handle.db.run('ROLLBACK');
+			} catch {
+				// ignore
+			}
+			throw err;
+		}
 	} finally {
+		if (scopeHandle !== handle) {
+			scopeHandle.close();
+		}
 		handle.close();
 	}
 }
@@ -1176,65 +1303,102 @@ async function lookupFileRowById(kbRootUri, fileId) {
  * Bind `fileId` to this parsed note path and replace all heading-scoped rows.
  * Used by unwired `reconcileUpdate` (reclaim / first insert / new id).
  *
- * @param {import('./db/dripSqlite').DripSqliteDatabase} db
+ * @param {import('vscode').Uri} kbRootUri
  * @param {number} fileId
  * @param {ReturnType<typeof parseNoteForIndex>} parsed
  * @param {import('vscode').ExtensionContext | null | undefined} [context]
  * @param {{ embeddingUpserts?: { fileId: number, headingId: number }[] }} [options]
  * @returns {number}
  */
-function replaceParsedNoteAtFileId(db, fileId, parsed, context, options) {
+async function replaceParsedNoteAtFileId(kbRootUri, fileId, parsed, context, options) {
 	const id = Math.floor(Number(fileId));
 	const normalizedPath = String((parsed && parsed.file && parsed.file.path) || '').replace(/\\/g, '/');
 	const embeddingUpserts =
 		options && Array.isArray(options.embeddingUpserts) ? options.embeddingUpserts : null;
-	const tagIdByLower = syncTagsTableFromGraph(db, context);
-	const { metadataTypeIdByLower, relationTypeIdByLower } = loadTypeLookupMaps(db);
+	const zone = classifyNoteZone(normalizedPath);
 
-	const pathOwner = queryOne(db, 'SELECT id FROM files WHERE path = ?', [normalizedPath]);
-	if (pathOwner) {
-		const ownerId = Number(pathOwner[0]);
-		if (Number.isFinite(ownerId) && ownerId !== id) {
-			deleteFileHeadingScopedRows(db, ownerId);
-			db.run('DELETE FROM files WHERE id = ?', [ownerId]);
+	const fileHandle = await openDripIndexDb(kbRootUri);
+	const scopeHandle = zone === 'project' ? openDripProjectsDb(kbRootUri) : fileHandle;
+	try {
+		const fileDb = fileHandle.db;
+		const scopeDb = scopeHandle.db;
+		const tagIdByLower = syncTagsTableFromGraph(scopeDb, context);
+		const { metadataTypeIdByLower, relationTypeIdByLower } = loadTypeLookupMaps(scopeDb);
+
+		fileDb.run('BEGIN');
+		if (scopeHandle !== fileHandle) {
+			scopeDb.run('BEGIN');
 		}
-	}
+		try {
+			const pathOwner = queryOne(fileDb, 'SELECT id FROM files WHERE path = ?', [normalizedPath]);
+			if (pathOwner) {
+				const ownerId = Number(pathOwner[0]);
+				if (Number.isFinite(ownerId) && ownerId !== id) {
+					deleteFileHeadingScopedRows(scopeDb, ownerId, zone);
+					fileDb.run('DELETE FROM files WHERE id = ?', [ownerId]);
+				}
+			}
 
-	const existing = queryOne(db, 'SELECT id FROM files WHERE id = ?', [id]);
-	if (existing) {
-		db.run(`UPDATE files SET path = ?, name = ?, updated_at = ? WHERE id = ?`, [
-			normalizedPath,
-			parsed.file.name,
-			parsed.file.updated_at,
-			id
-		]);
-		deleteFileHeadingScopedRows(db, id);
-	} else {
-		db.run(
-			`INSERT INTO files (id, path, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
-			[
+			const existing = queryOne(fileDb, 'SELECT id FROM files WHERE id = ?', [id]);
+			if (existing) {
+				fileDb.run(`UPDATE files SET path = ?, name = ?, updated_at = ? WHERE id = ?`, [
+					normalizedPath,
+					parsed.file.name,
+					parsed.file.updated_at,
+					id
+				]);
+				deleteFileHeadingScopedRows(scopeDb, id, zone);
+			} else {
+				fileDb.run(
+					`INSERT INTO files (id, path, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+					[
+						id,
+						normalizedPath,
+						parsed.file.name,
+						parsed.file.created_at,
+						parsed.file.updated_at
+					]
+				);
+			}
+
+			insertParsedHeadingsAndReferences(
+				scopeDb,
 				id,
-				normalizedPath,
-				parsed.file.name,
-				parsed.file.created_at,
-				parsed.file.updated_at
-			]
-		);
+				parsed,
+				tagIdByLower,
+				metadataTypeIdByLower,
+				relationTypeIdByLower,
+				zone
+			);
+			if (embeddingUpserts && zone === 'document') {
+				embeddingUpserts.push(...collectAllHeadingEmbeddingTargets(id, parsed));
+			}
+			bumpNextFileIdCounter(fileDb, id);
+			if (scopeHandle !== fileHandle) {
+				scopeDb.run('COMMIT');
+			}
+			fileDb.run('COMMIT');
+		} catch (err) {
+			try {
+				if (scopeHandle !== fileHandle) scopeDb.run('ROLLBACK');
+			} catch {
+				// ignore
+			}
+			try {
+				fileDb.run('ROLLBACK');
+			} catch {
+				// ignore
+			}
+			throw err;
+		}
+		fileHandle.save();
+		return id;
+	} finally {
+		if (scopeHandle !== fileHandle) {
+			scopeHandle.close();
+		}
+		fileHandle.close();
 	}
-
-	insertParsedHeadingsAndReferences(
-		db,
-		id,
-		parsed,
-		tagIdByLower,
-		metadataTypeIdByLower,
-		relationTypeIdByLower
-	);
-	if (embeddingUpserts) {
-		embeddingUpserts.push(...collectAllHeadingEmbeddingTargets(id, parsed));
-	}
-	bumpNextFileIdCounter(db, id);
-	return id;
 }
 
 /**

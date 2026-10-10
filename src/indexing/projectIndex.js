@@ -1,7 +1,10 @@
 'use strict';
 
 /**
- * Project-scoped index helpers (schema v14).
+ * Project-scoped index helpers.
+ *
+ * These operate on the project-scoped `projects.drip` database (opened by callers via
+ * `openDripProjectsDb`), never on `index.drip`.
  * - `projects` rows keyed by folder_prefix (e.g. `sample/kjh.p/`)
  * - `headings.project_id` set for every heading under a `.p` folder
  * - `issues` rows keyed by (project_id, issue_key) with parent_issue_key hierarchy
@@ -153,6 +156,24 @@ function resolveProjectIdForFile(db, filePath, fileId) {
 	const prefix = projectFolderPrefixFromPath(filePath);
 	if (!prefix) return null;
 	return ensureProjectRow(db, prefix, { fileId, filePath });
+}
+
+/**
+ * True when a KB-relative path belongs to the project zone (under a `.p` project
+ * folder or a `.f` feature folder). Project-zone notes index into `projects.drip`.
+ * @param {string} filePath
+ * @returns {boolean}
+ */
+function isProjectNotePath(filePath) {
+	return Boolean(projectFolderPrefixFromPath(filePath) || featureFolderPrefixFromPath(filePath));
+}
+
+/**
+ * @param {string} filePath
+ * @returns {'project' | 'document'}
+ */
+function classifyNoteZone(filePath) {
+	return isProjectNotePath(filePath) ? 'project' : 'document';
 }
 
 /**
@@ -366,10 +387,12 @@ function upsertIssueRow(db, row) {
 
 module.exports = {
 	projectFolderPrefixFromPath,
+	featureFolderPrefixFromPath,
+	isProjectNotePath,
+	classifyNoteZone,
 	allocateProjectId,
 	ensureProjectRow,
 	resolveProjectIdForFile,
-	featureFolderPrefixFromPath,
 	allocateFeatureId,
 	ensureFeatureRow,
 	resolveFeatureIdForFile,

@@ -17,8 +17,8 @@
 /** @type {Map<string, Map<string, HeadingEmbeddingJob>>} kbKey → jobKey → job */
 const queuesByKb = new Map();
 
-/** @type {Map<string, boolean>} */
-const draining = new Map();
+/** @type {Map<string, Promise<{ processed: number, skippedBusy: boolean }>>} */
+const inFlight = new Map();
 
 /**
  * @param {import('vscode').Uri | { fsPath?: string } | string | null | undefined} kbRoot
@@ -114,12 +114,15 @@ function takeHeadingEmbeddingJobs(kbRootUri) {
  */
 async function drainHeadingEmbeddingQueue(kbRootUri, worker) {
 	const key = kbKey(kbRootUri);
-	if (draining.get(key)) {
-		return { processed: 0, skippedBusy: true };
+	// Re-entrant calls (e.g. the debounced background drain running while the reset
+	// awaits) must await the same in-flight drain instead of starting a second one —
+	// otherwise the second caller would return early and read a half-encoded index.
+	const existing = inFlight.get(key);
+	if (existing) {
+		return existing;
 	}
-	draining.set(key, true);
-	let processed = 0;
-	try {
+	const run = (async () => {
+		let processed = 0;
 		for (;;) {
 			const jobs = takeHeadingEmbeddingJobs(kbRootUri);
 			if (!jobs.length) {
@@ -130,10 +133,14 @@ async function drainHeadingEmbeddingQueue(kbRootUri, worker) {
 				processed++;
 			}
 		}
+		return { processed, skippedBusy: false };
+	})();
+	inFlight.set(key, run);
+	try {
+		return await run;
 	} finally {
-		draining.set(key, false);
+		inFlight.delete(key);
 	}
-	return { processed, skippedBusy: false };
 }
 
 /**
@@ -142,12 +149,12 @@ async function drainHeadingEmbeddingQueue(kbRootUri, worker) {
 function clearHeadingEmbeddingQueue(kbRootUri) {
 	if (kbRootUri == null || kbRootUri === '') {
 		queuesByKb.clear();
-		draining.clear();
+		inFlight.clear();
 		return;
 	}
 	const key = kbKey(kbRootUri);
 	queuesByKb.delete(key);
-	draining.delete(key);
+	inFlight.delete(key);
 }
 
 module.exports = {

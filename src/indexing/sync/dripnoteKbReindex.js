@@ -11,6 +11,7 @@
 const vscode = require('vscode');
 const { forEachKnowledgeBaseNotePath } = require('../kbFilesystem');
 const { resetDripIndexDatabase } = require('../dripIndexDb');
+const { resetDripProjectsDatabase } = require('../dripProjectDb');
 const { clearHeadingAllocCache } = require('../dripnoteHeadingIdentity');
 const { reconcileUpdate } = require('./dripnoteReconcileUpdate');
 
@@ -41,7 +42,8 @@ async function listNotesForReindex(kbRootUri, options) {
  *   respectDripignore: boolean,
  *   title: string,
  *   token?: import('vscode').CancellationToken,
- *   progress?: import('vscode').Progress<{ message?: string, increment?: number }>
+ *   progress?: import('vscode').Progress<{ message?: string, increment?: number }>,
+ *   onReconcileDone?: (stats: { total: number, updated: number, unchanged: number, failed: number, cancelled: boolean, errors: { path: string, message: string }[] }) => void
  * }} options
  */
 async function runKbReconcileReindex(kbRootUri, context, options) {
@@ -50,6 +52,7 @@ async function runKbReconcileReindex(kbRootUri, context, options) {
 		progress?.report({ message: 'Resetting index.drip…' });
 		clearHeadingAllocCache();
 		await resetDripIndexDatabase(kbRootUri);
+		await resetDripProjectsDatabase(kbRootUri);
 	}
 
 	progress?.report({ message: 'Listing notes…' });
@@ -95,17 +98,30 @@ async function runKbReconcileReindex(kbRootUri, context, options) {
 
 	const cancelled = !!(options.token && options.token.isCancellationRequested);
 
-	// Full reset: block until every heading + folder vector is written.
+	// Report the file-reconcile result first (before the slower embedding pass), so
+	// the user sees how many notes were rewritten/unaffected right away.
+	if (typeof options.onReconcileDone === 'function') {
+		options.onReconcileDone({
+			total: notes.length,
+			updated,
+			unchanged,
+			failed,
+			cancelled,
+			errors
+		});
+	}
+
+	// Full reset: block until every heading + folder vector is written, then report
+	// the totals actually stored in `index.drip`.
 	/** @type {{ headingsEncoded?: number, foldersEncoded?: number }} */
 	const embedStats = {};
 	if (options.resetDatabase && !cancelled) {
 		try {
 			const { awaitHeadingEmbeddingsReady } = require('../embeddings/headingEmbeddingSync');
-			const h = await awaitHeadingEmbeddingsReady(kbRootUri, {
+			await awaitHeadingEmbeddingsReady(kbRootUri, {
 				progress,
 				token: options.token
 			});
-			embedStats.headingsEncoded = h.processed;
 		} catch (err) {
 			console.error('[DRIP] heading embedding await after reset failed', err);
 			errors.push({
@@ -117,11 +133,10 @@ async function runKbReconcileReindex(kbRootUri, context, options) {
 		if (!(options.token && options.token.isCancellationRequested)) {
 			try {
 				const { awaitFolderEmbeddingsReady } = require('../embeddings/folderEmbeddingSync');
-				const f = await awaitFolderEmbeddingsReady(kbRootUri, {
+				await awaitFolderEmbeddingsReady(kbRootUri, {
 					progress,
 					token: options.token
 				});
-				embedStats.foldersEncoded = f.processed;
 			} catch (err) {
 				console.error('[DRIP] folder embedding await after reset failed', err);
 				errors.push({
@@ -130,6 +145,20 @@ async function runKbReconcileReindex(kbRootUri, context, options) {
 				});
 				failed += 1;
 			}
+		}
+		try {
+			const { openDripIndexDb } = require('../dripIndexDb');
+			const { countHeadingEmbeddings } = require('../embeddings/headingEmbeddingStore');
+			const { countFolderEmbeddings } = require('../embeddings/folderEmbeddingStore');
+			const handle = await openDripIndexDb(kbRootUri);
+			try {
+				embedStats.headingsEncoded = countHeadingEmbeddings(handle.db);
+				embedStats.foldersEncoded = countFolderEmbeddings(handle.db);
+			} finally {
+				handle.close();
+			}
+		} catch (err) {
+			console.error('[DRIP] embedding count after reset failed', err);
 		}
 		progress?.report({ message: 'Embeddings complete' });
 	}
@@ -168,14 +197,16 @@ async function reindexCurrentKbWorkspace(kbRootUri, context, token, progress) {
  * @param {import('vscode').ExtensionContext | null | undefined} context
  * @param {import('vscode').CancellationToken} [token]
  * @param {import('vscode').Progress<{ message?: string, increment?: number }>} [progress]
+ * @param {{ onReconcileDone?: (stats: { total: number, updated: number, unchanged: number, failed: number, cancelled: boolean, errors: { path: string, message: string }[] }) => void }} [opts]
  */
-async function resetReindexEntireDriplockFolder(kbRootUri, context, token, progress) {
+async function resetReindexEntireDriplockFolder(kbRootUri, context, token, progress, opts) {
 	return runKbReconcileReindex(kbRootUri, context, {
 		resetDatabase: true,
 		respectDripignore: false,
 		title: 'Reset/reindex the entire KB driplock folder',
 		token,
-		progress
+		progress,
+		onReconcileDone: opts && opts.onReconcileDone
 	});
 }
 
@@ -199,15 +230,12 @@ async function runReindexWithProgress(title, runner) {
 }
 
 /**
- * @param {{ total: number, updated: number, unchanged: number, failed: number, cancelled?: boolean, errors?: { path: string, message: string }[], headingsEncoded?: number, foldersEncoded?: number }} result
+ * @param {{ total: number, updated: number, unchanged: number, failed: number, cancelled?: boolean, errors?: { path: string, message: string }[] }} result
  * @param {string} label
  */
-function showReindexResult(result, label) {
+function showReconcileResult(result, label) {
 	const cancelled = result.cancelled ? ' (cancelled)' : '';
-	let summary = `${label}: ${result.updated} note(s) rewritten, ${result.unchanged} unchanged, ${result.failed} failed, ${result.total} in scope${cancelled}.`;
-	if (typeof result.headingsEncoded === 'number' || typeof result.foldersEncoded === 'number') {
-		summary += ` Embeddings: ${result.headingsEncoded || 0} heading(s), ${result.foldersEncoded || 0} folder(s).`;
-	}
+	const summary = `${label}: ${result.updated} note(s) rewritten, ${result.unchanged} unchanged, ${result.failed} failed, ${result.total} in scope${cancelled}.`;
 	const errors = result.errors || [];
 	if (result.failed > 0) {
 		const extra = errors
@@ -218,6 +246,19 @@ function showReindexResult(result, label) {
 		return;
 	}
 	void vscode.window.showInformationMessage(summary);
+}
+
+/**
+ * Report embedding totals stored after a reset (shown after the reconcile message).
+ * @param {{ headingsEncoded?: number, foldersEncoded?: number }} result
+ */
+function showEmbeddingResult(result) {
+	if (typeof result.headingsEncoded !== 'number' && typeof result.foldersEncoded !== 'number') {
+		return;
+	}
+	void vscode.window.showInformationMessage(
+		`Embeddings stored: ${result.headingsEncoded || 0} heading(s), ${result.foldersEncoded || 0} folder(s).`
+	);
 }
 
 /**
@@ -238,9 +279,12 @@ async function promptAndRunKbReindex(kind, kbRootUri, context) {
 		}
 		const result = await runReindexWithProgress(
 			'Reset/reindex the entire KB driplock folder',
-			(token, progress) => resetReindexEntireDriplockFolder(kbRootUri, context, token, progress)
+			(token, progress) =>
+				resetReindexEntireDriplockFolder(kbRootUri, context, token, progress, {
+					onReconcileDone: stats => showReconcileResult(stats, 'Reset/reindex')
+				})
 		);
-		showReindexResult(result, 'Reset/reindex');
+		showEmbeddingResult(result);
 		return;
 	}
 
@@ -257,7 +301,7 @@ async function promptAndRunKbReindex(kind, kbRootUri, context) {
 		'Update/reindex the current KB working space',
 		(token, progress) => reindexCurrentKbWorkspace(kbRootUri, context, token, progress)
 	);
-	showReindexResult(result, 'Update/reindex');
+	showReconcileResult(result, 'Update/reindex');
 }
 
 module.exports = {
@@ -265,5 +309,6 @@ module.exports = {
 	resetReindexEntireDriplockFolder,
 	promptAndRunKbReindex,
 	runReindexWithProgress,
-	showReindexResult
+	showReconcileResult,
+	showEmbeddingResult
 };

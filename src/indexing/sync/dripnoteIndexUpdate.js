@@ -4,7 +4,6 @@ const path = require('path');
 const vscode = require('vscode');
 const { parseNoteForIndex } = require('../dripIndexParse');
 const {
-	openDripIndexDb,
 	applyParsedNoteToIndex,
 	collectKnownTagNamesLower
 } = require('../dripIndexDb');
@@ -162,33 +161,18 @@ async function updateNoteInDripIndex(kbRootUri, noteUri, context, options) {
 		return { updated: false, signature, fileId: parsed.fileId, parsed };
 	}
 
-	const handle = await openDripIndexDb(kbRootUri);
 	/** @type {{ fileId: number, headingId: number }[]} */
 	const embeddingUpserts = [];
-	try {
-		handle.db.run('BEGIN');
-		const fileId = applyParsedNoteToIndex(handle.db, relPath, parsed, context, {
-			incremental: !options?.force,
-			embeddingUpserts
-		});
-		handle.db.run('COMMIT');
-		await handle.save();
-		enqueueHeadingEmbeddingUpserts(kbRootUri, embeddingUpserts);
-		if (relPath) {
-			const { enqueueFolderEmbeddingsForNotePath } = require('../embeddings/folderEmbeddingSync');
-			enqueueFolderEmbeddingsForNotePath(kbRootUri, relPath);
-		}
-		return { updated: true, signature, fileId, parsed };
-	} catch (err) {
-		try {
-			handle.db.run('ROLLBACK');
-		} catch {
-			// ignore
-		}
-		throw err;
-	} finally {
-		handle.close();
+	const fileId = await applyParsedNoteToIndex(kbRootUri, relPath, parsed, context, {
+		incremental: !options?.force,
+		embeddingUpserts
+	});
+	enqueueHeadingEmbeddingUpserts(kbRootUri, embeddingUpserts);
+	if (relPath) {
+		const { enqueueFolderEmbeddingsForNotePath } = require('../embeddings/folderEmbeddingSync');
+		enqueueFolderEmbeddingsForNotePath(kbRootUri, relPath);
 	}
+	return { updated: true, signature, fileId, parsed };
 }
 
 /** @deprecated Use `updateNoteInDripIndex` — kept for existing call sites. */

@@ -84,7 +84,6 @@ var mainDownX = 0, mainDownY = 0, mainPointerMoved = false;
 	var btnCombineAddEl = document.getElementById('stag-btn-combine-add');
 	var btnCombineCreateEl = document.getElementById('stag-btn-combine-create');
 	var btnCombineCancelEl = document.getElementById('stag-btn-combine-cancel');
-	var graphFolderNoteEl = document.getElementById('stag-graph-folder-note');
 	var optShowOrphansEl = document.getElementById('stag-opt-show-orphans');
 	var optShowArrowsEl = document.getElementById('stag-opt-show-arrows');
 	var optRigidEl = document.getElementById('stag-opt-rigid');
@@ -102,12 +101,6 @@ var mainDownX = 0, mainDownY = 0, mainPointerMoved = false;
 	var deleteIncludeWrapEl = document.getElementById('stag-delete-include-wrap');
 	var btnDeleteConfirmEl = document.getElementById('stag-btn-delete-confirm');
 	var btnDeleteCancelEl = document.getElementById('stag-btn-delete-cancel');
-	var linkRelationEl = document.getElementById('stag-link-relation');
-	var btnRenameRelationEl = document.getElementById('stag-btn-rename-relation');
-	var btnDeleteRelationEl = document.getElementById('stag-btn-delete-relation');
-	var relationEditorNameEl = document.getElementById('stag-relation-editor-name');
-	var btnRelationEditorSaveEl = document.getElementById('stag-btn-relation-editor-save');
-	var btnRelationEditorCancelEl = document.getElementById('stag-btn-relation-editor-cancel');
 	var optShowGroupsEl = document.getElementById('stag-opt-show-groups');
 	var groupsWrapEl = document.getElementById('stag-groups-wrap');
 	var groupManageEl = document.getElementById('stag-group-manage');
@@ -139,8 +132,6 @@ var mainDownX = 0, mainDownY = 0, mainPointerMoved = false;
 	var isCombineMode = false;
 	var combineSourceIds = [];
 	var storedGraphsCache = [];
-	var relationEditorMode = '';
-	var relationEditorTargetId = '';
 	var groupEditorMode = '';
 	var groupEditorTargetId = '';
 	var isGroupNodeSelectMode = false;
@@ -314,7 +305,7 @@ var mainDownX = 0, mainDownY = 0, mainPointerMoved = false;
 	}
 function isRootLink(L) {
 	var s = rootIdSet();
-	return s[L.from] && s[L.to] && isActiveRelationLink(L);
+	return s[L.from] && s[L.to];
 }
 	function childCount(parentId) {
 		var c = 0;
@@ -333,7 +324,7 @@ function isRootLink(L) {
 	}
 function isSubFocusLink(L, focusId) {
 	var s = subFocusIdSet(focusId);
-	return s[L.from] && s[L.to] && isActiveRelationLink(L);
+	return s[L.from] && s[L.to];
 }
 	function rootDegreeMap() {
 		var m = {};
@@ -351,26 +342,6 @@ function isSubFocusLink(L, focusId) {
 		var boost = Math.min(1.2, Math.log(1 + d) * 0.35);
 		return base * (1 + boost);
 	}
-	function relationTypes() {
-		return Array.isArray(graph.relationTypes) && graph.relationTypes.length
-			? graph.relationTypes
-			: [{ id: 'main', name: 'Main' }];
-	}
-	function relationNameById(id) {
-		var rid = String(id || 'main');
-		for (var i = 0; i < relationTypes().length; i++) {
-			var r = relationTypes()[i];
-			if (String(r.id) === rid) return String(r.name || r.id);
-		}
-		return 'Main';
-	}
-function activeRelationId() {
-	var rid = linkRelationEl ? String(linkRelationEl.value || 'main') : 'main';
-	return rid === '__create_new__' ? 'main' : rid;
-}
-function isActiveRelationLink(L) {
-	return String(L && L.relationId ? L.relationId : 'main') === activeRelationId();
-}
 	function groupById(id) {
 		var gid = String(id || '');
 		if (!gid) return null;
@@ -379,53 +350,6 @@ function isActiveRelationLink(L) {
 			if (String(gs[i].id || '') === gid) return gs[i];
 		}
 		return null;
-	}
-	function updateRelationUi() {
-		if (!linkRelationEl) return;
-		var keep = String(linkRelationEl.value || 'main');
-		var rels = relationTypes();
-		linkRelationEl.innerHTML = '';
-		for (var i = 0; i < rels.length; i++) {
-			var o = document.createElement('option');
-			o.value = String(rels[i].id);
-			o.textContent = String(rels[i].name || rels[i].id);
-			linkRelationEl.appendChild(o);
-		}
-		var oNew = document.createElement('option');
-		oNew.value = '__create_new__';
-		oNew.textContent = '+ Create new relation';
-		linkRelationEl.appendChild(oNew);
-		linkRelationEl.value = rels.some(function (r) { return String(r.id) === keep; }) ? keep : 'main';
-		if (btnDeleteRelationEl) {
-			btnDeleteRelationEl.disabled = String(linkRelationEl.value || 'main') === 'main';
-		}
-		if (btnRenameRelationEl) {
-			btnRenameRelationEl.disabled = String(linkRelationEl.value || '') === '__create_new__';
-		}
-	}
-
-	function setRelationEditorMode(mode, relationId) {
-		relationEditorMode = String(mode || '');
-		relationEditorTargetId = String(relationId || '');
-		var on = relationEditorMode === 'create' || relationEditorMode === 'rename';
-		if (linkRelationEl) linkRelationEl.hidden = on;
-		if (relationEditorNameEl) relationEditorNameEl.hidden = !on;
-		if (btnRenameRelationEl) btnRenameRelationEl.hidden = on;
-		if (btnDeleteRelationEl) btnDeleteRelationEl.hidden = on;
-		if (btnRelationEditorSaveEl) btnRelationEditorSaveEl.hidden = !on;
-		if (btnRelationEditorCancelEl) btnRelationEditorCancelEl.hidden = !on;
-		if (!on) return;
-		if (!relationEditorNameEl) return;
-		if (relationEditorMode === 'rename') {
-			var rel = relationTypes().find(function (r) { return String(r.id) === relationEditorTargetId; });
-			relationEditorNameEl.value = rel ? String(rel.name || '') : '';
-			relationEditorNameEl.placeholder = 'Rename relation';
-		} else {
-			relationEditorNameEl.value = '';
-			relationEditorNameEl.placeholder = 'Relation name';
-		}
-		relationEditorNameEl.focus();
-		relationEditorNameEl.select();
 	}
 	function updateGroupsUi() {
 		if (groupsWrapEl && optShowGroupsEl) groupsWrapEl.hidden = !optShowGroupsEl.checked;
@@ -1151,8 +1075,7 @@ function isActiveRelationLink(L) {
 			if (!isRootLink(L)) continue;
 			var li = document.createElement('li');
 			var span = document.createElement('span');
-			var rel = relationNameById(L.relationId || 'main');
-			span.textContent = '[' + rel + '] ' + labelFor(L.from) + ' \u2192 ' + labelFor(L.to);
+			span.textContent = labelFor(L.from) + ' \u2192 ' + labelFor(L.to);
 			var btn = document.createElement('button');
 			btn.type = 'button';
 			btn.textContent = 'Remove';
@@ -1168,7 +1091,6 @@ function isActiveRelationLink(L) {
 
 	function updateSidebar() {
 		fillSelects();
-		updateRelationUi();
 		updateGroupsUi();
 		renderLinksList();
 		if (selInfoEl) {
@@ -1180,19 +1102,16 @@ function isActiveRelationLink(L) {
 				var connections = [];
 				for (var i = 0; i < graph.links.length; i++) {
 					var L = graph.links[i];
-					if (!isActiveRelationLink(L)) continue;
 					if (L.from === s.id) children.push(labelFor(L.to));
 					if (L.to === s.id) parents.push(labelFor(L.from));
 				}
 				var pair = {};
 				for (var j = 0; j < graph.links.length; j++) {
 					var D = graph.links[j];
-					if (!isActiveRelationLink(D)) continue;
 					pair[D.from + '->' + D.to] = true;
 				}
 				for (var k = 0; k < graph.links.length; k++) {
 					var B = graph.links[k];
-					if (!isActiveRelationLink(B)) continue;
 					if (B.from !== s.id || B.to === s.id) continue;
 					if (pair[B.to + '->' + B.from]) connections.push(labelFor(B.to));
 				}
@@ -1751,11 +1670,10 @@ function isActiveRelationLink(L) {
 				version: g.version,
 				nodes: g.nodes,
 				links: g.links || [],
-				relationTypes: Array.isArray(g.relationTypes) ? g.relationTypes : [{ id: 'main', name: 'Main' }],
 				groups: Array.isArray(g.groups) ? g.groups : []
 			};
 		} else {
-			graph = { version: 2, nodes: [], links: [], relationTypes: [{ id: 'main', name: 'Main' }], groups: [] };
+			graph = { version: 2, nodes: [], links: [], groups: [] };
 		}
 		syncNodesFromGraph();
 		if (selectedId && !tagById(selectedId)) {
@@ -1820,11 +1738,6 @@ function isActiveRelationLink(L) {
 		}
 		if (graphNameEl) {
 			graphNameEl.value = activeName;
-		}
-		if (graphFolderNoteEl) {
-			var folderPath = String(m.graphFolderPath || '');
-			graphFolderNoteEl.textContent = folderPath ? folderPath : 'Knowledge base graphs (.dripindex/graphs.drip)';
-			graphFolderNoteEl.title = folderPath || 'Tag graphs are stored in the active knowledge base';
 		}
 		if (isRenamingGraph) {
 			setGraphRenameMode(false);
@@ -2138,8 +2051,7 @@ function isActiveRelationLink(L) {
 			vscode.postMessage({
 				type: 'addLink',
 				fromId: linkSourceId,
-				toId: hit.id,
-				relationId: activeRelationId()
+				toId: hit.id
 			});
 			linkSourceId = '';
 			selectedId = hit.id;
@@ -2395,8 +2307,7 @@ function isActiveRelationLink(L) {
 					type: 'addSubGraphLink',
 					parentTagId: openSubtagPanelId,
 					fromId: subLinkSourceId,
-					toId: hit.id,
-					relationId: activeRelationId()
+					toId: hit.id
 				});
 				subLinkSourceId = '';
 				subSelectedId = hit.id;
@@ -2444,8 +2355,7 @@ function isActiveRelationLink(L) {
 					type: 'addSubGraphLink',
 					parentTagId: openSubtagPanelId,
 					fromId: subLinkSourceId,
-					toId: subSelectedId,
-					relationId: activeRelationId()
+					toId: subSelectedId
 				});
 				subLinkSourceId = '';
 			} else if (act === 'sub-node-arm-link' && subSelectedId) {
@@ -2481,8 +2391,7 @@ function isActiveRelationLink(L) {
 						type: 'addSubGraphLink',
 						parentTagId: openSubtagPanelId,
 						fromId: Lk.to,
-						toId: Lk.from,
-						relationId: String(Lk.relationId || 'main')
+						toId: Lk.from
 					});
 				}
 			} else if (act === 'sub-link-remove-between' && openSubtagPanelId && savedEdge && removeWhich) {
@@ -2491,8 +2400,7 @@ function isActiveRelationLink(L) {
 					parentTagId: openSubtagPanelId,
 					fromId: savedEdge.from,
 					toId: savedEdge.to,
-					which: removeWhich,
-					relationId: activeRelationId()
+					which: removeWhich
 				});
 			} else if (act === 'sub-canvas-new' && openSubtagPanelId && savedWorld) {
 				vscode.postMessage({
@@ -2515,16 +2423,6 @@ function isActiveRelationLink(L) {
 	}
 	var btnAdd = document.getElementById('stag-btn-add');
 	if (btnAdd) btnAdd.addEventListener('click', submitNewTagFromSidebar);
-	if (linkRelationEl) linkRelationEl.addEventListener('change', function () {
-		if (String(linkRelationEl.value || '') === '__create_new__') {
-			setRelationEditorMode('create', '');
-			return;
-		}
-		setRelationEditorMode('', '');
-		updateRelationUi();
-		updateSidebar();
-		kickSimulation();
-	});
 
 	// Stop selection mode only on an actual empty click (not drag/pan).
 	canvas.addEventListener('click', function (ev) {
@@ -2537,54 +2435,6 @@ function isActiveRelationLink(L) {
 		var w = screenToWorld(p.x, p.y);
 		var hit = pickNode(w.x, w.y);
 		if (!hit) setGroupNodeSelectMode(false);
-	});
-	if (btnRenameRelationEl) btnRenameRelationEl.addEventListener('click', function () {
-		if (!linkRelationEl) return;
-		var relationId = String(linkRelationEl.value || '');
-		if (!relationId || relationId === '__create_new__') return;
-		setRelationEditorMode('rename', relationId);
-	});
-	if (btnDeleteRelationEl) btnDeleteRelationEl.addEventListener('click', function () {
-		var relationId = linkRelationEl ? String(linkRelationEl.value || 'main') : 'main';
-		if (!relationId || relationId === 'main') return;
-		vscode.postMessage({ type: 'removeRelationType', relationId: relationId });
-	});
-	if (btnRelationEditorCancelEl) btnRelationEditorCancelEl.addEventListener('click', function () {
-		setRelationEditorMode('', '');
-		if (linkRelationEl && String(linkRelationEl.value || '') === '__create_new__') {
-			linkRelationEl.value = 'main';
-			updateRelationUi();
-		}
-	});
-	if (btnRelationEditorSaveEl) btnRelationEditorSaveEl.addEventListener('click', function () {
-		if (!relationEditorNameEl) return;
-		var name = String(relationEditorNameEl.value || '').trim();
-		if (!name) return;
-		var rels = relationTypes();
-		var lowered = name.toLowerCase();
-		for (var i = 0; i < rels.length; i++) {
-			var rid = String(rels[i].id || '');
-			if (relationEditorMode === 'rename' && rid === relationEditorTargetId) continue;
-			if (String(rels[i].name || '').trim().toLowerCase() === lowered) {
-				if (errEl) errEl.textContent = 'Relation name already exists. Choose a unique name.';
-				return;
-			}
-		}
-		if (relationEditorMode === 'create') {
-			vscode.postMessage({ type: 'addRelationType', name: name, askDuplicateFromMain: true });
-		} else if (relationEditorMode === 'rename' && relationEditorTargetId) {
-			vscode.postMessage({ type: 'renameRelationType', relationId: relationEditorTargetId, name: name });
-		}
-		setRelationEditorMode('', '');
-	});
-	if (relationEditorNameEl) relationEditorNameEl.addEventListener('keydown', function (ev) {
-		if (ev.key === 'Enter') {
-			ev.preventDefault();
-			if (btnRelationEditorSaveEl) btnRelationEditorSaveEl.click();
-		} else if (ev.key === 'Escape') {
-			ev.preventDefault();
-			if (btnRelationEditorCancelEl) btnRelationEditorCancelEl.click();
-		}
 	});
 	if (optShowGroupsEl) optShowGroupsEl.addEventListener('change', function () {
 		updateGroupsUi();
@@ -2683,8 +2533,7 @@ function isActiveRelationLink(L) {
 		vscode.postMessage({
 			type: 'addLink',
 			fromId: a,
-			toId: b,
-			relationId: activeRelationId()
+			toId: b
 		});
 	});
 	if (ctxMenuEl) ctxMenuEl.addEventListener('click', function (ev) {
@@ -2717,8 +2566,7 @@ function isActiveRelationLink(L) {
 					vscode.postMessage({
 						type: 'addLink',
 						fromId: Lk.to,
-						toId: Lk.from,
-						relationId: String(Lk.relationId || 'main')
+						toId: Lk.from
 					});
 				}
 			}
@@ -2728,8 +2576,7 @@ function isActiveRelationLink(L) {
 					type: 'removeLinksBetween',
 					fromId: savedEdge.from,
 					toId: savedEdge.to,
-					which: removeWhich,
-					relationId: activeRelationId()
+					which: removeWhich
 				});
 			}
 		} else if (act === 'canvas-new') {

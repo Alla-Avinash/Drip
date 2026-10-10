@@ -21,6 +21,8 @@ function getTagsWebviewHtml(webview) {
 	<style>
 		body { font-family: var(--vscode-font-family); color: var(--vscode-editor-foreground); background: var(--vscode-editor-background); margin: 0; padding: 10px; height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; min-height: 0; }
 		.tags-editor-root { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+		.tags-layout { flex: 1; min-height: 0; display: flex; }
+		.tags-col { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
 		#tags-main-panel .tags-intro { font-size: 11px; color: var(--vscode-descriptionForeground); margin: 0 0 8px 0; line-height: 1.4; }
 		.tags-embed-inner { display: flex; flex: 1; min-height: 280px; border: 1px solid var(--vscode-panel-border); border-radius: 8px; overflow: hidden; }
 		.stag-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
@@ -28,16 +30,16 @@ function getTagsWebviewHtml(webview) {
 		.stag-toolbar button { padding: 5px 10px; font-size: 11px; border: none; border-radius: 4px; cursor: pointer;
 			background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
 		.stag-toolbar button.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
-		.stag-toolbar .stag-graph-controls { display: flex; flex-direction: column; gap: 4px; }
-		.stag-toolbar label.stag-graph-label { font-size: 11px; color: var(--vscode-descriptionForeground); margin: 0; }
-		.stag-toolbar .stag-toolbar-select { padding: 4px 8px; font-size: 11px; border-radius: 4px; cursor: pointer;
+		.tags-selection .stag-graph-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+		.tags-selection label.stag-graph-label { font-size: 12px; color: var(--vscode-descriptionForeground); margin: 0; }
+		.tags-selection .stag-toolbar-select { padding: 4px 8px; font-size: 12px; border-radius: 4px; cursor: pointer;
 			border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground);
-			min-width: 140px; max-width: 240px; }
+			min-width: 160px; max-width: 280px; }
 		.stag-toolbar .hint { font-size: 10px; color: var(--vscode-descriptionForeground); flex: 1; min-width: 120px; line-height: 1.35; }
-		.stag-toolbar .stag-graph-actions { display: inline-flex; gap: 6px; }
-		.stag-toolbar .stag-graph-name { width: 100%; }
-		.stag-toolbar .is-hidden { display: none !important; }
-		.stag-toolbar .stag-graph-folder-note { font-size: 11px; color: var(--vscode-descriptionForeground); max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+		.tags-selection .stag-graph-actions { display: inline-flex; gap: 6px; }
+		.tags-selection .stag-graph-name { width: 180px; padding: 4px 8px; font-size: 12px; border-radius: 4px;
+			border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); }
+		.tags-selection .is-hidden { display: none !important; }
 		.stag-canvas-wrap { flex: 1; min-height: 200px; position: relative; cursor: grab; }
 		.stag-canvas-wrap.stag-panning { cursor: grabbing; }
 		.stag-canvas-wrap.stag-drag-node { cursor: move; }
@@ -112,13 +114,13 @@ function getTagsWebviewHtml(webview) {
 		.stag-row2 .inp { flex: 1; }
 		.stag-icon-btn { width: 28px; min-width: 28px; padding: 4px 0; text-align: center; font-size: 12px; }
 		.stag-btn-active { outline: 1px solid var(--vscode-focusBorder); box-shadow: 0 0 0 1px var(--vscode-focusBorder) inset; }
-		.stag-delete-panel { display: flex; flex-direction: column; gap: 6px; padding: 6px; border: 1px solid var(--vscode-panel-border); border-radius: 6px; }
-		.stag-delete-panel.is-active { border-color: var(--vscode-focusBorder); box-shadow: 0 0 0 1px var(--vscode-focusBorder) inset; }
+		.stag-delete-panel { display: flex; flex-direction: column; gap: 6px; padding: 0; }
+		.stag-delete-panel.is-active { border: 1px solid var(--vscode-focusBorder); border-radius: 6px; padding: 6px; box-shadow: 0 0 0 1px var(--vscode-focusBorder) inset; }
 		.stag-delete-tools { display: flex; flex-direction: column; gap: 6px; }
 		.stag-delete-tools[hidden] { display: none !important; }
 		.stag-delete-title { margin: 0; font-size: 11px; color: var(--vscode-descriptionForeground); }
 		.stag-delete-actions { display: flex; align-items: center; gap: 6px; }
-		.stag-combine-panel { display: flex; flex-direction: column; gap: 6px; padding-top: 6px; min-width: 280px; }
+		.stag-combine-panel { flex-basis: 100%; display: flex; flex-direction: column; gap: 6px; padding-top: 6px; min-width: 280px; }
 		.stag-combine-panel[hidden] { display: none !important; }
 		.stag-combine-list { display: flex; flex-direction: column; gap: 4px; max-height: 140px; overflow: auto; }
 		.stag-combine-row { display: flex; align-items: center; gap: 6px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; padding: 4px; background: var(--vscode-editor-background); }
@@ -129,49 +131,74 @@ function getTagsWebviewHtml(webview) {
 		.stag-status-note { margin: 4px 0 0 0; font-size: 11px; color: var(--vscode-descriptionForeground); }
 		.error { margin-top: 8px; color: var(--vscode-errorForeground); }
 		.meta { color: var(--vscode-descriptionForeground); }
+		#tags-main-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+		.tags-header { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 2px 0 12px 0; border-bottom: 1px solid var(--vscode-panel-border); margin-bottom: 12px; }
+		.tags-title { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.2; }
+		.tags-mode-switch { display: flex; gap: 16px; align-items: center; margin: 0; padding: 0; }
+		.tags-mode-switch label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--vscode-descriptionForeground); cursor: pointer; }
+		.tags-mode-switch input { margin: 0; }
+		.tags-selection { flex-shrink: 0; margin-bottom: 12px; padding: 8px 10px; border: 1px solid var(--vscode-panel-border); border-radius: 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+		.tags-selection button { padding: 5px 10px; font-size: 12px; border: none; border-radius: 4px; cursor: pointer;
+			background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+		.tags-selection button.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+		.projects-tags-top { display: inline-flex; align-items: center; gap: 8px; }
+		.projects-tags-top[hidden] { display: none !important; }
+		.projects-tags-top label { font-size: 12px; color: var(--vscode-descriptionForeground); }
+		.projects-tags-top select { padding: 4px 8px; font-size: 12px; border-radius: 4px; cursor: pointer; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); min-width: 180px; }
 	</style>
 </head>
 <body>
 	<div class="tags-editor-root">
 		<div id="tags-main-panel">
+			<header class="tags-header">
+				<h1 class="tags-title">Tags Graph</h1>
+				<div class="tags-mode-switch" role="radiogroup" aria-label="Tags scope">
+					<label><input type="radio" name="tagsMode" value="kb" checked /> Knowledge Base</label>
+					<label><input type="radio" name="tagsMode" value="projects" /> Projects</label>
+				</div>
+			</header>
+			<div class="tags-selection">
+				<div class="stag-graph-controls">
+					<label class="stag-graph-label" for="stag-graph-select">Graph</label>
+					<select id="stag-graph-select" class="stag-toolbar-select" aria-label="Stored tags graph"></select>
+					<input id="stag-graph-name" class="inp stag-graph-name is-hidden" type="text" placeholder="Graph name" autocomplete="off" />
+					<div class="stag-graph-actions">
+						<button type="button" id="stag-btn-rename-graph">Rename</button>
+						<button type="button" id="stag-btn-delete-graph">Delete</button>
+						<button type="button" id="stag-btn-combine-graph" title="Combine graphs">+</button>
+					</div>
+				</div>
+				<div class="projects-tags-top" id="projects-tags-top" hidden>
+					<label for="ptp-project-select">Project</label>
+					<select id="ptp-project-select"></select>
+				</div>
+				<button type="button" id="stag-btn-export-graph">Export…</button>
+				<button type="button" id="stag-btn-reset-view">Reset view</button>
+				<div id="stag-delete-panel" class="stag-delete-panel">
+					<button type="button" id="stag-btn-delete-mode">Delete nodes</button>
+					<div id="stag-delete-tools" class="stag-delete-tools" hidden>
+						<p class="stag-delete-title">Delete nodes</p>
+						<label class="chk" id="stag-delete-include-wrap"><input id="stag-opt-delete-include-children" type="checkbox" /> Include children</label>
+						<div class="stag-delete-actions">
+							<button type="button" id="stag-btn-delete-confirm" disabled>Delete</button>
+							<button type="button" id="stag-btn-delete-cancel">Cancel</button>
+						</div>
+					</div>
+				</div>
+				<div id="stag-combine-panel" class="stag-combine-panel" hidden>
+					<div id="stag-combine-list" class="stag-combine-list"></div>
+					<div class="stag-combine-actions">
+						<button type="button" id="stag-btn-combine-add">+ Add graph</button>
+						<button type="button" id="stag-btn-combine-create">Create combined</button>
+						<button type="button" id="stag-btn-combine-cancel">Cancel</button>
+					</div>
+				</div>
+			</div>
+			<div class="tags-layout">
+				<div class="tags-col">
 			<p class="tags-intro"></p>
 			<div class="tags-embed-inner">
 				<div class="stag-main">
-					<div class="stag-toolbar">
-						<span id="stag-graph-folder-note" class="stag-graph-folder-note" title="Tag graphs for this knowledge base"></span>
-						<div class="stag-graph-controls">
-							<label class="stag-graph-label" for="stag-graph-select">Graph</label>
-							<select id="stag-graph-select" class="stag-toolbar-select" aria-label="Stored tags graph"></select>
-							<input id="stag-graph-name" class="inp stag-graph-name is-hidden" type="text" placeholder="Graph name" autocomplete="off" />
-							<div class="stag-graph-actions">
-								<button type="button" id="stag-btn-rename-graph">Rename</button>
-								<button type="button" id="stag-btn-delete-graph">Delete</button>
-								<button type="button" id="stag-btn-combine-graph" title="Combine graphs">+</button>
-							</div>
-						</div>
-						<div id="stag-combine-panel" class="stag-combine-panel" hidden>
-							<div id="stag-combine-list" class="stag-combine-list"></div>
-							<div class="stag-combine-actions">
-								<button type="button" id="stag-btn-combine-add">+ Add graph</button>
-								<button type="button" id="stag-btn-combine-create">Create combined</button>
-								<button type="button" id="stag-btn-combine-cancel">Cancel</button>
-							</div>
-						</div>
-						<button type="button" id="stag-btn-export-graph">Export…</button>
-						<button type="button" id="stag-btn-reset-view">Reset view</button>
-						<div id="stag-delete-panel" class="stag-delete-panel">
-							<button type="button" id="stag-btn-delete-mode">Delete nodes</button>
-							<div id="stag-delete-tools" class="stag-delete-tools" hidden>
-								<p class="stag-delete-title">Delete nodes</p>
-								<label class="chk" id="stag-delete-include-wrap"><input id="stag-opt-delete-include-children" type="checkbox" /> Include children</label>
-								<div class="stag-delete-actions">
-									<button type="button" id="stag-btn-delete-confirm" disabled>Delete</button>
-									<button type="button" id="stag-btn-delete-cancel">Cancel</button>
-								</div>
-							</div>
-						</div>
-						<span class="hint"></span>
-					</div>
 					<div class="stag-canvas-wrap" id="stag-canvas-wrap">
 						<canvas id="stag-graph" width="600" height="400" aria-label="Tag graph"></canvas>
 						<div id="stag-hover-label" class="stag-hover-label" hidden aria-hidden="true"></div>
@@ -199,6 +226,8 @@ function getTagsWebviewHtml(webview) {
 					<p id="stag-status-note" class="stag-status-note" hidden></p>
 					<p id="stag-err" class="error" role="alert"></p>
 				</div>
+					</div>
+				</div>
 				<aside class="stag-sidebar">
 					<h3>Tag list</h3>
 					<div>
@@ -209,15 +238,6 @@ function getTagsWebviewHtml(webview) {
 						</div>
 					</div>
 					<div>
-						<label class="lbl" for="stag-link-relation">Relation type</label>
-						<div class="stag-row2" id="stag-relation-row" style="margin-top:6px;">
-							<select class="sel" id="stag-link-relation"><option value="main">Main</option></select>
-							<input class="inp" id="stag-relation-editor-name" type="text" placeholder="Relation name" autocomplete="off" hidden />
-							<button type="button" class="stag-icon-btn" id="stag-btn-rename-relation" title="Rename relation" aria-label="Rename relation">✎</button>
-							<button type="button" class="stag-icon-btn" id="stag-btn-delete-relation" title="Delete relation" aria-label="Delete relation">🗑</button>
-							<button type="button" id="stag-btn-relation-editor-save" hidden>Save</button>
-							<button type="button" id="stag-btn-relation-editor-cancel" hidden>Cancel</button>
-						</div>
 						<label class="chk"><input id="stag-opt-show-groups" type="checkbox" /> Show Groups legend</label>
 						<div id="stag-groups-wrap" class="settings-wrap" hidden>
 							<p class="settings-title">Groups</p>
@@ -284,6 +304,56 @@ function getTagsWebviewHtml(webview) {
 	</script>
 	<script nonce="${nonce}">
 ${tagsGraphEmbedScript}
+	</script>
+	<script nonce="${nonce}">
+	(function () {
+		var vscode = window.__dripVscodeApi;
+		if (!vscode) return;
+		var modeInputs = document.querySelectorAll('input[name="tagsMode"]');
+		var projectsTop = document.getElementById('projects-tags-top');
+		var projectsSelect = document.getElementById('ptp-project-select');
+
+		function setMode(mode) {
+			var isProjects = mode === 'projects';
+			if (projectsTop) projectsTop.hidden = !isProjects;
+			// In Projects mode the graph is one graph per project, so the multi-graph
+			// management controls (graph selector, rename/delete/combine, export) don't apply.
+			// Reset view + Delete nodes stay so they appear exactly once, in both modes.
+			var graphControls = document.querySelector('.stag-graph-controls');
+			var exportBtn = document.getElementById('stag-btn-export-graph');
+			if (graphControls) graphControls.style.display = isProjects ? 'none' : '';
+			if (exportBtn) exportBtn.style.display = isProjects ? 'none' : '';
+			vscode.postMessage({ type: 'tagsModeChanged', mode: mode });
+		}
+		for (var i = 0; i < modeInputs.length; i++) {
+			modeInputs[i].addEventListener('change', function () {
+				if (this.checked) setMode(this.value);
+			});
+		}
+
+		if (projectsSelect) {
+			projectsSelect.addEventListener('change', function () {
+				vscode.postMessage({ type: 'projectTagsSelectProject', folderPrefix: projectsSelect.value });
+			});
+		}
+
+		window.addEventListener('message', function (e) {
+			var msg = e.data || {};
+			if (msg.type !== 'projectTagsPanelState') return;
+			var projects = msg.projects || [];
+			var activePrefix = msg.folderPrefix || '';
+			if (projectsSelect) {
+				projectsSelect.innerHTML = '';
+				projects.forEach(function (p) {
+					var opt = document.createElement('option');
+					opt.value = String(p.folderPrefix || '');
+					opt.textContent = String(p.title || p.folderPrefix || '');
+					projectsSelect.appendChild(opt);
+				});
+				projectsSelect.value = activePrefix || '';
+			}
+		});
+	})();
 	</script>
 </body>
 </html>`;

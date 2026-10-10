@@ -209,6 +209,16 @@ function clearAllHeadingEmbeddings(db) {
 }
 
 /**
+ * @param {import('../db/dripSqlite').DripSqliteDatabase} db
+ * @returns {number} total stored heading embeddings
+ */
+function countHeadingEmbeddings(db) {
+	if (!db.native) return 0;
+	const row = db.native.prepare(`SELECT COUNT(*) AS n FROM ${RECORDS_TABLE}`).get();
+	return Number(row && row.n) || 0;
+}
+
+/**
  * Insert or replace the vector for (file_id, heading_id).
  * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  * @param {number} fileId
@@ -301,5 +311,6 @@ module.exports = {
 	deleteFileEmbeddings,
 	clearAllHeadingEmbeddings,
 	upsertHeadingEmbedding,
-	searchHeadingEmbeddingsExact
+	searchHeadingEmbeddingsExact,
+	countHeadingEmbeddings
 };

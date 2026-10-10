@@ -20,6 +20,7 @@ const {
 	pendingFolderEmbeddingJobCount
 } = require('./folderEmbeddingQueue');
 const { encodeHeadingEmbeddingText } = require('./headingEmbeddingEncode');
+const { isProjectNotePath } = require('../projectIndex');
 const {
 	getFolderEmbeddingId,
 	upsertFolderEmbedding,
@@ -62,10 +63,12 @@ function enqueueFolderEmbeddingUpserts(kbRootUri, folderPaths) {
 
 /**
  * After a note path is indexed or updated, refresh all ancestor folder vectors.
+ * Project-zone notes are skipped — their folders must not gain folder vectors here.
  * @param {import('vscode').Uri} kbRootUri
  * @param {string} noteRelPath
  */
 function enqueueFolderEmbeddingsForNotePath(kbRootUri, noteRelPath) {
+	if (isProjectNotePath(noteRelPath)) return;
 	enqueueFolderEmbeddingUpserts(kbRootUri, ancestorFolderPathsOfNote(noteRelPath));
 }
 
@@ -113,20 +116,27 @@ function cancelScheduledFolderEmbeddingDrain(kbRootUri) {
  */
 async function awaitFolderEmbeddingsReady(kbRootUri, opts) {
 	cancelScheduledFolderEmbeddingDrain(kbRootUri);
-	const enqueued = await enqueueMissingFolderEmbeddings(kbRootUri);
-	if (opts?.progress) {
-		opts.progress.report({
-			message:
-				enqueued > 0
-					? `Encoding ${enqueued} folder embedding(s)…`
-					: 'Folder embeddings up to date'
-		});
+	// Loop until nothing is missing: enqueue whatever lacks a vector, drain, repeat.
+	let enqueued = 0;
+	let processed = 0;
+	for (;;) {
+		const n = await enqueueMissingFolderEmbeddings(kbRootUri);
+		if (n > 0) {
+			enqueued += n;
+			if (opts?.progress) {
+				opts.progress.report({ message: `Encoding ${n} folder embedding(s)…` });
+			}
+		}
+		if (opts?.token?.isCancellationRequested) {
+			break;
+		}
+		const result = await runFolderEmbeddingDrain(kbRootUri);
+		processed += result.processed || 0;
+		if (n === 0) {
+			break;
+		}
 	}
-	if (opts?.token?.isCancellationRequested) {
-		return { enqueued, processed: 0 };
-	}
-	const result = await runFolderEmbeddingDrain(kbRootUri);
-	return { enqueued, processed: result.processed || 0 };
+	return { enqueued, processed };
 }
 
 /**

@@ -12,6 +12,7 @@
 	--btn-fg: var(--vscode-button-foreground);
 	--input: var(--vscode-input-background);
 	--input-border: var(--vscode-input-border, transparent);
+	--surface: var(--vscode-sideBar-background, var(--vscode-editor-background));
 	--font: var(--vscode-font-family);
 	--fs: var(--vscode-font-size);
 }
@@ -595,6 +596,7 @@ button.ghost {
 	border-radius: 6px;
 	margin-bottom: 10px;
 	overflow: hidden;
+	background: var(--surface);
 }
 .card > summary {
 	list-style: none;
@@ -859,4 +861,143 @@ button.ghost {
 	display: flex;
 	gap: 6px;
 	flex-shrink: 0;
+}
+
+/* Feature row "Overview" button (pushed to the right edge of the summary). */
+.feat-overview {
+	margin-left: auto;
+	flex: none;
+	font-size: 11px;
+	padding: 3px 10px;
+	border-radius: 4px;
+	cursor: pointer;
+	border: 1px solid var(--border);
+	background: transparent;
+	color: var(--fg);
+}
+.feat-overview:hover {
+	background: var(--list-hover);
+}
+
+/* Per-project Tags popover (overlay, fixed over the Project View). */
+.tags-popover {
+	position: fixed;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.35);
+	display: flex;
+	align-items: flex-start;
+	justify-content: center;
+	padding: 60px 16px 16px;
+	z-index: 1000;
+}
+.tags-popover-card {
+	width: min(420px, 100%);
+	max-height: 70vh;
+	display: flex;
+	flex-direction: column;
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+	overflow: hidden;
+}
+.tags-popover-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 8px 12px;
+	border-bottom: 1px solid var(--border);
+	font-size: 12px;
+	font-weight: 600;
+	flex: none;
+}
+.tags-popover-head button {
+	background: none;
+	border: none;
+	color: var(--muted);
+	font-size: 16px;
+	cursor: pointer;
+}
+.tags-popover-body {
+	padding: 10px 12px;
+	overflow: auto;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+.tags-add-row {
+	display: flex;
+	gap: 6px;
+}
+.tags-add-row input {
+	flex: 1;
+	min-width: 0;
+	font: inherit;
+	color: var(--fg);
+	background: var(--input);
+	border: 1px solid var(--input-border, var(--border));
+	border-radius: 2px;
+	padding: 6px 8px;
+}
+.tags-add-row button {
+	flex: none;
+	font-size: 11px;
+	padding: 6px 12px;
+	border-radius: 4px;
+	cursor: pointer;
+	border: 1px solid var(--border);
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+}
+.tags-popover-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+.tags-popover-list li {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 6px 8px;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: var(--input);
+}
+.tag-line {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+.tag-line input {
+	flex: 1;
+	min-width: 0;
+	font: inherit;
+	color: var(--fg);
+	background: var(--bg);
+	border: 1px solid var(--input-border, var(--border));
+	border-radius: 2px;
+	padding: 5px 7px;
+}
+.tag-line .tag-del {
+	flex: none;
+	background: none;
+	border: none;
+	cursor: pointer;
+	font-size: 13px;
+	opacity: 0.8;
+}
+.tag-line .tag-del:hover {
+	opacity: 1;
+	color: var(--vscode-errorForeground);
+}
+.tags-popover-list .tag-desc-inp {
+	font: inherit;
+	color: var(--muted);
+	background: var(--bg);
+	border: 1px solid var(--input-border, var(--border));
+	border-radius: 2px;
+	padding: 5px 7px;
 }

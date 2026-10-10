@@ -6,6 +6,7 @@ const { getDefaultKnowledgeBaseSettingsObject, buildBundledKnowledgeBaseSettings
 
 const DRIPINDEX_DIR = '.dripindex';
 const INDEX_FILE = 'index.drip';
+const PROJECTS_FILE = 'projects.drip';
 const GRAPHS_DIR = 'graphs.drip';
 const SETTINGS_FILE = 'settings.drip.json';
 const DRAFTS_DIR = 'drafts.drip';
@@ -36,9 +37,7 @@ const DRIP_SETTINGS_KEYS = [
 	'tagsRelationsConfig',
 	'dripMetadataMarks',
 	'metadataKeyColor',
-	'metadataValueColor',
-	'canvasVisibleTypeIds',
-	'canvasShowHeadingsWithoutType'
+	'metadataValueColor'
 ];
 
 /**
@@ -47,6 +46,14 @@ const DRIP_SETTINGS_KEYS = [
  */
 function getDripIndexRootUri(kbRootUri) {
 	return vscode.Uri.joinPath(kbRootUri, DRIPINDEX_DIR);
+}
+
+/**
+ * @param {import('vscode').Uri} kbRootUri
+ * @returns {import('vscode').Uri}
+ */
+function getProjectsDripUri(kbRootUri) {
+	return vscode.Uri.joinPath(getDripIndexRootUri(kbRootUri), PROJECTS_FILE);
 }
 
 /**
@@ -169,6 +176,12 @@ async function ensureDripIndexSkeleton(kbRootUri) {
 		createdParts.push(`${DRIPINDEX_DIR}/${INDEX_FILE}`);
 	}
 
+	const projectsUri = vscode.Uri.joinPath(dripIndexUri, PROJECTS_FILE);
+	const projectsMissing = !(await uriExists(projectsUri));
+	if (projectsMissing) {
+		createdParts.push(`${DRIPINDEX_DIR}/${PROJECTS_FILE}`);
+	}
+
 	const graphsDirUri = vscode.Uri.joinPath(dripIndexUri, GRAPHS_DIR);
 	if (!(await uriExists(graphsDirUri))) {
 		await vscode.workspace.fs.createDirectory(graphsDirUri);
@@ -227,6 +240,11 @@ async function ensureDripIndexSkeleton(kbRootUri) {
 		await initEmptyDripIndexFile(kbRootUri);
 	}
 
+	if (projectsMissing) {
+		const { initEmptyDripProjectsFile } = require('../indexing/dripProjectDb');
+		await initEmptyDripProjectsFile(kbRootUri);
+	}
+
 	return {
 		created: createdParts.length > 0,
 		dripIndexUri,
@@ -237,6 +255,7 @@ async function ensureDripIndexSkeleton(kbRootUri) {
 module.exports = {
 	DRIPINDEX_DIR,
 	INDEX_FILE,
+	PROJECTS_FILE,
 	GRAPHS_DIR,
 	SETTINGS_FILE,
 	DRAFTS_DIR,
@@ -246,6 +265,7 @@ module.exports = {
 	buildFreshKnowledgeBaseSettingsObject,
 	buildFreshKnowledgeBaseSettingsSnapshot,
 	getDripIndexRootUri,
+	getProjectsDripUri,
 	getGraphsDripDirectoryUri,
 	getSettingsDripFileUri,
 	getDraftsDripDirectoryUri,

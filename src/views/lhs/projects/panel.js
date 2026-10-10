@@ -198,6 +198,27 @@ class DripProjectViewPanel {
 					case 'moveIssue':
 						await this.moveIssue(message);
 						break;
+					case 'openProjectOverview':
+						await this.openProjectOverview(message);
+						break;
+					case 'openFeatureOverview':
+						await this.openFeatureOverview(message);
+						break;
+					case 'requestProjectTags':
+						await this.sendProjectTags(String(message.folderPrefix || this._selectedPrefix || ''));
+						break;
+					case 'addProjectTag':
+						await this.mutateProjectTags('add', message);
+						break;
+					case 'renameProjectTag':
+						await this.mutateProjectTags('rename', message);
+						break;
+					case 'setProjectTagDescription':
+						await this.mutateProjectTags('description', message);
+						break;
+					case 'deleteProjectTag':
+						await this.mutateProjectTags('delete', message);
+						break;
 					default:
 						break;
 				}
@@ -374,6 +395,111 @@ class DripProjectViewPanel {
 				break;
 			}
 		}
+	}
+
+	/** @returns {import('vscode').Uri | undefined} */
+	kbRoot() {
+		return this.state.getVerifiedKnowledgeBaseRoot && this.state.getVerifiedKnowledgeBaseRoot();
+	}
+
+	/**
+	 * Open the project's index note `_<Name>.p.d.txt`, creating it first if missing.
+	 * @param {{ folderPrefix?: string }} message
+	 */
+	async openProjectOverview(message) {
+		const kbRoot = this.kbRoot();
+		const prefix = String(message.folderPrefix || this._selectedPrefix || '');
+		if (!kbRoot || !prefix) return;
+		const folderUri = vscode.Uri.joinPath(
+			kbRoot,
+			...prefix.replace(/\/+$/, '').split('/').filter(Boolean)
+		);
+		const { ensureProjectIndexFile } = require('../../../startup/dripProjectFolder');
+		const { projectIndexFileName } = require('../../../document/model/dripProjectFolder');
+		let uri = await ensureProjectIndexFile(folderUri, { kbRoot, context: this.context });
+		if (!uri) {
+			uri = vscode.Uri.joinPath(folderUri, projectIndexFileName(path.basename(folderUri.fsPath)));
+		}
+		await vscode.commands.executeCommand('vscode.open', uri);
+	}
+
+	/**
+	 * Open a feature's overview/index note. For a `.f` folder, ensure + open `_<Name>.f.d.txt`;
+	 * for a standalone `*.f.d.txt` file, open the file itself (creating a blank one if missing).
+	 * @param {{ folderPrefix?: string, path?: string, featureFolderPrefix?: string, isFolderIndex?: boolean, title?: string }} message
+	 */
+	async openFeatureOverview(message) {
+		const kbRoot = this.kbRoot();
+		if (!kbRoot) return;
+		const isFolderIndex = message.isFolderIndex === true;
+		let uri;
+		if (isFolderIndex) {
+			const folderPrefix = String(message.featureFolderPrefix || '');
+			if (!folderPrefix) return;
+			const folderUri = vscode.Uri.joinPath(
+				kbRoot,
+				...folderPrefix.replace(/\/+$/, '').split('/').filter(Boolean)
+			);
+			const { ensureFeatureIndexFile } = require('../../../startup/dripFeatureFolder');
+			const { featureIndexFileName } = require('../../../document/model/dripFeature');
+			uri = await ensureFeatureIndexFile(folderUri, { kbRoot, context: this.context });
+			if (!uri) {
+				uri = vscode.Uri.joinPath(folderUri, featureIndexFileName(path.basename(folderUri.fsPath)));
+			}
+		} else {
+			const filePath = String(message.path || '');
+			if (!filePath) return;
+			uri = vscode.Uri.joinPath(kbRoot, ...filePath.split('/').filter(Boolean));
+			try {
+				await vscode.workspace.fs.stat(uri);
+			} catch {
+				// Standalone feature file missing — create a minimal `.f` note.
+				const { buildNewNoteFile, writeTextFile } = require('../../../document/kbNoteOps');
+				const { isDripFeatureFileName } = require('../../../document/model/dripFeature');
+				const base = path.posix.basename(filePath);
+				const title = isDripFeatureFileName(base)
+					? base.replace(/\.f\.d\.txt$/i, '')
+					: String(message.title || base);
+				await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(uri.fsPath)));
+				await writeTextFile(uri, buildNewNoteFile({ title, content: '', metadataFilename: title }, { h0TypeMarker: '.f' }));
+			}
+		}
+		await vscode.commands.executeCommand('vscode.open', uri);
+	}
+
+	/**
+	 * @param {string} prefix
+	 */
+	async sendProjectTags(prefix) {
+		const kbRoot = this.kbRoot();
+		if (!kbRoot || !prefix) {
+			await this.panel.webview.postMessage({ type: 'projectTagsState', folderPrefix: prefix || '', tags: [] });
+			return;
+		}
+		const { loadProjectTags } = require('../../../graph/projectTagStore');
+		const tags = await loadProjectTags(kbRoot, prefix);
+		await this.panel.webview.postMessage({ type: 'projectTagsState', folderPrefix: prefix, tags });
+	}
+
+	/**
+	 * @param {'add' | 'rename' | 'description' | 'delete'} op
+	 * @param {{ folderPrefix?: string, tagId?: string, name?: string, description?: string }} message
+	 */
+	async mutateProjectTags(op, message) {
+		const kbRoot = this.kbRoot();
+		const prefix = String(message.folderPrefix || this._selectedPrefix || '');
+		if (!kbRoot || !prefix) return;
+		const store = require('../../../graph/projectTagStore');
+		if (op === 'add') {
+			await store.addProjectTag(kbRoot, prefix, String(message.name || ''), String(message.description || ''));
+		} else if (op === 'rename') {
+			await store.renameProjectTag(kbRoot, prefix, String(message.tagId || ''), String(message.name || ''));
+		} else if (op === 'description') {
+			await store.setProjectTagDescription(kbRoot, prefix, String(message.tagId || ''), String(message.description || ''));
+		} else if (op === 'delete') {
+			await store.deleteProjectTag(kbRoot, prefix, String(message.tagId || ''));
+		}
+		await this.sendProjectTags(prefix);
 	}
 }
 

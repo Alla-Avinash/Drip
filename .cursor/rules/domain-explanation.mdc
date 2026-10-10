@@ -1,0 +1,77 @@
+---
+description: How to teach a beginner the domain behind a code change before explaining the change itself. Use when the user is new to a field, blank on the underlying concepts, and wants to understand why code changed and what it means.
+alwaysApply: false
+---
+
+# Domain-first explanation
+
+When the user is a complete beginner in a field and wants to understand a code change, they usually can't follow the change because they're missing the *domain* behind it — not because the code itself is hard. Fix that first. Teach the field, then the code will make sense on its own.
+
+## When to use this
+
+Use this flow when the user says (or shows) any of these:
+
+- "I don't understand this at all / I'm completely blank on this."
+- "Why did this change? What is even happening here?"
+- They ask about a concept, technology, or area they've never worked with.
+- They want to understand a change "easily and quickly" but keep getting lost in jargon.
+
+If the user already knows the field, skip straight to the code. This flow is for when the gap is in their *understanding of the domain*, not the code.
+
+## The flow (in order)
+
+### 1. Name the domain first
+
+Before touching any code, identify **what field or area** this change belongs to — in one plain sentence. Examples: "this is about how an editor plugin draws its user interface", "this is about how data is saved and retrieved", "this is about how two programs talk to each other".
+
+Do **not** name files or functions yet. Just the field.
+
+### 2. Break the domain into a short list of topics
+
+List the **key concepts a beginner needs** to understand this field — the few ideas that, once understood, make everything else click. Keep the list short (roughly 4–8 items). Write each as a plain phrase, not a definition. Example shape for a "how web apps render UI" domain:
+
+- what a browser engine is
+- what "frontend" and "backend" mean
+- how the two sides talk to each other
+- what a security sandbox is and why it exists
+
+### 3. Ask which topics they already know
+
+Present the topic list and let the user **select the ones they already understand**. Use the `AskQuestion` tool for this (multiple-choice, allow multiple). This is important: only the *unknown* topics matter, and teaching things they already know wastes their time and buries the important parts.
+
+### 4. Explain only the gaps
+
+Explain **only the topics they didn't already know** — one at a time, in plain simple English:
+
+- Use everyday analogies, not technical terms.
+- Define every term the first time you use it; never assume a term is known.
+- Prefer a short example over a long definition.
+- Keep each explanation short enough to actually remember.
+
+### 5. Connect the concepts to patterns
+
+Once the concepts are clear, explain **how this field is normally done** — the conventions a real developer in this field follows:
+
+- the **common coding patterns** (how code in this field is typically structured),
+- the **design patterns** people reach for and why,
+- the **best practices** and **industry standards** (what "good" looks like),
+- and any **trade-offs** — why two valid approaches exist and when each wins.
+
+This is what turns "I sort of get the idea" into "I can read the code and follow along".
+
+### 6. Map the domain back to the change
+
+Only now explain the code change. Because the domain is clear, explain *why* things changed and *what* is happening — not just which lines moved. The goal is for the user to think "oh, that makes sense given what we just covered", not to memorize line numbers.
+
+### 7. Check understanding before finishing
+
+End by asking the user to confirm the domain clicked, or offer to re-explain any single topic in more depth. Don't dump more topics unless they ask.
+
+## Rules to follow throughout
+
+- **Plain English always.** No jargon unless you define it in the same breath.
+- **Never skip the "what do you already know" step.** Guessing wastes the user's time.
+- **Teach the domain, not the code.** The code is the last step, not the first.
+- **Keep it generic.** Explain the field the way it works anywhere, so the user can reuse the knowledge in other projects.
+- **Stay proportional.** A one-line concept gets a one-line answer; a deep concept gets a small worked example. Don't write an essay for a simple idea.
+- **Analogies over acronyms.** Prefer "like a filing cabinet" over a wall of terms.

@@ -35,6 +35,10 @@ The **projects list** has a toolbar (search + Filter / Display / Sort menus) and
 
 Inside an open project, the panel has two view modes, switched with a **Features / Issues** toggle that sits right beside the **New issue** button.
 
+In the detail header, **Overview** and **Tags** buttons sit to the left of the Features/Issues toggle. **Overview** opens the project's index note `_<Name>.p.d.txt`, creating it first if missing. **Tags** opens a popover listing the project's own tags (see "Per-project tags"): each tag can be renamed, given a description, or deleted with inline controls, and new tags can be added there.
+
+Each feature row also has an **Overview** button on its right, which opens that feature's index note — `_<Name>.f.d.txt` for a `.f` folder (created if missing), or the feature file itself for a standalone `Name.f.d.txt`. Both folder features and standalone `.f.d.txt` feature files appear in the Features section with their issues, so file-format features are listed and grouped exactly like folder features.
+
 - **Features view (default)** keeps the original grouped layout. A **search bar** filters the project's issues by title or issue key, keeping results grouped into the existing **Project issues (_issues)** and **Features** sections. Empty sections (and empty features) are hidden while searching, and a "no issues match" note shows when nothing matches. Issues always render as a **file tree** with connected guide lines (`├─` / `└─` / `│`): each issue joins to its parent with a branch or corner line, and vertical lines run through ancestor levels so the whole hierarchy reads as one continuous tree. The lines are drawn with CSS borders rather than spaced monospace characters, so they stay tight and connected; they are tinted from the theme foreground at partial opacity, so they read light on dark themes and dark on light themes. Top-level rows are flush with no leading connector — the connector appears only on nested rows. Issues whose parent lives in the same section (the same feature or inbox) sit under that parent. A **Show repeated parent issue** toggle next to the search bar additionally reveals, as dimmed rows, the missing ancestors of an issue whose `parent:` link points to an issue in a *different* feature or file (so the full cross-section chain is visible); when off, those issues simply appear as top-level rows.
 - **Issues view** gives the project's issues the same search/filter/display/sort toolbar the projects list has: a search box plus **Filter**, **Display**, and **Sort** menus with **List** and **Board** layouts, Group by / Column / Row / Order by, and ascending/descending direction. **Feature** is an issue field (the feature each issue belongs to, or "Project issues" for inbox issues, or "Other"), so it can be used to group, column, row, filter, or sort. Issue rows/cards open the issue's heading on click; the Assign/Move/Sub actions stay in the Features view.
 
@@ -60,12 +64,13 @@ Moves are performed on the host: the issue block is cut from its current file, i
 ## Sub-features
 
 - **Project/feature folders** — creating and watching project and feature folders.
-- **Project index** — indexing projects and their structure into the database.
-- **Project view query** — the queries that power the Project View panel.
+- **Project index** — indexing projects and their structure into `projects.drip` (a separate SQLite file from the document `index.drip`, so project headings stay out of global search).
+- **Project view query** — the queries that power the Project View panel (read from `projects.drip`, with file paths resolved from the shared `files` registry in `index.drip`).
 - **Convert folder to feature** — a folder can be promoted to a feature folder.
+- **Per-project tags** — each project keeps its own tag graph (same node/link shape as the global tags graph, plus an optional per-tag description), separate from the global tags graph. They are managed from two places: the **Tags** popover in the Project View detail header (which lists the top-level tags with name + description) and the **Projects** mode of the Tags graph panel (full graph editing with links, groups, and sub-tags). They are stored as JSON under `<kb>/.dripindex/project-tags.drip/`.
 
 ## Flow (plain steps)
 
 1. User creates a project folder, then feature folders inside it.
-2. The index records the project/feature structure with entity IDs.
+2. The project index records the project/feature structure with entity IDs in `projects.drip`.
 3. User opens the Project View to browse projects → features → issues in a Linear-style layout.

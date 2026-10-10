@@ -12,8 +12,8 @@
 /** @type {Map<string, Map<string, FolderEmbeddingJob>>} */
 const queuesByKb = new Map();
 
-/** @type {Map<string, boolean>} */
-const draining = new Map();
+/** @type {Map<string, Promise<{ processed: number, skippedBusy: boolean }>>} */
+const inFlight = new Map();
 
 /**
  * @param {import('vscode').Uri | { fsPath?: string } | string | null | undefined} kbRoot
@@ -89,12 +89,14 @@ function takeFolderEmbeddingJobs(kbRootUri) {
  */
 async function drainFolderEmbeddingQueue(kbRootUri, processJob) {
 	const key = kbKey(kbRootUri);
-	if (draining.get(key)) {
-		return { processed: 0, skippedBusy: true };
+	// Re-entrant calls must await the same in-flight drain instead of starting a
+	// second one — otherwise the second caller returns early on a half-encoded index.
+	const existing = inFlight.get(key);
+	if (existing) {
+		return existing;
 	}
-	draining.set(key, true);
-	let processed = 0;
-	try {
+	const run = (async () => {
+		let processed = 0;
 		for (;;) {
 			const jobs = takeFolderEmbeddingJobs(kbRootUri);
 			if (!jobs.length) {
@@ -105,10 +107,14 @@ async function drainFolderEmbeddingQueue(kbRootUri, processJob) {
 				processed++;
 			}
 		}
+		return { processed, skippedBusy: false };
+	})();
+	inFlight.set(key, run);
+	try {
+		return await run;
 	} finally {
-		draining.set(key, false);
+		inFlight.delete(key);
 	}
-	return { processed, skippedBusy: false };
 }
 
 module.exports = {

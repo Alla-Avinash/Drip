@@ -1,0 +1,77 @@
+RESEARCH: heading ranking score mixing for "best place to put this" (AI / LLM ingest)
+=====================================================================================
+
+THE PROBLEM
+-----------
+When DRIP suggests where a note should go, it finds candidate headings by
+embedding similarity and then mixes two signals into one score:
+
+    score = HEADING_WEIGHT * headingScore + (1 - HEADING_WEIGHT) * fileScore
+          = 0.7 * headingScore            + 0.3 * fileScore
+
+- headingScore = similarity(note, heading vector)
+- fileScore    = similarity(note, file vector)   (file name + folder path)
+
+Two known weaknesses of this fixed weighted SUM:
+
+1. DOMINANCE / DRAG
+   Because it is a plain sum (not a "break ties only" rule), a very high file
+   score can push a worse heading ABOVE a better one, and can drag a strong
+   heading DOWN. Example:
+     Heading A: heading 0.95, file 0.10 -> 0.7*0.95 + 0.3*0.10 = 0.695
+     Heading B: heading 0.70, file 0.90 -> 0.7*0.70 + 0.3*0.90 = 0.760
+   B wins despite a worse heading match. The two scores come from different
+   embeddings and are NOT on the same scale, so raw-score arithmetic is fragile.
+
+2. WITHIN-FILE DISAMBIGUATION IS MISSING
+   Two same-titled headings in the SAME file get the SAME file score, so the
+   file term contributes nothing to telling them apart. The heading vector is
+   built from title + tags only (no parent, no body), so "Overview" under
+   Architecture vs "Overview" under LLM-integration look nearly identical.
+   The stored headings.parent column is display-only today (LLM prompt label)
+   and does not reach the score.
+
+WHAT WE WANT TO FIND
+--------------------
+A scoring/fusion method that:
+- stops one strong signal from dominating or dragging the other, and
+- disambiguates similar headings (ideally by using the parent/context), and
+- needs no hand-tuned magic numbers.
+
+CANDIDATE APPROACHES TO EVALUATE
+--------------------------------
+1. ONE CONTEXTUAL EMBEDDING (most promising)
+   Fold context into the heading vector itself: encode
+     "parentTitle -> headingTitle + tags"  (or a full breadcrumb)
+   as ONE vector, then a single similarity. No ratio to tune; the model already
+   weights the context internally. Fixes within-file ties at the root.
+
+2. RECIPROCAL RANK FUSION (RRF) — for separate signals
+   Combine RANK POSITIONS instead of raw scores:
+     score = SUM over signals of  1 / (k + rank)
+   Ratio-free and robust to signals living on different scales (the "drag"
+   problem). Standard in hybrid search (BM25 + vector).
+
+3. LEARNED FUSION / RERANKER
+   A cross-encoder or small linear layer that takes (candidate, query) and
+   learns the weight from labeled data. The weight is an OUTPUT of training,
+   not a guessed constant.
+
+4. TUNED SCALAR WEIGHT (last resort)
+   Only pick a fixed ratio after tuning on held-out data against a metric
+   (NDCG@k, MRR, precision@k) — never by intuition. Real systems rarely ship a
+   hand-picked 80:10:10.
+
+HOW TO EVALUATE THE CHOICE
+--------------------------
+- Build a small labeled set of "note -> correct destination heading" pairs
+  (drawn from real KB usage, including same-titled headings in one file).
+- Compare approaches with NDCG@12 and MRR@12 (the ingest shortlist is 12).
+- Check the specific failure cases: (a) file-score domination, (b) same-titled
+  headings in one file.
+
+STATUS
+------
+- Current implementation: fixed 0.7/0.3 raw-score sum in ingestCandidates.js
+  (HEADING_WEIGHT). Parent title is fetched for the final 12 only (display).
+- Not yet decided which approach replaces it.

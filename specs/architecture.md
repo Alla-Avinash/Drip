@@ -6,9 +6,14 @@
 
 Notes live as plain `.d.txt` files in a `.driplock` folder. The SQLite index (`index.drip`) is built *from* those files and can always be rebuilt from disk. This keeps data portable and diff-friendly while still enabling fast search.
 
-### 2. A local SQLite index for querying
+### 2. Two local SQLite indexes, split by scope
 
-Headings, metadata, tags, typed metadata (concept/task/issue plus project/feature registries), issues, projects, and embeddings all live in one local database. This gives fast sorting, filtering, and backlink lookups without reparsing the whole KB.
+Document data and project data live in two SQLite files under `.dripindex/`:
+
+- `index.drip` — the shared `files` registry (every note), document headings (concept/task), tags, relations, and embeddings. Global search reads only this file, so project headings never surface in it.
+- `projects.drip` — projects, features, issues, and project headings. It is opened only when the Project View (or a project operation) needs it.
+
+The two files share one `@fN` file-id sequence (minted by `index.drip`; `projects.drip` only records ids, since SQLite foreign keys cannot cross files). This gives fast sorting, filtering, and backlink lookups without reparsing the whole KB.
 
 ### 3. Stable, hidden IDs for identity
 

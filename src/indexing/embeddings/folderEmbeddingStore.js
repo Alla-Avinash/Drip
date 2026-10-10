@@ -209,6 +209,16 @@ function searchFolderEmbeddingsExact(db, query, k) {
 
 /**
  * @param {import('../db/dripSqlite').DripSqliteDatabase} db
+ * @returns {number} total stored folder embeddings
+ */
+function countFolderEmbeddings(db) {
+	if (!db.native) return 0;
+	const row = db.native.prepare(`SELECT COUNT(*) AS n FROM ${RECORDS_TABLE}`).get();
+	return Number(row && row.n) || 0;
+}
+
+/**
+ * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  * @returns {{ embedding_id: number, folder_path: string }[]}
  */
 function listFolderEmbeddingRecords(db) {
@@ -237,5 +247,6 @@ module.exports = {
 	upsertFolderEmbedding,
 	searchFolderEmbeddingsExact,
 	listFolderEmbeddingRecords,
-	folderVectorsTableExists
+	folderVectorsTableExists,
+	countFolderEmbeddings
 };

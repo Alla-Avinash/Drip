@@ -88,27 +88,112 @@ function unregisterTagGraphWebview(w) {
 	tagGraphWebviewMeta.delete(w);
 }
 
+/**
+ * Returns the project folder prefix when `webview` is in Projects mode with a project
+ * selected; otherwise returns an empty string (meaning "use the global KB tag graph").
+ * @param {import('vscode').Webview} webview
+ * @returns {string}
+ */
+function projectsScopeFor(webview) {
+	const m = tagGraphWebviewMeta.get(webview);
+	if (m && m.projectsMode && m.projectPrefix) return String(m.projectPrefix);
+	return '';
+}
+
+function setProjectsScope(webview, prefix) {
+	const m = tagGraphWebviewMeta.get(webview) || {};
+	tagGraphWebviewMeta.set(webview, { ...m, projectsMode: true, projectPrefix: String(prefix || '') });
+}
+
+function clearProjectsScope(webview) {
+	const m = tagGraphWebviewMeta.get(webview);
+	if (!m) return;
+	if (m.subGraphParentId) {
+		tagGraphWebviewMeta.set(webview, { subGraphParentId: m.subGraphParentId });
+	} else {
+		tagGraphWebviewMeta.delete(webview);
+	}
+}
+
+/**
+ * Apply a graph mutation to the right graph: the per-project graph when the webview is in
+ * Projects mode, otherwise the global KB tag graph. Re-posts graph state to all listeners.
+ * @param {import('../state/state').DripState} state
+ * @param {import('vscode').Webview} webview
+ * @param {string} projectScope
+ * @param {(g: any) => void} mutator
+ * @param {{ recordHistory?: boolean }} [options]
+ */
+async function applyGraphMutation(state, webview, projectScope, mutator, options) {
+	if (projectScope) {
+		const kbRoot = state.getVerifiedKnowledgeBaseRoot && state.getVerifiedKnowledgeBaseRoot();
+		if (kbRoot) {
+			const { loadProjectGraph, saveProjectGraph } = require('../graph/projectTagStore');
+			const graph = await loadProjectGraph(kbRoot, projectScope);
+			mutator(graph);
+			await saveProjectGraph(kbRoot, projectScope, graph);
+		}
+	} else {
+		await state.mutateTagGraph(mutator, options);
+	}
+	await postTagGraphStateToAll(state, webview);
+}
+
+/**
+ * Read the graph the webview is currently editing (project graph in Projects mode,
+ * otherwise the global KB graph).
+ * @param {import('../state/state').DripState} state
+ * @param {string} projectScope
+ */
+async function loadCurrentTagGraph(state, projectScope) {
+	if (projectScope) {
+		const kbRoot = state.getVerifiedKnowledgeBaseRoot && state.getVerifiedKnowledgeBaseRoot();
+		if (kbRoot) {
+			const { loadProjectGraph } = require('../graph/projectTagStore');
+			return loadProjectGraph(kbRoot, projectScope);
+		}
+	}
+	return state.getTagGraph();
+}
+
 async function postTagGraphStateToAll(state, originatingWebview, extra) {
 	pruneSubGraphPanels(state);
-	const graph = state.getTagGraph();
 	const tagGraphStore = require('../graph/tagGraphStore');
 	const meta = tagGraphStore.getActiveStoredTagGraphMeta(state.context);
 	const storedGraphs = tagGraphStore.listStoredTagGraphs(state.context);
 	const graphFolder = tagGraphStore.getTagGraphsStorageDirectoryUri(state.context);
+	const globalGraph = state.getTagGraph();
+	const kbRoot = state.getVerifiedKnowledgeBaseRoot && state.getVerifiedKnowledgeBaseRoot();
 	const tasks = [];
 	for (const w of tagGraphListenerWebviews) {
+		const wmeta = tagGraphWebviewMeta.get(w);
+		let graph = globalGraph;
+		let activeGraphId = meta.id;
+		let activeGraphName = meta.name;
+		// In Projects mode this webview shows its project's own flat tag list as a graph,
+		// isolated from the global KB tag graph.
+		const prefix = wmeta && wmeta.projectsMode ? String(wmeta.projectPrefix || '') : '';
+		if (prefix && kbRoot) {
+			try {
+				const { loadProjectGraph } = require('../graph/projectTagStore');
+				graph = await loadProjectGraph(kbRoot, prefix);
+				activeGraphId = '';
+				activeGraphName = '';
+			} catch (err) {
+				console.error('[DRIP] load project tag graph', err);
+			}
+		}
 		const payload = {
 			type: 'tagGraphState',
 			graph,
-			activeGraphId: meta.id,
-			activeGraphName: meta.name,
+			activeGraphId,
+			activeGraphName,
 			storedGraphs,
 			graphFolderPath: graphFolder && typeof graphFolder.fsPath === 'string' ? graphFolder.fsPath : ''
 		};
 		if (extra && w === originatingWebview) {
 			Object.assign(payload, extra);
 		}
-		const wmeta = tagGraphWebviewMeta.get(w);
 		if (wmeta && wmeta.subGraphParentId) {
 			payload.subGraphEditorParentId = wmeta.subGraphParentId;
 		}
@@ -118,13 +203,68 @@ async function postTagGraphStateToAll(state, originatingWebview, extra) {
 }
 
 /**
+ * Push the per-project tags panel state (project list + selected project's tags).
+ * @param {import('vscode').Webview} webview
+ * @param {import('../state/state').DripState} state
+ * @param {string} [folderPrefix]
+ * @returns {Promise<string>} the active project folder prefix that was resolved
+ */
+async function postProjectTagsPanelState(webview, state, folderPrefix) {
+	const kbRoot = state.getVerifiedKnowledgeBaseRoot && state.getVerifiedKnowledgeBaseRoot();
+	/** @type {any[]} */
+	let projects = [];
+	let tags = [];
+	let activePrefix = String(folderPrefix || '');
+	if (kbRoot) {
+		try {
+			const { listProjectsFromIndex } = require('../indexing/projectViewQuery');
+			const result = await listProjectsFromIndex(kbRoot);
+			projects = result.projects || [];
+		} catch (err) {
+			console.error('[DRIP] list projects for tags panel', err);
+		}
+		if (!activePrefix && projects.length) activePrefix = String(projects[0].folderPrefix || '');
+		if (activePrefix) {
+			try {
+				const { loadProjectTags } = require('../graph/projectTagStore');
+				tags = await loadProjectTags(kbRoot, activePrefix);
+			} catch (err) {
+				console.error('[DRIP] load project tags for panel', err);
+			}
+		}
+	}
+	await webview.postMessage({ type: 'projectTagsPanelState', projects, folderPrefix: activePrefix, tags });
+	return activePrefix;
+}
+
+/**
+ * @param {import('../state/state').DripState} state
+ * @param {'add' | 'rename' | 'description' | 'delete'} op
+ * @param {{ folderPrefix?: string, tagId?: string, name?: string, description?: string }} message
+ */
+async function mutateProjectTagsInStore(state, op, message) {
+	const kbRoot = state.getVerifiedKnowledgeBaseRoot && state.getVerifiedKnowledgeBaseRoot();
+	const prefix = String(message.folderPrefix || '');
+	if (!kbRoot || !prefix) return;
+	const store = require('../graph/projectTagStore');
+	if (op === 'add') {
+		await store.addProjectTag(kbRoot, prefix, String(message.name || ''), String(message.description || ''));
+	} else if (op === 'rename') {
+		await store.renameProjectTag(kbRoot, prefix, String(message.tagId || ''), String(message.name || ''));
+	} else if (op === 'description') {
+		await store.setProjectTagDescription(kbRoot, prefix, String(message.tagId || ''), String(message.description || ''));
+	} else if (op === 'delete') {
+		await store.deleteProjectTag(kbRoot, prefix, String(message.tagId || ''));
+	}
+}
+
+/**
  * Build a split graph from a root node:
  * - include root and all structural descendants
  * - expand only downward through outgoing links (from included nodes)
  * - when an outgoing-linked node is included, include its structural descendants too
  * - keep only links whose endpoints are included
  * - keep only groups referenced by included nodes
- * - keep only relation types referenced by included links (+ main default)
  * @param {ReturnType<typeof tagGraphStore.normalizeGraph>} src
  * @param {string} rootId
  */
@@ -171,22 +311,13 @@ function buildSplitGraphFromNode(src, rootId) {
 		});
 	const links = (src.links || []).filter(l => include.has(String(l.from || '')) && include.has(String(l.to || ''))).map(l => ({
 		from: String(l.from),
-		to: String(l.to),
-		relationId: String(l.relationId || 'main')
+		to: String(l.to)
 	}));
 	const usedGroupIds = new Set(nodes.map(n => String(n.groupId || '')).filter(Boolean));
 	const groups = (src.groups || [])
 		.filter(g => usedGroupIds.has(String(g.id || '')))
 		.map(g => ({ id: String(g.id), name: String(g.name || ''), color: String(g.color || '#7aa2ff') }));
-	const usedRelationIds = new Set(links.map(l => String(l.relationId || 'main')));
-	usedRelationIds.add('main');
-	const relationTypes = (src.relationTypes || [])
-		.filter(r => usedRelationIds.has(String(r.id || '')))
-		.map(r => ({ id: String(r.id), name: String(r.name || r.id) }));
-	if (!relationTypes.some(r => String(r.id) === 'main')) {
-		relationTypes.unshift({ id: 'main', name: 'Main' });
-	}
-	return tagGraphStore.normalizeGraph({ version: 2, nodes, links, relationTypes, groups });
+	return tagGraphStore.normalizeGraph({ version: 2, nodes, links, groups });
 }
 
 /**
@@ -220,14 +351,12 @@ function buildCombinedGraph(graphs) {
 	const srcNodeToMergedId = new Map();
 	/** @type {Set<string>} */
 	const usedGroupIds = new Set();
-	/** @type {{from:string,to:string,relationId:string}[]} */
+	/** @type {{from:string,to:string}[]} */
 	const links = [];
 	/** @type {Set<string>} */
 	const linkKeySet = new Set();
 	/** @type {Map<string,{id:string,name:string,color:string}>} */
 	const groupsById = new Map();
-	/** @type {Map<string,{id:string,name:string}>} */
-	const relById = new Map();
 	let mergedCounter = 0;
 
 	function labelKey(v) { return String(v || '').trim(); }
@@ -241,11 +370,6 @@ function buildCombinedGraph(graphs) {
 			const gid = String(gr.id || '');
 			if (!gid || groupsById.has(gid)) continue;
 			groupsById.set(gid, { id: gid, name: String(gr.name || gid), color: String(gr.color || '#7aa2ff') });
-		}
-		for (const rr of g.relationTypes || []) {
-			const rid = String(rr.id || '');
-			if (!rid || relById.has(rid)) continue;
-			relById.set(rid, { id: rid, name: String(rr.name || rid) });
 		}
 		for (const n of g.nodes || []) {
 			const lbl = labelKey(n.label || '');
@@ -287,11 +411,10 @@ function buildCombinedGraph(graphs) {
 			const from = srcNodeToMergedId.get(`${gi}:${String(fromNode.id || '')}`) || '';
 			const to = srcNodeToMergedId.get(`${gi}:${String(toNode.id || '')}`) || '';
 			if (!from || !to) continue;
-			const relationId = String(l.relationId || 'main') || 'main';
-			const key = `${from}=>${to}::${relationId}`;
+			const key = `${from}=>${to}`;
 			if (linkKeySet.has(key)) continue;
 			linkKeySet.add(key);
-			links.push({ from, to, relationId });
+			links.push({ from, to });
 		}
 	}
 	const nodes = Array.from(byLabel.values()).map(n => {
@@ -312,9 +435,7 @@ function buildCombinedGraph(graphs) {
 		};
 	});
 	const groups = Array.from(groupsById.values()).filter(g => usedGroupIds.has(String(g.id)));
-	const relationTypes = Array.from(relById.values());
-	if (!relationTypes.some(r => String(r.id) === 'main')) relationTypes.unshift({ id: 'main', name: 'Main' });
-	return tagGraphStore.normalizeGraph({ version: 2, nodes, links, groups, relationTypes });
+	return tagGraphStore.normalizeGraph({ version: 2, nodes, links, groups });
 }
 
 /**
@@ -425,6 +546,29 @@ class DripSubGraphPanel {
 }
 
 /**
+ * Multi-graph management ops that don't apply to a per-project tag graph (each project
+ * has one graph, and undo/redo is only tracked for the global KB graph). When the webview
+ * is in Projects mode these are ignored so they never leak into the global KB tag graph.
+ * Everything else (links, groups, relations, sub-tags, layout) is routed to the project's
+ * own graph instead.
+ */
+const PROJECT_MODE_GRAPH_ONLY = new Set([
+	'undoTagGraph',
+	'redoTagGraph',
+	'activateTagGraph',
+	'requestNewTagGraph',
+	'requestImportTagGraph',
+	'exportTagGraph',
+	'renameActiveTagGraph',
+	'deleteTagGraph',
+	'createGraphFromNode',
+	'createGraphFromNodePrompt',
+	'createCombinedGraph',
+	'createCombinedGraphPreview',
+	'openSubGraphEditorWindow'
+]);
+
+/**
  * @param {import('vscode').Webview} webview
  * @param {*} message
  * @param {*} state
@@ -433,6 +577,10 @@ class DripSubGraphPanel {
  */
 async function handleTagGraphMessage(webview, message, state, extensionUri) {
 	const tagGraphStore = require('../graph/tagGraphStore');
+	const projectScope = projectsScopeFor(webview);
+	if (projectScope && PROJECT_MODE_GRAPH_ONLY.has(message.type)) {
+		return true;
+	}
 	switch (message.type) {
 		case 'undoTagGraph': {
 			if (typeof state.undoTagGraph === 'function') {
@@ -453,6 +601,51 @@ async function handleTagGraphMessage(webview, message, state, extensionUri) {
 		case 'requestTagGraph': {
 			await postTagGraphStateToAll(state, webview);
 			state.syncTagGraphCheckpointFromStorage();
+			return true;
+		}
+		case 'tagsModeChanged': {
+			const isProjects = String(message.mode || '') === 'projects';
+			if (isProjects) {
+				const prefix = await postProjectTagsPanelState(webview, state, '');
+				setProjectsScope(webview, prefix);
+				await postTagGraphStateToAll(state, webview);
+			} else {
+				clearProjectsScope(webview);
+				await postTagGraphStateToAll(state, webview);
+			}
+			return true;
+		}
+		case 'requestProjectTagsPanel': {
+			const prefix = await postProjectTagsPanelState(webview, state, '');
+			setProjectsScope(webview, prefix);
+			await postTagGraphStateToAll(state, webview);
+			return true;
+		}
+		case 'projectTagsSelectProject': {
+			const prefix = await postProjectTagsPanelState(webview, state, String(message.folderPrefix || ''));
+			setProjectsScope(webview, prefix);
+			await postTagGraphStateToAll(state, webview);
+			return true;
+		}
+		case 'projectTagsAdd': {
+			const prefix = String(message.folderPrefix || '');
+			await mutateProjectTagsInStore(state, 'add', message);
+			await postProjectTagsPanelState(webview, state, prefix);
+			await postTagGraphStateToAll(state, webview);
+			return true;
+		}
+		case 'projectTagsRename': {
+			const prefix = String(message.folderPrefix || '');
+			await mutateProjectTagsInStore(state, 'rename', message);
+			await postProjectTagsPanelState(webview, state, prefix);
+			await postTagGraphStateToAll(state, webview);
+			return true;
+		}
+		case 'projectTagsDelete': {
+			const prefix = String(message.folderPrefix || '');
+			await mutateProjectTagsInStore(state, 'delete', message);
+			await postProjectTagsPanelState(webview, state, prefix);
+			await postTagGraphStateToAll(state, webview);
 			return true;
 		}
 		case 'activateTagGraph': {
@@ -559,6 +752,12 @@ async function handleTagGraphMessage(webview, message, state, extensionUri) {
 			return true;
 		}
 		case 'addTag': {
+			if (projectScope) {
+				await mutateProjectTagsInStore(state, 'add', { folderPrefix: projectScope, name: String(message.label || '') });
+				await postProjectTagsPanelState(webview, state, projectScope);
+				await postTagGraphStateToAll(state, webview);
+				return true;
+			}
 			await state.mutateTagGraph(g => {
 				tagGraphStore.addTag(g, String(message.label || ''));
 			});
@@ -655,6 +854,12 @@ async function handleTagGraphMessage(webview, message, state, extensionUri) {
 			return true;
 		}
 		case 'removeTag': {
+			if (projectScope) {
+				await mutateProjectTagsInStore(state, 'delete', { folderPrefix: projectScope, tagId: String(message.id || '') });
+				await postProjectTagsPanelState(webview, state, projectScope);
+				await postTagGraphStateToAll(state, webview);
+				return true;
+			}
 			await state.mutateTagGraph(g => {
 				tagGraphStore.removeTag(g, String(message.id || ''));
 			});
@@ -662,6 +867,12 @@ async function handleTagGraphMessage(webview, message, state, extensionUri) {
 			return true;
 		}
 		case 'renameTag': {
+			if (projectScope) {
+				await mutateProjectTagsInStore(state, 'rename', { folderPrefix: projectScope, tagId: String(message.id || ''), name: String(message.label || '') });
+				await postProjectTagsPanelState(webview, state, projectScope);
+				await postTagGraphStateToAll(state, webview);
+				return true;
+			}
 			await state.mutateTagGraph(g => {
 				tagGraphStore.renameTag(g, String(message.id || ''), String(message.label || ''));
 			});
@@ -670,6 +881,26 @@ async function handleTagGraphMessage(webview, message, state, extensionUri) {
 		}
 		case 'requestRemoveTagDialog': {
 			const id = String(message.id || '');
+			if (projectScope) {
+				const kbRoot = state.getVerifiedKnowledgeBaseRoot && state.getVerifiedKnowledgeBaseRoot();
+				let label = id;
+				if (kbRoot) {
+					const { loadProjectTags } = require('../graph/projectTagStore');
+					const tags = await loadProjectTags(kbRoot, projectScope);
+					const tag = (tags || []).find(t => String(t.id) === id);
+					if (tag) label = String(tag.name || id);
+				}
+				const pick = await vscode.window.showWarningMessage(
+					`Delete tag "${label}" from this project?`,
+					{ modal: true },
+					'Delete'
+				);
+				if (pick !== 'Delete') return true;
+				await mutateProjectTagsInStore(state, 'delete', { folderPrefix: projectScope, tagId: id });
+				await postProjectTagsPanelState(webview, state, projectScope);
+				await postTagGraphStateToAll(state, webview);
+				return true;
+			}
 			const graph = state.getTagGraph();
 			const tag = tagGraphStore.findNode(graph, id);
 			const label = tag ? tag.label : id;
@@ -691,6 +922,29 @@ async function handleTagGraphMessage(webview, message, state, extensionUri) {
 		case 'requestRemoveTagsDialog': {
 			const ids = Array.isArray(message.ids) ? message.ids.map(x => String(x || '').trim()).filter(Boolean) : [];
 			if (!ids.length) return true;
+			if (projectScope) {
+				const kbRoot = state.getVerifiedKnowledgeBaseRoot && state.getVerifiedKnowledgeBaseRoot();
+				let known = new Set(ids);
+				if (kbRoot) {
+					const { loadProjectTags } = require('../graph/projectTagStore');
+					const tags = await loadProjectTags(kbRoot, projectScope);
+					known = new Set((tags || []).map(t => String(t.id)));
+				}
+				const filtered = ids.filter(id => known.has(id));
+				if (!filtered.length) return true;
+				const pick = await vscode.window.showWarningMessage(
+					`Delete ${filtered.length} selected tag(s) from this project?`,
+					{ modal: true },
+					'Delete'
+				);
+				if (pick !== 'Delete') return true;
+				for (const id of filtered) {
+					await mutateProjectTagsInStore(state, 'delete', { folderPrefix: projectScope, tagId: id });
+				}
+				await postProjectTagsPanelState(webview, state, projectScope);
+				await postTagGraphStateToAll(state, webview);
+				return true;
+			}
 			const graph = state.getTagGraph();
 			const known = new Set(graph.nodes.map(n => String(n.id || '')));
 			const filtered = ids.filter(id => known.has(id));
@@ -708,76 +962,18 @@ async function handleTagGraphMessage(webview, message, state, extensionUri) {
 			return true;
 		}
 		case 'addLink': {
-			await state.mutateTagGraph(g => {
+			await applyGraphMutation(state, webview, projectScope, g => {
 				tagGraphStore.addLink(
 					g,
 					String(message.fromId || ''),
-					String(message.toId || ''),
-					String(message.relationId || 'main')
+					String(message.toId || '')
 				);
 			});
-			await postTagGraphStateToAll(state, webview);
-			return true;
-		}
-		case 'addRelationType': {
-			let duplicateFromMain = !!message.duplicateFromMain;
-			if (message.askDuplicateFromMain) {
-				const choice = await vscode.window.showInformationMessage(
-					`Create relation "${String(message.name || '').trim()}"`,
-					{ modal: true, detail: 'Do you want to duplicate Main relation links into this new relation?' },
-					'Duplicate Main Links',
-					'Create Empty Relation'
-				);
-				if (!choice) {
-					return true;
-				}
-				duplicateFromMain = choice === 'Duplicate Main Links';
-			}
-			let relationId = '';
-			await state.mutateTagGraph(g => {
-				relationId = tagGraphStore.addRelationType(g, String(message.name || ''), {
-					duplicateFromMain
-				});
-			});
-			if (!relationId) {
-				await webview.postMessage({
-					type: 'tagGraphError',
-					message: 'Relation name already exists. Choose a unique name.'
-				});
-				return true;
-			}
-			await postTagGraphStateToAll(state, webview);
-			return true;
-		}
-		case 'removeRelationType': {
-			await state.mutateTagGraph(g => {
-				tagGraphStore.removeRelationType(g, String(message.relationId || ''));
-			});
-			await postTagGraphStateToAll(state, webview);
-			return true;
-		}
-		case 'renameRelationType': {
-			let ok = false;
-			await state.mutateTagGraph(g => {
-				ok = tagGraphStore.renameRelationType(
-					g,
-					String(message.relationId || ''),
-					String(message.name || '')
-				);
-			});
-			if (!ok) {
-				await webview.postMessage({
-					type: 'tagGraphError',
-					message: 'Relation rename failed. Name may already exist.'
-				});
-				return true;
-			}
-			await postTagGraphStateToAll(state, webview);
 			return true;
 		}
 		case 'addTagGroup': {
 			let groupId = '';
-			await state.mutateTagGraph(g => {
+			await applyGraphMutation(state, webview, projectScope, g => {
 				groupId = tagGraphStore.addGroup(g, String(message.name || ''), String(message.color || ''));
 			});
 			if (!groupId) {
@@ -787,19 +983,17 @@ async function handleTagGraphMessage(webview, message, state, extensionUri) {
 				});
 				return true;
 			}
-			await postTagGraphStateToAll(state, webview);
 			return true;
 		}
 		case 'removeTagGroup': {
-			await state.mutateTagGraph(g => {
+			await applyGraphMutation(state, webview, projectScope, g => {
 				tagGraphStore.removeGroup(g, String(message.groupId || ''));
 			});
-			await postTagGraphStateToAll(state, webview);
 			return true;
 		}
 		case 'renameTagGroup': {
 			let ok = false;
-			await state.mutateTagGraph(g => {
+			await applyGraphMutation(state, webview, projectScope, g => {
 				ok = tagGraphStore.renameGroup(
 					g,
 					String(message.groupId || ''),
@@ -814,11 +1008,10 @@ async function handleTagGraphMessage(webview, message, state, extensionUri) {
 				});
 				return true;
 			}
-			await postTagGraphStateToAll(state, webview);
 			return true;
 		}
 		case 'assignTagToGroup': {
-			await state.mutateTagGraph(g => {
+			await applyGraphMutation(state, webview, projectScope, g => {
 				const includeChildren = !!message.includeChildren;
 				const tagId = String(message.tagId || '');
 				const groupId = String(message.groupId || '');
@@ -845,49 +1038,44 @@ async function handleTagGraphMessage(webview, message, state, extensionUri) {
 					tagGraphStore.assignNodeGroup(g, tagId, groupId);
 				}
 			});
-			await postTagGraphStateToAll(state, webview);
 			return true;
 		}
 		case 'removeLink': {
 			const idx = Number(message.index);
 			if (Number.isInteger(idx) && idx >= 0) {
-				await state.mutateTagGraph(g => {
+				await applyGraphMutation(state, webview, projectScope, g => {
 					tagGraphStore.removeLinkAtIndex(g, idx);
 				});
 			} else {
-				await state.mutateTagGraph(g => {
+				await applyGraphMutation(state, webview, projectScope, g => {
 					tagGraphStore.removeLink(g, String(message.fromId || ''), String(message.toId || ''));
 				});
 			}
-			await postTagGraphStateToAll(state, webview);
 			return true;
 		}
 		case 'reverseLinkAtIndex': {
 			const idx = Number(message.index);
 			if (Number.isInteger(idx) && idx >= 0) {
-				await state.mutateTagGraph(g => {
+				await applyGraphMutation(state, webview, projectScope, g => {
 					tagGraphStore.reverseLinkDirectionAtIndex(g, idx);
 				});
 			}
-			await postTagGraphStateToAll(state, webview);
 			return true;
 		}
 		case 'removeLinksBetween': {
 			const a = String(message.fromId || '');
 			const b = String(message.toId || '');
 			const which = String(message.which || 'both');
-			const relationId = String(message.relationId || '');
-			await state.mutateTagGraph(g => {
-				tagGraphStore.removeLinksBetween(g, a, b, which, relationId);
+			await applyGraphMutation(state, webview, projectScope, g => {
+				tagGraphStore.removeLinksBetween(g, a, b, which);
 			});
-			await postTagGraphStateToAll(state, webview);
 			return true;
 		}
 		case 'addSubGraphTag': {
 			const parentTagId = String(message.parentTagId || '');
 			const nx = Number(message.x);
 			const ny = Number(message.y);
-			await state.mutateTagGraph(g => {
+			await applyGraphMutation(state, webview, projectScope, g => {
 				tagGraphStore.addSubGraphTag(
 					g,
 					parentTagId,
@@ -896,31 +1084,28 @@ async function handleTagGraphMessage(webview, message, state, extensionUri) {
 					Number.isFinite(ny) ? ny : undefined
 				);
 			});
-			await postTagGraphStateToAll(state, webview);
 			return true;
 		}
 		case 'removeSubGraphTag': {
 			const parentTagId = String(message.parentTagId || '');
 			const subTagId = String(message.subTagId || '');
-			await state.mutateTagGraph(g => {
+			await applyGraphMutation(state, webview, projectScope, g => {
 				tagGraphStore.removeSubGraphTag(g, parentTagId, subTagId);
 			});
-			await postTagGraphStateToAll(state, webview);
 			return true;
 		}
 		case 'renameSubGraphTag': {
 			const parentTagId = String(message.parentTagId || '');
 			const subTagId = String(message.subTagId || '');
-			await state.mutateTagGraph(g => {
+			await applyGraphMutation(state, webview, projectScope, g => {
 				tagGraphStore.renameSubGraphTag(g, parentTagId, subTagId, String(message.label || ''));
 			});
-			await postTagGraphStateToAll(state, webview);
 			return true;
 		}
 		case 'requestRenameSubGraphTagDialog': {
 			const parentTagId = String(message.parentTagId || '');
 			const subTagId = String(message.subTagId || '');
-			const graph = state.getTagGraph();
+			const graph = await loadCurrentTagGraph(state, projectScope);
 			const node = tagGraphStore.findSubGraphTag(graph, parentTagId, subTagId);
 			if (!node) {
 				return true;
@@ -939,46 +1124,41 @@ async function handleTagGraphMessage(webview, message, state, extensionUri) {
 			if (value == null) {
 				return true;
 			}
-			await state.mutateTagGraph(g => {
+			await applyGraphMutation(state, webview, projectScope, g => {
 				tagGraphStore.renameSubGraphTag(g, parentTagId, subTagId, String(value).trim());
 			});
-			await postTagGraphStateToAll(state, webview);
 			return true;
 		}
 		case 'addSubGraphLink': {
 			const parentTagId = String(message.parentTagId || '');
-			await state.mutateTagGraph(g => {
+			await applyGraphMutation(state, webview, projectScope, g => {
 				tagGraphStore.addSubGraphLink(
 					g,
 					parentTagId,
 					String(message.fromId || ''),
-					String(message.toId || ''),
-					String(message.relationId || 'main')
+					String(message.toId || '')
 				);
 			});
-			await postTagGraphStateToAll(state, webview);
 			return true;
 		}
 		case 'removeSubGraphLink': {
 			const parentTagId = String(message.parentTagId || '');
 			const idx = Number(message.index);
 			if (Number.isInteger(idx) && idx >= 0) {
-				await state.mutateTagGraph(g => {
+				await applyGraphMutation(state, webview, projectScope, g => {
 					tagGraphStore.removeSubGraphLinkAtIndex(g, parentTagId, idx);
 				});
 			}
-			await postTagGraphStateToAll(state, webview);
 			return true;
 		}
 		case 'reverseSubGraphLinkAtIndex': {
 			const parentTagId = String(message.parentTagId || '');
 			const idx = Number(message.index);
 			if (Number.isInteger(idx) && idx >= 0) {
-				await state.mutateTagGraph(g => {
+				await applyGraphMutation(state, webview, projectScope, g => {
 					tagGraphStore.reverseSubGraphLinkAtIndex(g, parentTagId, idx);
 				});
 			}
-			await postTagGraphStateToAll(state, webview);
 			return true;
 		}
 		case 'removeSubGraphLinksBetween': {
@@ -986,25 +1166,22 @@ async function handleTagGraphMessage(webview, message, state, extensionUri) {
 			const a = String(message.fromId || '');
 			const b = String(message.toId || '');
 			const which = String(message.which || 'both');
-			const relationId = String(message.relationId || '');
-			await state.mutateTagGraph(g => {
-				tagGraphStore.removeSubGraphLinksBetween(g, parentTagId, a, b, which, relationId);
+			await applyGraphMutation(state, webview, projectScope, g => {
+				tagGraphStore.removeSubGraphLinksBetween(g, parentTagId, a, b, which);
 			});
-			await postTagGraphStateToAll(state, webview);
 			return true;
 		}
 		case 'saveSubGraphLayout': {
 			const parentTagId = String(message.parentTagId || '');
-			await state.mutateTagGraph(g => {
+			await applyGraphMutation(state, webview, projectScope, g => {
 				tagGraphStore.applySubGraphLayout(g, parentTagId, message.positions || {});
 			}, { recordHistory: false });
-			await postTagGraphStateToAll(state, webview);
 			return true;
 		}
 		case 'requestRemoveSubGraphTagDialog': {
 			const parentTagId = String(message.parentTagId || '');
 			const subTagId = String(message.subTagId || '');
-			const graph = state.getTagGraph();
+			const graph = await loadCurrentTagGraph(state, projectScope);
 			const sub = tagGraphStore.findSubGraphTag(graph, parentTagId, subTagId);
 			const subLabel = sub ? sub.label : subTagId;
 			const pick = await vscode.window.showWarningMessage(
@@ -1015,13 +1192,18 @@ async function handleTagGraphMessage(webview, message, state, extensionUri) {
 			if (pick !== 'Delete') {
 				return true;
 			}
-			await state.mutateTagGraph(g => {
+			await applyGraphMutation(state, webview, projectScope, g => {
 				tagGraphStore.removeSubGraphTag(g, parentTagId, subTagId);
 			});
-			await postTagGraphStateToAll(state, webview);
 			return true;
 		}
 		case 'addTagAtPosition': {
+			if (projectScope) {
+				await mutateProjectTagsInStore(state, 'add', { folderPrefix: projectScope, name: String(message.label || '') });
+				await postProjectTagsPanelState(webview, state, projectScope);
+				await postTagGraphStateToAll(state, webview);
+				return true;
+			}
 			const nx = Number(message.x);
 			const ny = Number(message.y);
 			let newId = '';
@@ -1038,10 +1220,9 @@ async function handleTagGraphMessage(webview, message, state, extensionUri) {
 			return true;
 		}
 		case 'saveLayout': {
-			await state.mutateTagGraph(g => {
+			await applyGraphMutation(state, webview, projectScope, g => {
 				tagGraphStore.applyNodePositions(g, message.positions || {});
 			}, { recordHistory: false });
-			await postTagGraphStateToAll(state, webview);
 			return true;
 		}
 		default:

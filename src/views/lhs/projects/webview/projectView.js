@@ -11,6 +11,13 @@
 	let detail = { features: [], issues: [] };
 	let detailLoading = false;
 
+	/** Per-project tags for the Tags popover. */
+	/** @type {any[]} */
+	let projectTags = [];
+	let tagsPopoverOpen = false;
+	/** @type {HTMLElement | null} */
+	let tagsPopoverEl = null;
+
 	// Field schema from the host (enum values read from DRIP settings).
 	let schema = { project: { fields: [] }, issue: { fields: [] } };
 	/** @type {any[]} */
@@ -1543,19 +1550,25 @@
 	 * @param {any} issue
 	 * @param {Map<string, any>} issueIndex
 	 * @param {Map<string, any>} localKeys issues present in this section
-	 * @returns {any[]}
+	 * @returns {{ ghosts: any[], anchor: any | null }} ghosts (root-first) plus the first local
+	 * ancestor they should hang under (so a multi-level cross-section chain nests under the
+	 * ancestor that actually lives in this section).
 	 */
 	function ghostAncestorsFor(issue, issueIndex, localKeys) {
 		const chain = parentChainOf(issue, issueIndex);
 		/** @type {any[]} */
 		const ghosts = [];
+		let anchor = null;
 		for (let i = 0; i < chain.length; i++) {
 			const k = String(chain[i].issueKey || '').toLowerCase();
-			if (localKeys.has(k)) break;
+			if (localKeys.has(k)) {
+				anchor = chain[i];
+				break;
+			}
 			ghosts.push(chain[i]);
 		}
 		ghosts.reverse();
-		return ghosts;
+		return { ghosts, anchor };
 	}
 
 	/**
@@ -1641,13 +1654,15 @@
 				}
 			}
 
-			// Cross-section parent: attach under the shared ghost ancestor chain (root-first).
+			// Cross-section parent: attach under the shared ghost ancestor chain (root-first),
+			// anchored to the first local ancestor so the whole chain nests under the issue
+			// that actually lives in this section (not as a separate top-level parent).
 			if (showParentChain && issueIndex) {
-				const ghosts = ghostAncestorsFor(iss, issueIndex, byIssueKey);
-				if (ghosts.length) {
-					let prev = null;
-					for (let g = 0; g < ghosts.length; g++) {
-						const gn = getNode(ghosts[g], true);
+				const result = ghostAncestorsFor(iss, issueIndex, byIssueKey);
+				if (result.ghosts.length) {
+					let prev = result.anchor ? getNode(result.anchor, false) : null;
+					for (let g = 0; g < result.ghosts.length; g++) {
+						const gn = getNode(result.ghosts[g], true);
 						if (prev) addChild(prev, gn);
 						prev = gn;
 					}
@@ -2234,7 +2249,7 @@
 		);
 	}
 
-	/** Shared detail header (back / title / Features-Issues switch / New issue). */
+	/** Shared detail header (back / title / Overview / Tags / Features-Issues switch / New issue). */
 	function detailHeaderHtml(title) {
 		return (
 			'<div class="toolbar">' +
@@ -2242,6 +2257,8 @@
 			'<h2>' +
 			esc(title) +
 			'</h2>' +
+			'<button type="button" class="ghost" id="btnOverview">Overview</button>' +
+			'<button type="button" class="ghost" id="btnTags">Tags</button>' +
 			'<div class="detail-switch">' +
 			'<button type="button" class="vs-btn' +
 			(detailView === 'features' ? ' active' : '') +
@@ -2260,6 +2277,17 @@
 		if (backBtn) backBtn.addEventListener('click', goBack);
 		const btnNew = document.getElementById('btnNewIssue');
 		if (btnNew) btnNew.addEventListener('click', function () { openCompose(''); });
+		const btnOverview = document.getElementById('btnOverview');
+		if (btnOverview)
+			btnOverview.addEventListener('click', function () {
+				vscode.postMessage({ type: 'openProjectOverview', folderPrefix: selectedPrefix });
+			});
+		const btnTags = document.getElementById('btnTags');
+		if (btnTags)
+			btnTags.addEventListener('click', function (e) {
+				e.stopPropagation();
+				toggleTagsPopover();
+			});
 		root.querySelectorAll('.vs-btn').forEach(function (btn) {
 			btn.addEventListener('click', function (e) {
 				e.stopPropagation();
@@ -2577,7 +2605,14 @@
 					'</button>' +
 					'<span class="count">' +
 					childIssues.length +
-					' issues</span></summary>';
+					' issues</span>' +
+					'<button type="button" class="feat-overview" data-folder-prefix="' +
+					esc(f.folderPrefix || '') +
+					'" data-path="' +
+					esc(f.path) +
+					'" data-is-folder-index="' +
+					(f.isFolderIndex ? '1' : '0') +
+					'">Overview</button></summary>';
 				html +=
 					'<div>' +
 					(childIssues.length
@@ -2607,6 +2642,19 @@
 					Number(btn.getAttribute('data-hid')),
 					btn.getAttribute('data-title')
 				);
+			});
+		});
+		root.querySelectorAll('.feat-overview').forEach(function (btn) {
+			btn.addEventListener('click', function (e) {
+				e.preventDefault();
+				e.stopPropagation();
+				vscode.postMessage({
+					type: 'openFeatureOverview',
+					folderPrefix: selectedPrefix,
+					featureFolderPrefix: btn.getAttribute('data-folder-prefix') || '',
+					path: btn.getAttribute('data-path') || '',
+					isFolderIndex: btn.getAttribute('data-is-folder-index') === '1'
+				});
 			});
 		});
 		bindIssues(root);
@@ -2716,10 +2764,139 @@
 		renderProjectDetail();
 	}
 
+	/** Create (once) the persistent Tags popover overlay, appended outside `root`. */
+	function ensureTagsPopoverEl() {
+		if (tagsPopoverEl) return tagsPopoverEl;
+		tagsPopoverEl = document.createElement('div');
+		tagsPopoverEl.id = 'dripTagsPopover';
+		tagsPopoverEl.className = 'tags-popover';
+		tagsPopoverEl.style.display = 'none';
+		document.body.appendChild(tagsPopoverEl);
+		tagsPopoverEl.addEventListener('click', function (e) {
+			if (e.target === tagsPopoverEl) closeTagsPopover();
+		});
+		document.addEventListener('keydown', function (e) {
+			if (e.key === 'Escape' && tagsPopoverOpen) closeTagsPopover();
+		});
+		return tagsPopoverEl;
+	}
+
+	function openTagsPopover() {
+		tagsPopoverOpen = true;
+		ensureTagsPopoverEl();
+		// Request fresh tags; render immediately with what we have, then update on reply.
+		vscode.postMessage({ type: 'requestProjectTags', folderPrefix: selectedPrefix });
+		renderTagsPopover();
+	}
+
+	function closeTagsPopover() {
+		tagsPopoverOpen = false;
+		if (tagsPopoverEl) tagsPopoverEl.style.display = 'none';
+	}
+
+	function toggleTagsPopover() {
+		if (tagsPopoverOpen) closeTagsPopover();
+		else openTagsPopover();
+	}
+
+	function renderTagsPopover() {
+		const el = ensureTagsPopoverEl();
+		if (!tagsPopoverOpen) {
+			el.style.display = 'none';
+			return;
+		}
+		el.style.display = '';
+		let html =
+			'<div class="tags-popover-card">' +
+			'<div class="tags-popover-head"><span>Project tags</span><button type="button" id="tagsPopClose">\u00d7</button></div>' +
+			'<div class="tags-popover-body">' +
+			'<div class="tags-add-row">' +
+			'<input id="tagsNewName" type="text" placeholder="Tag name" autocomplete="off" />' +
+			'<input id="tagsNewDesc" type="text" placeholder="Description (optional)" autocomplete="off" />' +
+			'<button type="button" id="tagsAddBtn">Add</button>' +
+			'</div>';
+		if (!projectTags.length) {
+			html += '<div class="muted-block">No tags yet.</div>';
+		} else {
+			html += '<ul class="tags-popover-list">';
+			projectTags.forEach(function (t) {
+				html +=
+					'<li data-tag-id="' +
+					esc(t.id) +
+					'"><div class="tag-line">' +
+					'<input type="text" class="tag-name-inp" value="' +
+					esc(t.name) +
+					'" autocomplete="off" />' +
+					'<button type="button" class="tag-del" title="Delete tag">\uD83D\uDDD1</button>' +
+					'</div>' +
+					'<input type="text" class="tag-desc-inp" placeholder="Description" value="' +
+					esc(t.description || '') +
+					'" autocomplete="off" /></li>';
+			});
+			html += '</ul>';
+		}
+		html += '</div></div>';
+		el.innerHTML = html;
+		bindTagsPopover();
+	}
+
+	function bindTagsPopover() {
+		const el = ensureTagsPopoverEl();
+		const close = document.getElementById('tagsPopClose');
+		if (close) close.addEventListener('click', closeTagsPopover);
+		const addBtn = document.getElementById('tagsAddBtn');
+		const nameInp = document.getElementById('tagsNewName');
+		const descInp = document.getElementById('tagsNewDesc');
+		if (addBtn) {
+			addBtn.addEventListener('click', function () {
+				const name = nameInp ? String(nameInp.value || '').trim() : '';
+				if (!name) return;
+				vscode.postMessage({
+					type: 'addProjectTag',
+					folderPrefix: selectedPrefix,
+					name: name,
+					description: descInp ? String(descInp.value || '') : ''
+				});
+				if (nameInp) nameInp.value = '';
+				if (descInp) descInp.value = '';
+			});
+		}
+		el.querySelectorAll('li[data-tag-id]').forEach(function (li) {
+			const tagId = li.getAttribute('data-tag-id') || '';
+			const nameInp = li.querySelector('.tag-name-inp');
+			const descInp = li.querySelector('.tag-desc-inp');
+			const del = li.querySelector('.tag-del');
+			if (nameInp) {
+				nameInp.addEventListener('change', function () {
+					const name = String(nameInp.value || '').trim();
+					if (!name) return;
+					vscode.postMessage({ type: 'renameProjectTag', folderPrefix: selectedPrefix, tagId: tagId, name: name });
+				});
+			}
+			if (descInp) {
+				descInp.addEventListener('change', function () {
+					vscode.postMessage({
+						type: 'setProjectTagDescription',
+						folderPrefix: selectedPrefix,
+						tagId: tagId,
+						description: String(descInp.value || '')
+					});
+				});
+			}
+			if (del) {
+				del.addEventListener('click', function () {
+					vscode.postMessage({ type: 'deleteProjectTag', folderPrefix: selectedPrefix, tagId: tagId });
+				});
+			}
+		});
+	}
+
 	function goBack() {
 		selectedPrefix = '';
 		selectedTitle = '';
 		detail = { features: [], issues: [] };
+		projectTags = [];
+		closeTagsPopover();
 		detailLoading = false;
 		compose = null;
 		issueQuery = '';
@@ -2774,6 +2951,10 @@
 				if (match) selectedTitle = match.title || selectedTitle;
 			}
 			render();
+		}
+		if (msg.type === 'projectTagsState') {
+			projectTags = msg.tags || [];
+			if (tagsPopoverOpen) renderTagsPopover();
 		}
 		if (msg.type === 'error') {
 			kbMeta.textContent = msg.message || 'Error';

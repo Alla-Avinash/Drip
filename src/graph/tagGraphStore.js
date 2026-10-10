@@ -512,7 +512,6 @@ function emptyGraph() {
 		version: 2,
 		nodes: [],
 		links: [],
-		relationTypes: [{ id: 'main', name: 'Main' }],
 		groups: []
 	};
 }
@@ -645,7 +644,11 @@ function normalizeV2(raw) {
 			if (typeof ny === 'number' && Number.isFinite(ny)) nest.y = ny;
 		}
 		const groupId = String(t.groupId || '').trim();
-		nodes.push({ id, label, parentId, x, y, nest, groupId });
+		const node = { id, label, parentId, x, y, nest, groupId };
+		if (typeof t.description === 'string' && t.description.trim()) {
+			node.description = String(t.description).trim();
+		}
+		nodes.push(node);
 	}
 	const idSet = new Set(nodes.map(n => n.id));
 	for (const n of nodes) {
@@ -660,26 +663,10 @@ function normalizeV2(raw) {
 					const from = String(l.from || '').trim();
 					const to = String(l.to || '').trim();
 					if (!from || !to || !idSet.has(from) || !idSet.has(to)) return null;
-					return { from, to, relationId: String(l.relationId || 'main') || 'main' };
+					return { from, to };
 				})
 				.filter(Boolean)
 		: [];
-	const relationTypesRaw = Array.isArray(raw.relationTypes) ? raw.relationTypes : [{ id: 'main', name: 'Main' }];
-	/** @type {{ id: string, name: string }[]} */
-	const relationTypes = [];
-	const relationSet = new Set();
-	for (const r of relationTypesRaw) {
-		if (!r || typeof r !== 'object') continue;
-		const id = String(r.id || '').trim();
-		const name = String(r.name || '').trim();
-		if (!id || !name || relationSet.has(id)) continue;
-		relationTypes.push({ id, name });
-		relationSet.add(id);
-	}
-	if (!relationSet.has('main')) {
-		relationTypes.unshift({ id: 'main', name: 'Main' });
-		relationSet.add('main');
-	}
 	const groupsRaw = Array.isArray(raw.groups) ? raw.groups : [];
 	/** @type {{ id: string, name: string, color: string }[]} */
 	const groups = [];
@@ -697,11 +684,7 @@ function normalizeV2(raw) {
 		const gid = String(n.groupId || '').trim();
 		n.groupId = gid && groupSet.has(gid) ? gid : '';
 	}
-	for (const l of links) {
-		const rid = String(l.relationId || '').trim();
-		l.relationId = rid && relationSet.has(rid) ? rid : 'main';
-	}
-	return { version: 2, nodes, links, relationTypes, groups };
+	return { version: 2, nodes, links, groups };
 }
 
 /**
@@ -881,16 +864,14 @@ function renameTag(graph, id, label) {
  * @param {string} fromId
  * @param {string} toId
  */
-function addLink(graph, fromId, toId, relationId) {
+function addLink(graph, fromId, toId) {
 	const a = String(fromId || '').trim();
 	const b = String(toId || '').trim();
 	if (!a || !b) return;
 	const na = findNode(graph, a);
 	const nb = findNode(graph, b);
 	if (!na || !nb || !isRootNode(na) || !isRootNode(nb)) return;
-	const rid = String(relationId || 'main').trim() || 'main';
-	const known = new Set((graph.relationTypes || []).map(r => String(r.id || '')));
-	graph.links.push({ from: a, to: b, relationId: known.has(rid) ? rid : 'main' });
+	graph.links.push({ from: a, to: b });
 }
 
 /**
@@ -934,25 +915,16 @@ function reverseLinkDirectionAtIndex(graph, index) {
  * @param {string} b
  * @param {'forward' | 'reverse' | 'both'} which
  */
-function removeLinksBetween(graph, a, b, which, relationId) {
+function removeLinksBetween(graph, a, b, which) {
 	const A = String(a || '').trim();
 	const B = String(b || '').trim();
 	if (!A || !B) return;
 	const w = String(which || 'both');
-	const rid = String(relationId || '').trim();
 	if (w === 'forward' || w === 'both') {
-		graph.links = graph.links.filter(l => {
-			if (!(l.from === A && l.to === B)) return true;
-			if (!rid) return false;
-			return String(l.relationId || 'main') !== rid;
-		});
+		graph.links = graph.links.filter(l => !(l.from === A && l.to === B));
 	}
 	if (w === 'reverse' || w === 'both') {
-		graph.links = graph.links.filter(l => {
-			if (!(l.from === B && l.to === A)) return true;
-			if (!rid) return false;
-			return String(l.relationId || 'main') !== rid;
-		});
+		graph.links = graph.links.filter(l => !(l.from === B && l.to === A));
 	}
 }
 
@@ -1026,69 +998,14 @@ function findSubGraphTag(graph, graphTagId, subId) {
  * @param {string} fromId
  * @param {string} toId
  */
-function addSubGraphLink(graph, graphTagId, fromId, toId, relationId) {
+function addSubGraphLink(graph, graphTagId, fromId, toId) {
 	const tid = String(graphTagId || '').trim();
 	const a = String(fromId || '').trim();
 	const b = String(toId || '').trim();
 	if (!findNode(graph, tid)) return;
 	const allowed = focusClosureIdSet(graph, tid);
 	if (!allowed.has(a) || !allowed.has(b)) return;
-	const rid = String(relationId || 'main').trim() || 'main';
-	const known = new Set((graph.relationTypes || []).map(r => String(r.id || '')));
-	graph.links.push({ from: a, to: b, relationId: known.has(rid) ? rid : 'main' });
-}
-
-function addRelationType(graph, name, options) {
-	const n = String(name || '').trim();
-	if (!n) return '';
-	if (!Array.isArray(graph.relationTypes)) graph.relationTypes = [{ id: 'main', name: 'Main' }];
-	const lowered = n.toLowerCase();
-	if (graph.relationTypes.some(r => String(r.name || '').trim().toLowerCase() === lowered)) return '';
-	const base = n.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'relation';
-	const taken = new Set(graph.relationTypes.map(r => String(r.id || '')));
-	let id = base;
-	let i = 2;
-	while (taken.has(id)) {
-		id = `${base}-${i++}`;
-	}
-	graph.relationTypes.push({ id, name: n });
-	const duplicateFromMain = !!(options && options.duplicateFromMain);
-	if (duplicateFromMain) {
-		const copied = new Set();
-		for (const l of graph.links) {
-			if (String(l.relationId || 'main') !== 'main') continue;
-			const key = `${String(l.from || '')}->${String(l.to || '')}`;
-			if (!key || copied.has(key)) continue;
-			copied.add(key);
-			graph.links.push({ from: l.from, to: l.to, relationId: id });
-		}
-	}
-	return id;
-}
-
-function removeRelationType(graph, relationId) {
-	const rid = String(relationId || '').trim();
-	if (!rid || rid === 'main') return;
-	if (!Array.isArray(graph.relationTypes)) return;
-	graph.relationTypes = graph.relationTypes.filter(r => String(r.id || '') !== rid);
-	for (const l of graph.links) {
-		if (String(l.relationId || 'main') === rid) l.relationId = 'main';
-	}
-}
-
-function renameRelationType(graph, relationId, name) {
-	const rid = String(relationId || '').trim();
-	const n = String(name || '').trim();
-	if (!rid || !n || !Array.isArray(graph.relationTypes)) return false;
-	const lowered = n.toLowerCase();
-	for (const r of graph.relationTypes) {
-		if (String(r.id || '') === rid) continue;
-		if (String(r.name || '').trim().toLowerCase() === lowered) return false;
-	}
-	const rel = graph.relationTypes.find(r => String(r.id || '') === rid);
-	if (!rel) return false;
-	rel.name = n;
-	return true;
+	graph.links.push({ from: a, to: b });
 }
 
 function addGroup(graph, name, color) {
@@ -1186,26 +1103,19 @@ function reverseSubGraphLinkAtIndex(graph, graphTagId, index) {
  * @param {string} b
  * @param {'forward' | 'reverse' | 'both'} which
  */
-function removeSubGraphLinksBetween(graph, graphTagId, a, b, which, relationId) {
+function removeSubGraphLinksBetween(graph, graphTagId, a, b, which) {
 	const tid = String(graphTagId || '').trim();
 	const allowed = focusClosureIdSet(graph, tid);
 	const A = String(a || '').trim();
 	const B = String(b || '').trim();
 	const w = String(which || 'both');
-	const rid = String(relationId || '').trim();
 	graph.links = graph.links.filter(l => {
 		if (!allowed.has(l.from) || !allowed.has(l.to)) return true;
 		if (w === 'forward' || w === 'both') {
-			if (l.from === A && l.to === B) {
-				if (!rid) return false;
-				if (String(l.relationId || 'main') === rid) return false;
-			}
+			if (l.from === A && l.to === B) return false;
 		}
 		if (w === 'reverse' || w === 'both') {
-			if (l.from === B && l.to === A) {
-				if (!rid) return false;
-				if (String(l.relationId || 'main') === rid) return false;
-			}
+			if (l.from === B && l.to === A) return false;
 		}
 		return true;
 	});
@@ -1298,9 +1208,6 @@ module.exports = {
 	renameSubGraphTag,
 	findSubGraphTag,
 	addSubGraphLink,
-	addRelationType,
-	removeRelationType,
-	renameRelationType,
 	addGroup,
 	removeGroup,
 	renameGroup,

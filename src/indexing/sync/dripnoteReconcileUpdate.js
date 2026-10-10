@@ -26,7 +26,6 @@ const {
 	applyParsedNoteToIndex,
 	collectKnownTagNamesLower,
 	lookupFileRowById,
-	openDripIndexDb,
 	replaceParsedNoteAtFileId,
 	syncFileHeadingAllocatorFromUsedIds
 } = require('../dripIndexDb');
@@ -302,35 +301,20 @@ async function persistReconcileUpdate(kbRootUri, noteUri, text, fileId, mode, co
 	);
 	parsed.fileId = fileId;
 
-	const handle = await openDripIndexDb(kbRootUri);
 	/** @type {{ fileId: number, headingId: number }[]} */
 	const embeddingUpserts = [];
-	try {
-		handle.db.run('BEGIN');
-		if (mode === MODE_EXISTING) {
-			applyParsedNoteToIndex(handle.db, relPath, parsed, context, {
-				incremental: true,
-				embeddingUpserts
-			});
-		} else {
-			replaceParsedNoteAtFileId(handle.db, fileId, parsed, context, { embeddingUpserts });
-		}
-		handle.db.run('COMMIT');
-		await handle.save();
-		const { enqueueHeadingEmbeddingUpserts } = require('../embeddings/headingEmbeddingSync');
-		enqueueHeadingEmbeddingUpserts(kbRootUri, embeddingUpserts);
-		const { enqueueFolderEmbeddingsForNotePath } = require('../embeddings/folderEmbeddingSync');
-		enqueueFolderEmbeddingsForNotePath(kbRootUri, relPath);
-	} catch (err) {
-		try {
-			handle.db.run('ROLLBACK');
-		} catch {
-			// ignore
-		}
-		throw err;
-	} finally {
-		handle.close();
+	if (mode === MODE_EXISTING) {
+		await applyParsedNoteToIndex(kbRootUri, relPath, parsed, context, {
+			incremental: true,
+			embeddingUpserts
+		});
+	} else {
+		await replaceParsedNoteAtFileId(kbRootUri, fileId, parsed, context, { embeddingUpserts });
 	}
+	const { enqueueHeadingEmbeddingUpserts } = require('../embeddings/headingEmbeddingSync');
+	enqueueHeadingEmbeddingUpserts(kbRootUri, embeddingUpserts);
+	const { enqueueFolderEmbeddingsForNotePath } = require('../embeddings/folderEmbeddingSync');
+	enqueueFolderEmbeddingsForNotePath(kbRootUri, relPath);
 
 	const usedIds = (parsed.headings || [])
 		.map(h => Number(h.heading_id))

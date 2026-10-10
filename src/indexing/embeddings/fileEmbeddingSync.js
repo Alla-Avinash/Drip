@@ -3,12 +3,14 @@
 /**
  * Keep file vectors in step with `files` rows by set difference:
  * encode paths that have no vector, delete vectors whose path is gone.
- * Text depends on the path only, so no per-edit hooks are needed — renames show up as
- * one new path + one orphan.
+ * Project-zone notes (under a `.p`/`.f` folder) are skipped entirely — their vectors are
+ * never stored here. Text depends on the path only, so no per-edit hooks are needed —
+ * renames show up as one new path + one orphan.
  */
 
 const { encodeHeadingEmbeddingText } = require('./headingEmbeddingEncode');
 const { getEmbeddingMeta } = require('./headingEmbeddingStore');
+const { isProjectNotePath } = require('../projectIndex');
 const {
 	buildFileEmbeddingText,
 	ensureFileEmbeddingStorage,
@@ -43,7 +45,9 @@ async function runSync(kbRootUri) {
 					.prepare(`SELECT path FROM files`)
 					.all()
 					.map(r => String(r.path || '').replace(/\\/g, '/'))
-					.filter(Boolean)
+					// Project-zone notes (under a `.p`/`.f` folder) are excluded — they belong
+					// to `projects.drip`, not the document search this vector feed powers.
+					.filter(p => Boolean(p) && !isProjectNotePath(p))
 			);
 			const have = new Set();
 			for (const rec of listFileEmbeddingRecords(handle.db)) {
