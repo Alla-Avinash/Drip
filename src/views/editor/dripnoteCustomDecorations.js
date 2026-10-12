@@ -5,7 +5,7 @@ const { tokenizeDripnote } = require('./dripnoteColoringTokens');
 
 /**
  * Editor decoration overlays on top of the semantic-token theme base:
- *   1. Doc Coloring — the six role colors, applied only where the user set a custom hex
+ *   1. Doc Coloring — the nine role colors, applied only where the user set a custom hex
  *      (empty = follow the theme palette handled by dripnoteSemanticTokens.js).
  *   2. Markdown marks — the user-assigned mark/text colors (empty = plain text).
  */
@@ -17,7 +17,10 @@ const ROLE_TO_COLOR_KEY = {
 	metakey: 'color3',
 	relationkey: 'color4',
 	metavalue: 'color5',
-	fileidentity: 'color6'
+	fileidentity: 'color6',
+	identityvalue: 'color7',
+	typedvalue: 'color8',
+	relationvalue: 'color9'
 };
 
 function getCustomColorMap() {
@@ -82,7 +85,7 @@ function getDocColors() {
 	const raw = cfg.get('dripnoteDocColors', {}) || {};
 	/** @type {Record<string, string>} */
 	const out = {};
-	for (let i = 1; i <= 6; i++) {
+	for (let i = 1; i <= 9; i++) {
 		const key = `color${i}`;
 		out[key] = String((raw && raw[key]) || '').trim();
 	}

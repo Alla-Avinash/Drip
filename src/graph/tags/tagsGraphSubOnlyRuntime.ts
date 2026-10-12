@@ -1,11 +1,12 @@
-'use strict';
+// Browser client for the DRIP Tags graph webview. Bundled by esbuild (scripts/build-webview.mjs)
+// into dist/. Runs inside the sandboxed webview and talks to the extension host through
+// window.__dripVscodeApi, which an inline bootstrap <script> sets via acquireVsCodeApi().
 
-/**
- * Client script for standalone sub-graph editor panel (many sub-tags).
- * Same interactions as the flyout mini graph; receives full graph via tagGraphState + subGraphEditorParentId.
- */
-function getTagsGraphSubOnlyRuntime() {
-	return `(function () {
+interface Window {
+	__dripVscodeApi: any;
+}
+
+(function () {
 	var vscode = window.__dripVscodeApi;
 	if (!vscode) return;
 	var subGraphWrap = document.getElementById('stag-subgraph-wrap');
@@ -785,7 +786,4 @@ function getTagsGraphSubOnlyRuntime() {
 	vscode.postMessage({ type: 'requestTagGraph' });
 	resizeSubCanvas();
 	loop();
-})();`;
-}
-
-module.exports = { getTagsGraphSubOnlyRuntime };
+})();

@@ -9,12 +9,15 @@
  *   - the decoration overlay maps role -> a user-overridden hex color (Doc Coloring)
  *
  * Roles:
- *   type          = metadata type name/shortcut (`.concept`, `.c`, `c`)      color1
- *   heading       = heading line text (bold)                                 color2
- *   metakey       = metadata keys (status, deadline, …)                       color3
- *   relationkey   = tag/relation keys (tags, pre-req, …)                      color4
- *   metavalue     = values, tag list items, identity values, `---` separator  color5
- *   fileidentity  = file-level identity fields (filename, fileid, headings)   color6
+ *   type           = metadata type name/shortcut (`.concept`, `.c`, `c`)      color1
+ *   heading        = heading line text (bold)                                 color2
+ *   metakey        = metadata keys (status, deadline, …)                       color3
+ *   relationkey    = tag/relation keys (tags, pre-req, …)                      color4
+ *   metavalue      = heading-special values + `---` separator                  color5
+ *   fileidentity   = file-level identity fields (filename, fileid, headings)   color6
+ *   identityvalue  = file identity values (filename/fileid/headings values)    color7
+ *   typedvalue     = metadata type field values (status/deadline values)       color8
+ *   relationvalue  = tag/relation list values (tags/pre-req list values)       color9
  */
 
 const { getMetadataSettingsForIndex, matchHeadingTitleTypePrefix, HEADING_SPECIAL_KEYS } = require('../../document/model/dripnoteMetadataTemplates');
@@ -185,11 +188,11 @@ function addKeyValueTokens(tokens, lineNo, line, key, keyRole, valueRole) {
 	}
 }
 
-function addListValueTokens(tokens, lineNo, line, fromIndex) {
+function addListValueTokens(tokens, lineNo, line, fromIndex, role) {
 	const bracketStart = line.indexOf('[', fromIndex);
 	const bracketEnd = line.lastIndexOf(']');
 	if (bracketStart < 0 || bracketEnd <= bracketStart) return;
-	push(tokens, lineNo, bracketStart, bracketEnd - bracketStart + 1, 'metavalue', false);
+	push(tokens, lineNo, bracketStart, bracketEnd - bracketStart + 1, role || 'relationvalue', false);
 }
 
 function tokenizeMetadataBlockFromIndex(
@@ -259,51 +262,51 @@ function tokenizeMetadataBlockFromIndex(
 			const specialKey = String(specialMatch[1] || '').toLowerCase();
 			addKeyValueTokens(tokens, i, line, specialKey, 'metakey', 'metavalue');
 			if (specialKey === 'parent') {
-				addListValueTokens(tokens, i, line, 0);
+				addListValueTokens(tokens, i, line, 0, 'metavalue');
 			}
 			i++;
 			continue;
 		}
 
-		// Tag / relation key: [values] — key color4, list values color5.
+		// Tag / relation key: [values] — key color4, list values color9.
 		const relationMatch = line.match(/^\s*([a-z][a-z0-9_-]*)\s*:\s*\[([^\]]*)\]\s*$/i);
 		if (relationMatch && relationSet.has(String(relationMatch[1] || '').toLowerCase())) {
 			const relationKey = String(relationMatch[1] || '').toLowerCase();
 			const relationStart = line.toLowerCase().indexOf(relationKey);
 			if (!seenRelations.has(relationKey) && relationStart >= 0) {
 				push(tokens, i, relationStart, relationKey.length, 'relationkey', false);
-				addListValueTokens(tokens, i, line, relationStart);
+				addListValueTokens(tokens, i, line, relationStart, 'relationvalue');
 				seenRelations.add(relationKey);
 			}
 			i++;
 			continue;
 		}
 
-		// Shorthand tag list `[a, b]` — color5.
+		// Shorthand tag list `[a, b]` — color9.
 		const shorthandMatch = line.match(SHORTHAND_TAGS_RE);
 		if (shorthandMatch) {
 			if (!seenRelations.has('tags')) {
-				addListValueTokens(tokens, i, line, 0);
+				addListValueTokens(tokens, i, line, 0, 'relationvalue');
 				seenRelations.add('tags');
 			}
 			i++;
 			continue;
 		}
 
-		// File-level identity fields — key color6, value color5.
+		// File-level identity fields — key color6, value color7.
 		const fileIdentityMatch = line.match(FILE_IDENTITY_RE);
 		if (fileIdentityMatch) {
-			addKeyValueTokens(tokens, i, line, fileIdentityMatch[1], 'fileidentity', 'metavalue');
+			addKeyValueTokens(tokens, i, line, fileIdentityMatch[1], 'fileidentity', 'identityvalue');
 			i++;
 			continue;
 		}
 
-		// Typed metadata field keys — key color3, value color5.
+		// Typed metadata field keys — key color3, value color8.
 		if ((typedContext || initialTypedContext) && leadingWhitespaceCount(line) > 0) {
 			const kv = line.match(/^\s*([a-z][a-z0-9_-]*)\s*:\s*(.+)$/i);
 			const key = kv ? String(kv[1] || '').toLowerCase() : '';
 			if (key && typedFieldKeySet.has(key)) {
-				addKeyValueTokens(tokens, i, line, key, 'metakey', 'metavalue');
+				addKeyValueTokens(tokens, i, line, key, 'metakey', 'typedvalue');
 				i++;
 				continue;
 			}

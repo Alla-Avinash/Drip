@@ -15,6 +15,17 @@ const {
 const { collectHeadingSequenceValidated } = require('../document/parse/dripnoteHeadingParse');
 
 /**
+ * `.d.md` notes use the markdown sync path and have no `@fN:hM` identity lines — this
+ * `.d.txt` reconcile must never touch them (it would write directly to disk, racing the
+ * open editor).
+ * @param {string} fsPath
+ * @returns {boolean}
+ */
+function isDripMdNotePath(fsPath) {
+	return String(fsPath || '').toLowerCase().endsWith('.d.md');
+}
+
+/**
  * Apply reconciled note text to an open buffer.
  * @param {import('vscode').Uri} noteUri
  * @param {string} reconciled
@@ -63,6 +74,16 @@ async function applyReconciledTextToOpenNoteIfClean(noteUri, reconciled) {
  * @returns {Promise<{ changed: boolean, text: string }>}
  */
 async function reconcileNoteHeadingIdentitiesOnDisk(kbRootUri, noteUri, _context, options = {}) {
+	// `.d.md` notes are handled by the markdown sync path, not this `.d.txt` reconcile.
+	// Rewriting them here would inject `@fN:hM` identity lines and write directly to disk,
+	// racing the open editor and causing "content is newer" conflicts.
+	if (isDripMdNotePath(noteUri.fsPath)) {
+		return {
+			changed: false,
+			text: options.text != null ? String(options.text) : await readTextFile(noteUri)
+		};
+	}
+
 	let text = options.text != null ? String(options.text) : '';
 	if (!text && options.text !== '') {
 		text = await readTextFile(noteUri);
@@ -101,7 +122,10 @@ async function reconcileAllKbNoteHeadingIdentities(kbRootUri, context) {
 	await forEachKnowledgeBaseNote(
 		kbRootUri,
 		async note => {
-			if (!note?.uri?.fsPath || !fileNameMatchesKbNote(path.basename(note.uri.fsPath))) {
+			if (!note?.uri?.fsPath || isDripMdNotePath(note.uri.fsPath)) {
+				return;
+			}
+			if (!fileNameMatchesKbNote(path.basename(note.uri.fsPath))) {
 				return;
 			}
 			total += 1;
@@ -191,14 +215,14 @@ async function reconcileHeadingIdentitiesScope(kbRootUri, scopeUri, context) {
 	const noteUris = [];
 
 	if (stat.type === vscode.FileType.File) {
-		if (fileNameMatchesKbNote(path.basename(scopeUri.fsPath))) {
+		if (!isDripMdNotePath(scopeUri.fsPath) && fileNameMatchesKbNote(path.basename(scopeUri.fsPath))) {
 			noteUris.push(scopeUri);
 		}
 	} else {
 		const scopePath = scopeUri.fsPath.replace(/\\/g, '/');
 		const scopePrefix = scopePath.endsWith('/') ? scopePath : `${scopePath}/`;
 		await forEachKnowledgeBaseNote(kbRootUri, async note => {
-			if (!note?.uri?.fsPath) {
+			if (!note?.uri?.fsPath || isDripMdNotePath(note.uri.fsPath)) {
 				return;
 			}
 			const notePath = note.uri.fsPath.replace(/\\/g, '/');

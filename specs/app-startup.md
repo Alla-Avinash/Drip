@@ -2,13 +2,12 @@
 
 ## Run and test commands
 
-```powershell
-# Run in the Extension Development Host (from the VS Code repo root)
-$env:VSCODE_SKIP_PRELAUNCH = "1"
-.\scripts\code.bat
-```
+- **F5 (recommended):** open the `extensions/drip` folder in VS Code and press F5. The `preLaunchTask` builds the webview assets (`dist/`) first, then launches the Extension Development Host. The build never touches KB storage.
+- **Whole editor from source (VS Code repo root):** `$env:VSCODE_SKIP_PRELAUNCH = "1"; .\scripts\code.bat`
 
 - Debug logs: in the Extension Development Host, **Help → Toggle Developer Tools**, then filter the console for `[DRIP]`.
+- Build webview assets: `npm run build:webview`
+- Lint: `npm run lint`
 - Type check: `npm run compile-web`
 - Embedding benchmark: `npm run bench:embeddings` (add `--real` or `--all` for heavier runs)
 
@@ -25,6 +24,7 @@ There are no automated tests — the user verifies behavior manually in the Exte
 DRIP does **not** use a catch-all activation event. It activates only when one of these happens:
 
 - a `.d.txt` (dripnote) file is opened,
+- a `.d.md` markdown file is opened (custom editor),
 - a DRIP view/panel is opened (Components, KB, Drafts, Storage, Chat, etc.),
 - a DRIP command is run.
 
@@ -32,7 +32,7 @@ Until one of those fires, DRIP is inactive.
 
 ## Activation flow (ordered)
 
-1. **Global services** — set up the embeddings model cache, initialize multi-graph storage, and register the editor language providers (tag completion, semantic tokens, metadata diagnostics/completion, custom decorations, heading identity display).
+1. **Global services** — set up the embeddings model cache, initialize multi-graph storage, and register the editor language providers (tag completion, semantic tokens, metadata diagnostics/completion, custom decorations, heading identity display) plus the `.d.md` custom markdown editor provider.
 2. **State + sync** — create the session state, register index sync and startup check, register persistent-heading soft-lock and project/feature folder watchers, then sync the tag-graph checkpoint.
 3. **Sidebar trees** — create the five sidebar trees (Components, Knowledge Base, Daily Notes, Drafts, Recents) and wire drag-drop and refresh.
 4. **Editor + references** — register image paste, reference assist/definitions, document links, link drop-in, and document symbols.

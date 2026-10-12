@@ -26,6 +26,10 @@ async function listNotesForReindex(kbRootUri, options) {
 	await forEachKnowledgeBaseNotePath(
 		kbRootUri,
 		async note => {
+			// `.d.md` notes are re-indexed by the markdown sync path, not the `.d.txt` reconciler.
+			if (String(note.uri && note.uri.fsPath || '').toLowerCase().endsWith('.d.md')) {
+				return;
+			}
 			notes.push(note);
 		},
 		{ yieldEvery: 40, respectDripignore: options.respectDripignore !== false }

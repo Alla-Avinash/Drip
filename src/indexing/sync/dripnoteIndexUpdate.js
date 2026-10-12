@@ -97,6 +97,11 @@ function collectNoteIndexIssues(text, context) {
  * @returns {Promise<{ updated: boolean, signature: string, fileId: number | null, parsed: object | null }>}
  */
 async function updateNoteInDripIndex(kbRootUri, noteUri, context, options) {
+	// `.d.md` notes are indexed by the markdown sync path, not the `.d.txt` parser.
+	if (String(noteUri.fsPath || '').toLowerCase().endsWith('.d.md')) {
+		return { updated: false, signature: '', fileId: null, parsed: null };
+	}
+
 	const relPath = path
 		.relative(kbRootUri.fsPath, noteUri.fsPath)
 		.replace(/\\/g, '/');
@@ -214,6 +219,10 @@ async function updateDripIndexScope(kbRootUri, scopeUri, context) {
 		const scopePrefix = scopePath.endsWith('/') ? scopePath : `${scopePath}/`;
 		await forEachKnowledgeBaseNote(kbRootUri, async note => {
 			if (!note?.uri?.fsPath) {
+				return;
+			}
+			// `.d.md` notes are handled by the markdown sync path, not this scope pass.
+			if (note.uri.fsPath.toLowerCase().endsWith('.d.md')) {
 				return;
 			}
 			const notePath = note.uri.fsPath.replace(/\\/g, '/');

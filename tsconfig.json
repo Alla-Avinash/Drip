@@ -10,5 +10,10 @@
 	"include": [
 		"src/**/*",
 		"../../src/vscode-dts/vscode.d.ts"
+	],
+	"exclude": [
+		"src/graph/tags",
+		"src/views/settings/webview",
+		"src/views/editor/dripMdEditor"
 	]
 }

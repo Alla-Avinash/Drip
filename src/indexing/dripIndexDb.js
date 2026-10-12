@@ -971,6 +971,10 @@ async function rebuildDripIndex(kbRootUri, context) {
 				}
 
 				const relPath = normalizeRelPath(kbRootUri.fsPath, note.uri.fsPath);
+				// `.d.md` notes are indexed by the markdown sync path, not the `.d.txt` parser.
+				if (relPath.toLowerCase().endsWith('.d.md')) {
+					return;
+				}
 				const zone = classifyNoteZone(relPath);
 				let stat;
 				try {
@@ -1078,13 +1082,13 @@ async function applyParsedNoteToIndex(kbRootUri, relPath, parsed, context, optio
 		const scopeDb = scopeHandle.db;
 		const tagIdByLower = syncTagsTableFromGraph(scopeDb, context);
 		const { metadataTypeIdByLower, relationTypeIdByLower } = loadTypeLookupMaps(scopeDb);
+		let fileId = parsed.fileId;
 
 		fileDb.run('BEGIN');
 		if (scopeHandle !== fileHandle) {
 			scopeDb.run('BEGIN');
 		}
 		try {
-			let fileId = parsed.fileId;
 			const existing = queryOne(fileDb, 'SELECT id FROM files WHERE path = ?', [normalizedPath]);
 			if (existing) {
 				fileId = Number(existing[0]);

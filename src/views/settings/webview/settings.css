@@ -1,0 +1,77 @@
+/* DRIP Settings styles (extracted from settingsWebview.js) */
+body { font-family: var(--vscode-font-family); margin: 0; color: var(--vscode-foreground); font-size: 13px; }
+		h2 { font-size: 1.1em; margin: 0 0 10px; }
+		h3 { font-size: 1em; margin: 0 0 8px; font-weight: 600; color: var(--vscode-foreground); }
+		p { margin: 0 0 10px; line-height: 1.45; }
+		.meta { color: var(--vscode-descriptionForeground); font-size: 12px; }
+		label.row { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0; cursor: pointer; line-height: 1.45; }
+		label.row input { margin-top: 2px; flex-shrink: 0; }
+		table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 8px 0; }
+		th, td { border: 1px solid var(--vscode-panel-border); padding: 6px 8px; text-align: left; vertical-align: top; }
+		th { background: var(--vscode-editorWidget-background); }
+		code { font-family: var(--vscode-editor-font-family); font-size: 11px; }
+		button { border: 1px solid transparent; border-radius: 6px; padding: 8px 12px; cursor: pointer; background: var(--vscode-button-background); color: var(--vscode-button-foreground); margin-top: 10px; font-family: inherit; }
+		button:hover { background: var(--vscode-button-hoverBackground); }
+		button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border-color: var(--vscode-panel-border); }
+		button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
+		textarea { width: 100%; min-height: 82px; padding: 6px; border-radius: 6px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); font-family: var(--vscode-editor-font-family); font-size: 12px; }
+		input[type="text"], select { width: 100%; box-sizing: border-box; padding: 6px; border-radius: 6px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); font-family: var(--vscode-editor-font-family); font-size: 12px; }
+		.app { display: grid; grid-template-columns: 250px 1fr; height: 100vh; overflow: hidden; }
+		.sidebar { border-right: 1px solid var(--vscode-panel-border); background: var(--vscode-sideBar-background); padding: 14px 10px; overflow-y: auto; display: flex; flex-direction: column; }
+		.brand { margin: 0 8px 14px; }
+		.brand h2 { font-size: 1.9em; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+		.navBtn { width: 100%; text-align: left; margin: 4px 0; padding: 8px 10px; border-radius: 6px; background: transparent; color: var(--vscode-foreground); }
+		.navBtn:hover { background: var(--vscode-list-hoverBackground); }
+		.navBtn.active { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
+		.main { padding: 16px 18px 32px; overflow-y: auto; height: 100vh; box-sizing: border-box; }
+		.panel { display: none; max-width: 900px; }
+		.panel.active { display: block; }
+		.card { border: 1px solid var(--vscode-panel-border); border-radius: 8px; padding: 14px; margin: 12px 0 16px; background: var(--vscode-editorWidget-background); }
+		.actions { display: flex; gap: 8px; margin-top: 8px; }
+		.actions button { width: auto; }
+		.typeList { display: flex; flex-direction: column; gap: 10px; }
+		.typeDetails { border: 1px solid var(--vscode-panel-border); border-radius: 8px; background: var(--vscode-editorWidget-background); }
+		.typeSummary { cursor: pointer; padding: 8px 10px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; list-style: none; }
+		.typeSummary::-webkit-details-marker { display: none; }
+		.typeBody { padding: 10px; border-top: 1px solid var(--vscode-panel-border); }
+		.typeGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+		.attrTable { width: 100%; border-collapse: collapse; margin-top: 8px; }
+		.attrTable th, .attrTable td { border: 1px solid var(--vscode-panel-border); padding: 6px; vertical-align: middle; }
+		.iconBtn { width: 28px; height: 28px; min-width: 28px; padding: 0; border-radius: 6px; margin-top: 0; font-size: 16px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--vscode-panel-border); background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+		.iconBtn:hover { background: var(--vscode-button-secondaryHoverBackground); }
+		.iconBtn.deleteIcon { color: var(--vscode-errorForeground); }
+		.inlineActions { display: flex; gap: 8px; align-items: center; }
+		.summaryRight { display: inline-flex; align-items: center; gap: 8px; }
+		.chev { font-size: 14px; opacity: 0.85; }
+		.typeDetails[open] .chev { transform: rotate(180deg); }
+		.deleteIcon { color: var(--vscode-errorForeground); }
+		.optionSelect { min-width: 150px; }
+		.colorRow { display: grid; grid-template-columns: 1fr 44px; gap: 6px; align-items: center; }
+		.colorPatch { width: 42px; height: 30px; border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 0; background: transparent; margin: 0; cursor: pointer; }
+		.docColoringSample { font-family: var(--vscode-editor-font-family); font-size: 13px; line-height: 1.6; white-space: pre; overflow-x: auto; padding: 4px 0; }
+		.docColoringSample .bold { font-weight: 600; }
+		.docColorRow { display: grid; grid-template-columns: 1fr 44px; gap: 6px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--vscode-panel-border); }
+		.docColorRow:last-child { border-bottom: none; }
+		.docColorRow .lbl { display: flex; flex-direction: column; gap: 2px; }
+		.docColorRow .lbl .t { font-weight: 600; }
+		.docColorRow .lbl .d { color: var(--vscode-descriptionForeground); font-size: 11px; }
+		.docColorRow .swatch { width: 34px; height: 28px; border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 0; margin: 0; cursor: pointer; background: transparent; }
+		.saved-settings-path-line { margin: 8px 0 12px; word-break: break-all; }
+		.saved-settings-path-line code { display: block; padding: 8px 10px; border-radius: 6px; background: var(--vscode-textCodeBlock-background); border: 1px solid var(--vscode-panel-border); font-size: 12px; }
+		.mcp-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; background: var(--vscode-descriptionForeground); vertical-align: middle; }
+		.mcp-dot.on { background: var(--vscode-testing-iconPassed, #3fb950); }
+		.mcp-dot.err { background: var(--vscode-errorForeground); }
+		.mcp-kv { display: grid; grid-template-columns: 130px 1fr auto; gap: 6px 10px; align-items: center; margin-top: 6px; }
+		.mcp-kv code { word-break: break-all; }
+		.mcp-kv button { margin-top: 0; padding: 4px 10px; }
+		pre.mcp-snippet { margin: 6px 0 0; padding: 8px 10px; border-radius: 6px; background: var(--vscode-textCodeBlock-background); border: 1px solid var(--vscode-panel-border); font-family: var(--vscode-editor-font-family); font-size: 11px; white-space: pre; overflow-x: auto; }
+		.mcp-port-row { display: flex; gap: 8px; align-items: center; }
+		.mcp-port-row input { max-width: 8em; }
+		.mcp-port-row button { margin-top: 0; }
+		.shortcut-table td { vertical-align: middle; }
+		.shortcut-table button { margin-top: 0; padding: 4px 10px; }
+		.shortcut-table .sc-actions { display: flex; gap: 6px; white-space: nowrap; }
+		.shortcut-table input.sc-record { cursor: pointer; }
+		.shortcut-table input.sc-record:focus { outline: 1px solid var(--vscode-focusBorder); }
+		kbd { font-family: var(--vscode-editor-font-family); font-size: 11px; padding: 1px 5px; border-radius: 4px; border: 1px solid var(--vscode-panel-border); background: var(--vscode-textCodeBlock-background); margin-right: 4px; }
+		.sc-conflict { color: var(--vscode-editorWarning-foreground); font-size: 11px; margin-top: 3px; }

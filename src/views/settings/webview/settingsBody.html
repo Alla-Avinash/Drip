@@ -1,0 +1,342 @@
+
+	<div class="app">
+		<aside class="sidebar">
+			<div class="brand">
+				<h2>DRIP Settings</h2>
+			</div>
+			<nav id="nav-group">
+				<button class="navBtn active" data-panel="kb">Knowledge Base</button>
+				<button class="navBtn" data-panel="editor">Editor</button>
+				<button class="navBtn" data-panel="update">Update</button>
+				<button class="navBtn" data-panel="types">Metadata Types</button>
+				<button class="navBtn" data-panel="relations">Tags & Relations</button>
+				<button class="navBtn" data-panel="metadata">Markdown</button>
+				<button class="navBtn" data-panel="doccoloring">Doc Coloring</button>
+				<button class="navBtn" data-panel="embedding">Embedding model</button>
+				<button class="navBtn" data-panel="llm">Lightweight LLM</button>
+				<button class="navBtn" data-panel="github-backup">GitHub backup</button>
+				<button class="navBtn" data-panel="mcp">MCP connection</button>
+				<button class="navBtn" data-panel="saved-settings">Saved Settings</button>
+				<button class="navBtn" data-panel="shortcuts">Keyboard Shortcuts</button>
+			</nav>
+		</aside>
+		<main class="main">
+			<section id="panel-kb" class="panel active">
+				<h3>Knowledge Base</h3>
+				<div class="card">
+					<label class="row">
+						<input type="checkbox" id="opt-auto-open">
+						<span>Open the Note Composer the first time the Knowledge Base sidebar becomes visible in this window.</span>
+					</label>
+					<p class="meta">Capture selection (Ctrl+Shift+U / Cmd+Shift+U) copies the full selection into the draft note body.</p>
+					<div class="actions">
+						<button id="btn-select-kb">Change Knowledge Base Folder</button>
+					</div>
+				</div>
+				<div class="card">
+					<p class="meta">Choose which extensions appear in KB tree/scans.</p>
+					<label class="row">
+						<input type="checkbox" id="kb-ext-dtxt">
+						<span><code>.d.txt</code> — DRIP note files</span>
+					</label>
+					<label class="row">
+						<input type="checkbox" id="kb-ext-md">
+						<span><code>.md</code> — Markdown (e.g. README.md)</span>
+					</label>
+					<label class="row" style="align-items:center;">
+						<span style="min-width:9em;">New note uses</span>
+						<select id="kb-default-ext" style="flex:1; max-width:12em; padding:4px 6px; background:var(--vscode-dropdown-background); color:var(--vscode-dropdown-foreground); border:1px solid var(--vscode-dropdown-border); border-radius:4px;"></select>
+					</label>
+					<div class="actions">
+						<button id="btn-user-settings" class="secondary">Open User Settings (DRIP)</button>
+					</div>
+				</div>
+			</section>
+
+			<section id="panel-editor" class="panel">
+				<h3>Editor</h3>
+				<p class="meta">Choose <strong>one</strong> way to edit persistent headings (<code># .…</code>, <code># .c</code>, <code># .c#</code>, <code># .t1</code>, etc.). Plain headings without a leading <code>.</code> always edit in the file.</p>
+				<div class="card">
+					<label class="row">
+						<input type="radio" name="edit-headings-mode" id="opt-edit-headings-rhs" value="rhs" checked>
+						<span>Edit via RHS sidebar <strong>(recommended)</strong> — opens after you type a space after <code>.</code> / type shortcut; soft-locks title &amp; metadata in the file</span>
+					</label>
+					<label class="row">
+						<input type="radio" name="edit-headings-mode" id="opt-edit-headings-file" value="file">
+						<span>Edit directly in the <code>.d.txt</code> file</span>
+					</label>
+					<p class="meta">RHS mode: form fields come from the metadata type template (attributes, tags, relations). Changes save when focus returns to the editor or you switch tabs.</p>
+				</div>
+			</section>
+
+			<section id="panel-update" class="panel">
+				<h3>Update</h3>
+				<p class="meta">Fix file ids, heading ids, and <code>index.drip</code> when the SQLite index and notes disagree. Both actions rewrite <code>.d.txt</code> identity lines when needed.</p>
+				<div class="card">
+					<h3>Update/reindex the current KB working space</h3>
+					<p class="meta">Keeps the existing <code>index.drip</code>. Runs reconcile-update on notes currently in the working KB (honors <code>.dripignore</code>). Colliding <code>@fN</code> values that already belong to another existing file get a new id.</p>
+					<div class="actions">
+						<button id="btn-reindex-workspace">Update/reindex the current KB working space</button>
+					</div>
+				</div>
+				<div class="card">
+					<h3>Reset/reindex the entire KB driplock folder</h3>
+					<p class="meta">Deletes <code>index.drip</code>, creates a fresh database, then reconcile-updates every note in the driplock folder (including ignored paths, except <code>.dripindex</code>). File ids that collide while rebuilding are assigned from scratch.</p>
+					<div class="actions">
+						<button id="btn-reset-reindex-entire" class="secondary">Reset/reindex the entire KB driplock folder</button>
+					</div>
+				</div>
+			</section>
+
+			<section id="panel-types" class="panel">
+				<h3>Metadata Types</h3>
+				<div class="card">
+					<label class="row"><input type="checkbox" id="opt-template-enabled"><span>Enable metadata templates</span></label>
+					<label class="row"><input type="checkbox" id="opt-template-auto"><span>Auto insert template keys when type marker is added in valid metadata zone</span></label>
+					<label class="row"><input type="checkbox" id="opt-template-strict"><span>Strict validation (show errors + quick fixes)</span></label>
+					<label class="row"><input type="checkbox" id="opt-template-ignore"><span>Ignore metadata template errors</span></label>
+					<label class="row"><input type="checkbox" id="opt-template-indent-errors"><span>Show indent errors in heading metadata blocks</span></label>
+					<label class="row"><input type="checkbox" id="opt-heading-hierarchy-indent"><span>Show heading hierarchy indent errors (body line vs next heading tabs)</span></label>
+				</div>
+				<div class="card">
+					<h3>Projects</h3>
+					<p class="meta">Project (<code>.p</code>), feature (<code>.f</code>), and issue (<code>.issue</code> / <code>i</code>) types. Shortcuts are fixed. Issues are headings inside project folders; their metadata (status, priority, deadline, category, parent <code>i-N</code>) feeds Project View.</p>
+					<div id="file-level-types-list" class="typeList"></div>
+					<div class="actions">
+						<button id="btn-save-file-types">Save Project Types</button>
+						<button id="btn-reset-file-types" class="secondary">Revert Project Types</button>
+					</div>
+				</div>
+				<div class="card">
+					<h3>Document KB types</h3>
+					<p class="meta">Heading metadata types for the note zone (marker, shortcut, attributes). Defaults include <code>.concept</code> and <code>.task</code>.</p>
+					<div id="metadata-types-list" class="typeList"></div>
+					<div class="actions">
+						<button id="btn-add-type" class="iconBtn" title="Add Metadata Type">+</button>
+						<button id="btn-save-types">Save Document Types</button>
+						<button id="btn-reset-types" class="secondary">Revert Document Types</button>
+					</div>
+				</div>
+				<div class="actions">
+					<button id="btn-save-metadata-panel">Save Metadata Types Settings</button>
+				</div>
+			</section>
+
+			<section id="panel-relations" class="panel">
+				<h3>Tags & Relations</h3>
+				<div class="card">
+					<p class="meta">Manage relation rows (default locked: tags) and descriptions.</p>
+					<div id="relations-list" class="typeList"></div>
+					<div class="actions">
+						<button id="btn-add-relation" class="iconBtn" title="Add Relation">+</button>
+						<button id="btn-save-relations">Save Tags & Relations</button>
+					</div>
+				</div>
+			</section>
+
+			<section id="panel-metadata" class="panel">
+				<h3>Markdown</h3>
+				<div class="card">
+					<p class="meta">Manage markdown marks (defaults: L, Q, R). A mark is written in the document as <code>Mark: text</code> — for example <code>Q: why does this work?</code>. Names are case-sensitive — Impl, impl, and IMPL are distinct. L is locked and includes a link format example. Leave a color empty to use the normal text color.</p>
+					<div id="metadata-marks-list" class="typeList"></div>
+					<div class="actions">
+						<button id="btn-add-metadata-mark" class="iconBtn" title="Add Metadata Mark">+</button>
+						<button id="btn-save-metadata-marks">Save Metadata Marks</button>
+					</div>
+				</div>
+			</section>
+
+			<section id="panel-doccoloring" class="panel">
+				<h3>Doc Coloring</h3>
+				<p class="meta">The six document colors follow your theme by default. Set a color here to override that specific one in <code>.d.txt</code> notes; leave it empty to keep the theme color.</p>
+				<div class="card">
+					<div id="doc-coloring-sample" class="docColoringSample"></div>
+				</div>
+				<div class="card">
+					<div id="doc-coloring-rows" class="typeList"></div>
+					<div class="actions">
+						<button id="btn-save-doc-colors">Save Doc Colors</button>
+						<button id="btn-revert-doc-colors" class="secondary">Revert to Theme Defaults</button>
+					</div>
+				</div>
+			</section>
+
+			<section id="panel-embedding" class="panel">
+				<h3>Embeddings</h3>
+				<div class="card">
+					<p class="meta">DRIP always uses sentence embeddings (Transformers.js + ONNX in the extension host) to rank Storage targets — top folder suggestions, next folder/file picks inside a folder, and AI deep-match across the KB.</p>
+					<p class="meta">DRIP uses the <code>Xenova/all-MiniLM-L6-v2</code> sentence-transformer model. The first use downloads the model weights (~90MB) into the DRIP extension folder (<code>.cache/transformers</code>) — not your home folder's Hugging Face cache — so uninstalling the DRIP extension removes the model files cleanly.</p>
+					<div class="actions">
+						<button id="btn-embedding-benchmark" class="secondary" type="button">Run embedding benchmark</button>
+					</div>
+				</div>
+			</section>
+
+			<section id="panel-llm" class="panel">
+				<h3>Lightweight LLM</h3>
+				<p class="meta">DRIP runs its own small LLM (separate from VS Code Copilot) to decide where a Quick Capture note belongs: merge into the best matching heading, append as a new section, or start a new heading. Only the note plus a short snippet of the top matching headings is sent, keeping tokens low. The API key lives in VS Code Secret Storage — never in settings.</p>
+				<div class="card">
+					<label class="row">
+						<input type="checkbox" id="llm-enabled">
+						<span>Enable the lightweight LLM for Quick Capture</span>
+					</label>
+					<label class="row" style="display:block;margin-top:10px;">
+						<span>Base URL (OpenAI-compatible)</span>
+						<input type="text" id="llm-base-url" placeholder="https://api.openai.com/v1" autocomplete="off" spellcheck="false" />
+					</label>
+					<label class="row" style="display:block;margin-top:10px;">
+						<span>Model</span>
+						<input type="text" id="llm-model" placeholder="gpt-4o-mini" autocomplete="off" spellcheck="false" style="max-width:18em;" />
+					</label>
+					<div class="actions">
+						<button id="btn-llm-save" type="button">Save</button>
+					</div>
+					<p class="meta" style="margin-top:8px;">Works with any OpenAI-compatible endpoint (OpenAI, Groq, Ollama, LM Studio, …). Examples: <code>https://api.openai.com/v1</code>, <code>https://api.groq.com/openai/v1</code>, <code>http://localhost:11434/v1</code>.</p>
+				</div>
+				<div class="card">
+					<h3 style="margin-top:0;">API key</h3>
+					<p class="meta">Entered below, then stored only in VS Code Secret Storage — never in settings and never shown again. Characters stay masked.</p>
+					<p id="llm-key-status" class="meta">API key: not set</p>
+					<label class="row" style="display:block;margin-top:8px;">
+						<span>API key</span>
+						<input type="password" id="llm-api-key" placeholder="sk-…" autocomplete="off" spellcheck="false" />
+					</label>
+					<div class="actions">
+						<button id="btn-llm-set-key" type="button">Save API key</button>
+						<button id="btn-llm-clear-key" class="secondary" type="button">Clear API key</button>
+					</div>
+				</div>
+			</section>
+
+			<section id="panel-github-backup" class="panel">
+				<h3>GitHub backup</h3>
+				<p class="meta">Back up this knowledge base’s notes to a GitHub remote. The regenerable <code>.dripindex/</code> folder is ignored. Never store a GitHub password here — use HTTPS + Git Credential Manager / <code>gh auth</code>, SSH keys, or an optional PAT (Secret Storage).</p>
+				<div class="card">
+					<h3 style="margin-top:0;">Status</h3>
+					<p id="gh-status-line" class="meta">Select a knowledge base to configure backup.</p>
+					<p id="gh-status-detail" class="meta"></p>
+					<p id="gh-status-error" style="color:var(--vscode-errorForeground);"></p>
+				</div>
+				<div class="card">
+					<h3 style="margin-top:0;">Repository</h3>
+					<label class="row" style="display:block;">
+						<span>Remote URL (HTTPS or SSH)</span>
+						<input type="text" id="gh-remote-url" placeholder="https://github.com/you/my-kb.git" autocomplete="off" spellcheck="false" />
+					</label>
+					<label class="row" style="display:block;margin-top:10px;">
+						<span>Branch</span>
+						<input type="text" id="gh-branch" placeholder="main" autocomplete="off" spellcheck="false" style="max-width:12em;" />
+					</label>
+					<div class="actions">
+						<button id="btn-gh-save-remote" type="button">Save remote</button>
+						<button id="btn-gh-open" class="secondary" type="button">Open on GitHub</button>
+					</div>
+				</div>
+				<div class="card">
+					<h3 style="margin-top:0;">Actions</h3>
+					<div class="actions">
+						<button id="btn-gh-init" type="button">Initialize backup</button>
+						<button id="btn-gh-push" type="button">Push backup</button>
+						<button id="btn-gh-pull" type="button">Pull / restore</button>
+					</div>
+					<p class="meta" style="margin-top:10px;">Initialize creates a Git repo in the KB folder, seeds <code>.gitignore</code>, and sets <code>origin</code>. Push commits note changes and uploads. Pull downloads then reindexes.</p>
+				</div>
+				<div class="card">
+					<h3 style="margin-top:0;">Optional token (HTTPS)</h3>
+					<p class="meta">Only if Git Credential Manager / <code>gh</code> is not available. Stored in VS Code Secret Storage for this KB — not in <code>settings.drip.json</code>.</p>
+					<p id="gh-pat-status" class="meta">Token: not set</p>
+					<div class="actions">
+						<button id="btn-gh-set-pat" type="button">Set token…</button>
+						<button id="btn-gh-clear-pat" class="secondary" type="button">Clear token</button>
+					</div>
+				</div>
+			</section>
+
+			<section id="panel-mcp" class="panel">
+				<h3>MCP connection</h3>
+				<p class="meta">Let AI apps (Cursor, Claude, VS Code Copilot, Windsurf, …) read and manage your DRIP projects and issues. DRIP runs one local MCP server; every MCP-capable app connects to the same address with the same token — no per-app integration. The server only listens on this computer (<code>127.0.0.1</code>) and DRIP must stay open while an app uses it.</p>
+				<div class="card">
+					<h3 style="margin-top:0;">Server</h3>
+					<label class="row">
+						<input type="checkbox" id="mcp-enabled">
+						<span>Turn on the DRIP MCP server</span>
+					</label>
+					<p class="meta"><span id="mcp-dot" class="mcp-dot"></span><span id="mcp-status-line">Off</span></p>
+					<p id="mcp-error" style="color:var(--vscode-errorForeground);"></p>
+					<div class="mcp-port-row">
+						<span>Port</span>
+						<input type="text" id="mcp-port" inputmode="numeric" autocomplete="off" spellcheck="false" />
+						<button id="btn-mcp-save-port" class="secondary" type="button">Save port</button>
+						<button id="btn-mcp-restart" class="secondary" type="button">Restart server</button>
+					</div>
+					<p class="meta" style="margin-top:8px;">Change the port only if another program already uses it. Only one DRIP window can run the server on a port.</p>
+				</div>
+				<div class="card">
+					<h3 style="margin-top:0;">Connection details</h3>
+					<p class="meta">Everything an MCP app asks for. The token is shortened in this list; Copy and the config snippets below use the full token — keep them private.</p>
+					<div class="mcp-kv">
+						<span>Server name</span><code id="mcp-name">drip</code><span></span>
+						<span>Server URL</span><code id="mcp-url"></code><button class="secondary" type="button" data-mcp-copy="url">Copy</button>
+						<span>Transport</span><code id="mcp-transport"></code><span></span>
+						<span>Auth header</span><code id="mcp-header"></code><button class="secondary" type="button" data-mcp-copy="header">Copy</button>
+						<span>Token</span><code id="mcp-token"></code><button class="secondary" type="button" data-mcp-copy="token">Copy</button>
+						<span>Tools</span><code id="mcp-tools"></code><span></span>
+					</div>
+					<div class="actions">
+						<button id="btn-mcp-regenerate" class="secondary" type="button">Regenerate token…</button>
+						<button id="btn-mcp-health" class="secondary" type="button">Test in browser</button>
+					</div>
+					<p class="meta" style="margin-top:8px;">The token is kept in VS Code Secret Storage (never in <code>settings.drip.json</code>). Regenerating it disconnects every app until you paste the new token.</p>
+				</div>
+				<div class="card">
+					<h3 style="margin-top:0;">Option A — apps that accept a server URL (most apps)</h3>
+					<p class="meta">Cursor, Claude Code, VS Code Copilot, Windsurf, Cline, Continue… Paste into the app’s MCP config file or “Add MCP server” form.</p>
+					<pre class="mcp-snippet" id="mcp-http-config"></pre>
+					<div class="actions"><button type="button" data-mcp-copy="httpConfig">Copy config</button></div>
+					<p class="meta" style="margin-top:8px;">A few apps use slightly different key names (VS Code: <code>"servers"</code> + <code>"type": "http"</code>; Windsurf: <code>"serverUrl"</code>). The URL and <code>Authorization</code> header are always the same.</p>
+				</div>
+				<div class="card">
+					<h3 style="margin-top:0;">Option B — apps that can only start a command</h3>
+					<p class="meta">E.g. Claude Desktop. Uses the small <code>mcp-remote</code> bridge (needs Node.js; downloaded automatically by <code>npx</code>).</p>
+					<pre class="mcp-snippet" id="mcp-stdio-config"></pre>
+					<div class="actions"><button type="button" data-mcp-copy="stdioConfig">Copy config</button></div>
+				</div>
+				<div class="card">
+					<h3 style="margin-top:0;">How an app uses DRIP</h3>
+					<p class="meta">Apps see two tools: <code>search_tools</code> (describe what you want, get the matching DRIP tools and their exact inputs) and <code>call_tool</code> (run one). This keeps prompts small while the AI can still reach every DRIP tool. A knowledge base must be open in DRIP.</p>
+				</div>
+			</section>
+
+			<section id="panel-saved-settings" class="panel">
+				<h3>Saved Settings</h3>
+				<div class="card">
+					<p>DRIP settings for the active knowledge base are stored in:</p>
+					<p class="saved-settings-path-line"><code id="saved-settings-path">(no knowledge base selected)</code></p>
+					<p class="meta">When you change settings while a KB is bound, they are saved to that file. Switching KB loads that KB's settings (or defaults if the file is missing).</p>
+					<div class="actions">
+						<button id="btn-import-settings" type="button">Import settings from file…</button>
+						<button id="btn-export-settings" class="secondary" type="button">Export settings to file…</button>
+					</div>
+				</div>
+			</section>
+
+			<section id="panel-shortcuts" class="panel">
+				<h3>Keyboard Shortcuts</h3>
+				<div class="card">
+					<p class="meta">Click a shortcut box, press the key combination you want, then Save. Changes are written to your VS Code <code>keybindings.json</code> and apply immediately. Reset brings back the DRIP default; Remove leaves the command without a shortcut.</p>
+					<table class="shortcut-table">
+						<thead><tr><th>Command</th><th>Current</th><th>New shortcut</th><th></th></tr></thead>
+						<tbody id="shortcut-rows"><tr><td colspan="4" class="meta">Loading…</td></tr></tbody>
+					</table>
+					<p id="shortcut-error" style="color:var(--vscode-errorForeground);"></p>
+					<p class="meta">Shortcuts already used by built-in VS Code commands are not detected here — if a new shortcut does nothing, pick another combination.</p>
+					<div class="actions">
+						<button id="btn-keys" class="secondary">Open VS Code Keyboard Shortcuts</button>
+						<button id="btn-keys-file" class="secondary">Open keybindings.json</button>
+					</div>
+				</div>
+			</section>
+		</main>
+	</div>
+
+	

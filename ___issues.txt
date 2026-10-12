@@ -6,3 +6,37 @@ drip application what to work on next :
 
 BROKEN DOWN — work ONE at a time
 --------------------------------
+
+later to do only when asked by the user  
+
+   - right click on the editor will get you options.. just like in obsidian..
+   
+   - outside llm - like chatgpt ask to get the best note format to store.. i want the note to be in plain text or in markdown format.. 
+
+
+
+
+--------------------------------
+
+Important to do now 
+--------------------------------
+
+
+
+- need a coloring logic of the live editor and try to implement to edit them in the drip settings.. 
+
+
+- give the application clear context on,
+   - we only have the .p and .f only when those particular files are created and we don't use them for regular files..
+   - regular files only get the persistant headings and not the concept or the task headings .. 
+
+- i need modular refactoring of code where the logic uses the results or parsed results form the .d.txt or the .d.md files 
+- and also make a list of the core logic functionlaity which is already present and where it is used so to keep the logical structuring modular  
+- seperate the logic when we are dealing with the .d.txt and with the .d.md files 
+   - but i want the core logic of the other components to be more modular and not be rooted in the same thing as one onother 
+
+
+- you will try to integrate the .d.md files also into this logic placement so that it helps you.. 
+
+
+- have a particular thing in the drip settings to import / export to another location... while exporting you will have copy or cut options.. 

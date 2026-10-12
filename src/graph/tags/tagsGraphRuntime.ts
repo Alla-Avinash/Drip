@@ -1,12 +1,12 @@
-'use strict';
+// Browser client for the DRIP Tags graph webview. Bundled by esbuild (scripts/build-webview.mjs)
+// into dist/. Runs inside the sandboxed webview and talks to the extension host through
+// window.__dripVscodeApi, which an inline bootstrap <script> sets via acquireVsCodeApi().
 
-/**
- * Client script for the tag graph (DRIP Tags editor panel or legacy embed).
- * Uses window.__dripVscodeApi from a prior script when acquireVsCodeApi was already called.
- * Expects DOM ids prefixed with stag-. No template interpolation — safe to inject.
- */
-function getTagsGraphEmbedRuntime() {
-	return `(function () {
+interface Window {
+	__dripVscodeApi: any;
+}
+
+(function () {
 	var vscode = window.__dripVscodeApi;
 	if (!vscode) return;
 	var canvas = document.getElementById('stag-graph');
@@ -2785,7 +2785,4 @@ function isSubFocusLink(L, focusId) {
 
 	resizeCanvas();
 	loop();
-})();`;
-}
-
-module.exports = getTagsGraphEmbedRuntime;
+})();

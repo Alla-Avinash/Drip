@@ -520,7 +520,7 @@ class DripSubGraphPanel {
 		this.extensionUri = extensionUri;
 		this.parentTagId = parentTagId;
 		registerTagGraphWebview(this.panel.webview, { subGraphParentId: parentTagId });
-		this.panel.webview.html = getSubGraphPanelHtml(this.panel.webview);
+		this.panel.webview.html = getSubGraphPanelHtml(this.panel.webview, this.extensionUri);
 		this.panel.webview.onDidReceiveMessage(async message => {
 			try {
 				if (message.type === 'tagsPanelUiActivated') {
@@ -1971,7 +1971,7 @@ class DripTagsPanel {
 		this.state = state;
 		this.extensionUri = extensionUri;
 		registerTagGraphWebview(this.panel.webview);
-		this.panel.webview.html = getTagsWebviewHtml(this.panel.webview);
+		this.panel.webview.html = getTagsWebviewHtml(this.panel.webview, this.extensionUri);
 
 		this.panel.onDidDispose(() => {
 			unregisterTagGraphWebview(this.panel.webview);

@@ -89,6 +89,25 @@ function isProtectedFolderIndexNotePath(fileFsPath) {
 	);
 }
 
+/**
+ * True if fsPath sits somewhere under a project (`.p`) or feature (`.f`) folder.
+ * Walks up from the file's own directory, so a note nested anywhere inside a project
+ * counts as "in a project" — this drives which metadata types / tags graph it uses.
+ * @param {string} fsPath
+ * @returns {boolean}
+ */
+function isPathInsideProjectFolder(fsPath) {
+	const file = String(fsPath || '');
+	if (!file) return false;
+	let dir = path.dirname(file);
+	while (dir && dir !== path.dirname(dir)) {
+		const base = String(path.basename(dir) || '').trim().toLowerCase();
+		if (base.endsWith('.p') || base.endsWith('.f')) return true;
+		dir = path.dirname(dir);
+	}
+	return false;
+}
+
 module.exports = {
 	PROJECT_FOLDER_EXT,
 	isDripProjectFolderName,
@@ -96,5 +115,6 @@ module.exports = {
 	projectIndexFileName,
 	isProjectIndexFileName,
 	isProtectedFolderIndexNotePath,
+	isPathInsideProjectFolder,
 	sanitizeProjectIndexStem
 };

@@ -94,10 +94,14 @@ const { getSettingsDripFileUri } = require('../startup/initializeDripIndex');
 const { registerDripnoteTagCompletion } = require('../views/editor/dripnoteTagCompletion');
 const { registerDripnoteSemanticTokens } = require('../views/editor/dripnoteSemanticTokens');
 const { registerDripnoteMetadataDiagnostics } = require('../document/validate/dripnoteMetadataDiagnosticsTemplates');
+const { registerDripMdNoteMetadataValidation } = require('../document/validate/dripMdNoteMetadataValidation');
+const { registerDripMdNoteFileHeaderReconcile } = require('../document/validate/dripMdNoteFileHeaderReconcile');
 const { registerDripnoteMetadataCompletion } = require('../views/editor/dripnoteMetadataCompletion');
 const { registerDripnoteCustomDecorations } = require('../views/editor/dripnoteCustomDecorations');
 const { registerDripnoteHeadingIdentityDisplay } = require('../views/editor/dripnoteHeadingIdentityDisplay');
+const { DripMdEditorProvider } = require('../views/editor/dripMdEditor/dripMdEditorProvider');
 const { registerDripnoteIndexSync } = require('../indexing/dripnoteIndexSync');
+const { registerDripMdNoteIndexSync } = require('../indexing/sync/dripMdNoteSync');
 const { registerStartupCheck, resetStartupCheckCache, runStartupCheck } = require('../startup/startupCheck');
 const {
 	DripRetrieverPanel,
@@ -203,11 +207,21 @@ async function activate(context) {
 	registerDripnoteTagCompletion(context);
 	registerDripnoteSemanticTokens(context);
 	registerDripnoteMetadataDiagnostics(context);
+	registerDripMdNoteMetadataValidation(context);
+	registerDripMdNoteFileHeaderReconcile(context);
 	registerDripnoteMetadataCompletion(context);
 	registerDripnoteCustomDecorations(context);
 	registerDripnoteHeadingIdentityDisplay(context);
+	context.subscriptions.push(
+		vscode.window.registerCustomEditorProvider(
+			DripMdEditorProvider.viewType,
+			new DripMdEditorProvider(context),
+			{ webviewOptions: { retainContextWhenHidden: true } }
+		)
+	);
 	const state = new DripState(context);
 	registerDripnoteIndexSync(context, state);
+	registerDripMdNoteIndexSync(context, state);
 	registerPersistentHeadingSoftLock(context);
 	registerDripProjectFolderWatch(context, state);
 	registerDripFeatureFolderWatch(context, state);
@@ -602,10 +616,11 @@ async function activate(context) {
 			column,
 			{
 				enableScripts: true,
-				retainContextWhenHidden: true
+				retainContextWhenHidden: true,
+				localResourceRoots: [context.extensionUri]
 			}
 		);
-		settingsPanel.webview.html = getSettingsWebviewHtml(settingsPanel.webview, { initialPanel: panelId });
+		settingsPanel.webview.html = getSettingsWebviewHtml(settingsPanel.webview, context.extensionUri, { initialPanel: panelId });
 		wireSettingsWebviewMessageHandler(settingsPanel.webview);
 		const mcpBridge = require('../integrations/mcp/mcpBridge');
 		const panelWebview = settingsPanel.webview;

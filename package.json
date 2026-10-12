@@ -40,7 +40,8 @@
 		"onCommand:drip.renameItem",
 		"onCommand:drip.createFolder",
 		"onCommand:drip.deleteItem",
-		"onCommand:drip.testEmbeddings"
+		"onCommand:drip.testEmbeddings",
+		"onCustomEditor:drip.mdEditor"
 	],
 	"capabilities": {
 		"virtualWorkspaces": true,
@@ -49,6 +50,18 @@
 		}
 	},
 	"contributes": {
+		"customEditors": [
+			{
+				"viewType": "drip.mdEditor",
+				"displayName": "DRIP Markdown",
+				"selector": [
+					{
+						"filenamePattern": "*.d.md"
+					}
+				],
+				"priority": "default"
+			}
+		],
 		"viewsContainers": {
 			"activitybar": [
 				{
@@ -398,6 +411,9 @@
 					"comments": false,
 					"strings": true
 				}
+			},
+			"workbench.editorAssociations": {
+				"*.d.md": "drip.mdEditor"
 			}
 		},
 		"configuration": {
@@ -485,12 +501,24 @@
 					"default": {},
 					"description": "Optional overrides for the six DRIP document colors. Keys: color1 (type/shortcut), color2 (heading), color3 (metadata key), color4 (tag/relation key), color5 (values + separators), color6 (file identity key). Each value is a hex color; empty means follow the theme palette.",
 					"properties": {
-						"color1": { "type": "string" },
-						"color2": { "type": "string" },
-						"color3": { "type": "string" },
-						"color4": { "type": "string" },
-						"color5": { "type": "string" },
-						"color6": { "type": "string" }
+						"color1": {
+							"type": "string"
+						},
+						"color2": {
+							"type": "string"
+						},
+						"color3": {
+							"type": "string"
+						},
+						"color4": {
+							"type": "string"
+						},
+						"color5": {
+							"type": "string"
+						},
+						"color6": {
+							"type": "string"
+						}
 					}
 				},
 				"drip.metadataTemplatesEnabled": {
@@ -1039,12 +1067,27 @@
 			{
 				"id": "metavalue",
 				"superType": "string",
-				"description": "DRIP value: metadata value, tag list item, identity value, or section separator."
+				"description": "DRIP heading-special value or section separator."
 			},
 			{
 				"id": "fileidentity",
 				"superType": "label",
 				"description": "DRIP file-level identity field (filename, fileid, headings)."
+			},
+			{
+				"id": "identityvalue",
+				"superType": "string",
+				"description": "DRIP file identity value (filename/fileid/headings value)."
+			},
+			{
+				"id": "typedvalue",
+				"superType": "string",
+				"description": "DRIP metadata type field value (status/deadline value)."
+			},
+			{
+				"id": "relationvalue",
+				"superType": "string",
+				"description": "DRIP tag/relation list value."
 			}
 		],
 		"semanticTokenScopes": [
@@ -1076,6 +1119,15 @@
 					],
 					"fileidentity": [
 						"constant.other.reference.link.dripnote"
+					],
+					"identityvalue": [
+						"string.unquoted.dripnote.metadata"
+					],
+					"typedvalue": [
+						"string.unquoted.dripnote.metadata"
+					],
+					"relationvalue": [
+						"string.unquoted.dripnote.metadata"
 					]
 				}
 			}
@@ -1105,18 +1157,30 @@
 	},
 	"scripts": {
 		"compile-web": "tsgo --project ./tsconfig.json --noEmit",
+		"build:webview": "node scripts/build-webview.mjs",
+		"lint": "eslint .",
 		"bench:embeddings": "node benchmarks/run.js",
 		"bench:embeddings:real": "node benchmarks/run.js --real",
 		"bench:embeddings:all": "node benchmarks/run.js --all --real"
 	},
 	"devDependencies": {
-		"@types/node": "22.x"
+		"@eslint/js": "^10.0.1",
+		"@types/node": "22.x",
+		"esbuild": "^0.28.2",
+		"eslint": "^10.12.0",
+		"globals": "^17.13.0",
+		"typescript-eslint": "^8.71.1"
 	},
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/Alla-Avinash/Drip.git"
 	},
 	"dependencies": {
+		"@codemirror/commands": "^6.11.1",
+		"@codemirror/lang-markdown": "^6.5.2",
+		"@codemirror/language": "^6.13.1",
+		"@codemirror/state": "^6.7.6",
+		"@codemirror/view": "^6.43.14",
 		"@xenova/transformers": "^2.17.2",
 		"better-sqlite3": "^13.0.3"
 	}

@@ -7,7 +7,7 @@ const { tokenizeDripnote } = require('./dripnoteColoringTokens');
 // textmate scope, so colors follow the active light/dark theme — no hardcoded hex. The
 // `declaration` modifier marks headings/markers bold. Doc Coloring custom colors (if any)
 // are layered on top by the decoration pass in dripnoteCustomDecorations.js.
-const tokenTypes = ['metatype', 'heading', 'metakey', 'relationkey', 'metavalue', 'fileidentity'];
+const tokenTypes = ['metatype', 'heading', 'metakey', 'relationkey', 'metavalue', 'fileidentity', 'identityvalue', 'typedvalue', 'relationvalue'];
 const tokenModifiers = ['declaration'];
 const legend = new vscode.SemanticTokensLegend(tokenTypes, tokenModifiers);
 
@@ -17,7 +17,10 @@ const ROLE_TO_TYPE = {
 	metakey: 'metakey',
 	relationkey: 'relationkey',
 	metavalue: 'metavalue',
-	fileidentity: 'fileidentity'
+	fileidentity: 'fileidentity',
+	identityvalue: 'identityvalue',
+	typedvalue: 'typedvalue',
+	relationvalue: 'relationvalue'
 };
 
 function typeIndex(name) {

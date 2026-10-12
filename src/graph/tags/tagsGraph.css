@@ -1,0 +1,127 @@
+/* DRIP Tags graph styles (extracted from tagsWebview.js) */
+body { font-family: var(--vscode-font-family); color: var(--vscode-editor-foreground); background: var(--vscode-editor-background); margin: 0; padding: 10px; height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; min-height: 0; }
+		.tags-editor-root { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+		.tags-layout { flex: 1; min-height: 0; display: flex; }
+		.tags-col { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+		#tags-main-panel .tags-intro { font-size: 11px; color: var(--vscode-descriptionForeground); margin: 0 0 8px 0; line-height: 1.4; }
+		.tags-embed-inner { display: flex; flex: 1; min-height: 280px; border: 1px solid var(--vscode-panel-border); border-radius: 8px; overflow: hidden; }
+		.stag-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+		.stag-toolbar { flex-shrink: 0; padding: 8px; border-bottom: 1px solid var(--vscode-panel-border); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+		.stag-toolbar button { padding: 5px 10px; font-size: 11px; border: none; border-radius: 4px; cursor: pointer;
+			background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+		.stag-toolbar button.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+		.tags-selection .stag-graph-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+		.tags-selection label.stag-graph-label { font-size: 12px; color: var(--vscode-descriptionForeground); margin: 0; }
+		.tags-selection .stag-toolbar-select { padding: 4px 8px; font-size: 12px; border-radius: 4px; cursor: pointer;
+			border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+			min-width: 160px; max-width: 280px; }
+		.stag-toolbar .hint { font-size: 10px; color: var(--vscode-descriptionForeground); flex: 1; min-width: 120px; line-height: 1.35; }
+		.tags-selection .stag-graph-actions { display: inline-flex; gap: 6px; }
+		.tags-selection .stag-graph-name { width: 180px; padding: 4px 8px; font-size: 12px; border-radius: 4px;
+			border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); }
+		.tags-selection .is-hidden { display: none !important; }
+		.stag-canvas-wrap { flex: 1; min-height: 200px; position: relative; cursor: grab; }
+		.stag-canvas-wrap.stag-panning { cursor: grabbing; }
+		.stag-canvas-wrap.stag-drag-node { cursor: move; }
+		#stag-graph { display: block; width: 100%; height: 100%; }
+		.stag-hover-label {
+			position: absolute; z-index: 20; pointer-events: none; margin: 0; padding: 0; box-sizing: border-box;
+			transform: translateX(-50%); max-width: min(560px, calc(100% - 24px)); text-align: center; line-height: 1.25;
+			word-wrap: break-word; overflow-wrap: anywhere; font-family: var(--vscode-font-family);
+			color: var(--vscode-editor-foreground); background: transparent; border: none; border-radius: 0; box-shadow: none;
+		}
+		.stag-hover-label[hidden] { display: none !important; }
+		.stag-ctx-menu {
+			position: absolute; z-index: 50; min-width: 148px; padding: 4px 0; margin: 0;
+			background: var(--vscode-menu-background); color: var(--vscode-menu-foreground);
+			border: 1px solid var(--vscode-menu-border); border-radius: 4px;
+			box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+		}
+		.stag-ctx-menu[hidden] { display: none !important; }
+		.stag-ctx-menu button {
+			display: block; width: 100%; margin: 0; padding: 6px 14px; border: none; border-radius: 0;
+			font-size: 13px; text-align: left; cursor: pointer;
+			background: transparent; color: var(--vscode-menu-foreground);
+		}
+		.stag-ctx-menu button:hover { background: var(--vscode-menu-selectionBackground); color: var(--vscode-menu-selectionForeground); }
+		.stag-ctx-menu button.stag-ctx-danger:hover { background: var(--vscode-inputValidation-errorBackground); color: var(--vscode-errorForeground); }
+		.stag-subtag-flyout {
+			position: absolute; z-index: 55; width: min(320px, calc(100% - 16px)); max-height: min(340px, calc(100% - 16px));
+			display: flex; flex-direction: column; min-height: 0; box-sizing: border-box;
+			background: var(--vscode-sideBar-background); border: 1px solid var(--vscode-focusBorder); border-radius: 8px;
+			box-shadow: 0 6px 24px rgba(0,0,0,.4); overflow: hidden;
+		}
+		.stag-subtag-flyout[hidden] { display: none !important; }
+		.stag-subtag-flyout-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 8px;
+			border-bottom: 1px solid var(--vscode-panel-border); flex-shrink: 0; background: var(--vscode-editorWidget-background); }
+		.stag-subtag-flyout-head span { font-size: 11px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+		.stag-subtag-flyout-head button { padding: 2px 8px; font-size: 11px; border: none; border-radius: 4px; cursor: pointer;
+			background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+		.stag-subtag-mini-hint { margin: 0; padding: 4px 8px; font-size: 9px; line-height: 1.35; color: var(--vscode-descriptionForeground);
+			border-bottom: 1px solid var(--vscode-panel-border); flex-shrink: 0; }
+		.stag-subgraph-wrap { flex: 1; min-height: 160px; position: relative; cursor: grab; background: var(--vscode-editor-background); }
+		.stag-subgraph-wrap.stag-panning { cursor: grabbing; }
+		.stag-subgraph-wrap.stag-drag-node { cursor: move; }
+		#stag-subgraph { display: block; width: 100%; height: 100%; }
+		.stag-subtag-footer { flex-shrink: 0; border-top: 1px solid var(--vscode-panel-border); padding: 6px 8px; }
+		.stag-subtag-footer .lbl { font-size: 10px; }
+		.stag-subtag-footer .inp { font-size: 11px; padding: 4px 6px; }
+		.stag-sidebar { width: 240px; flex-shrink: 0; border-left: 1px solid var(--vscode-panel-border); padding: 10px; overflow: auto;
+			display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+		.stag-sidebar h3 { margin: 0 0 4px 0; font-size: 12px; font-weight: 600; }
+		.stag-sidebar .lbl { font-size: 11px; color: var(--vscode-descriptionForeground); display: block; margin-bottom: 3px; }
+		.stag-sidebar .inp, .stag-sidebar .sel { width: 100%; padding: 5px 7px; font-size: 11px; border-radius: 4px;
+			border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); }
+		.stag-sidebar .settings-wrap[hidden] { display: none !important; }
+		.stag-sidebar .settings-wrap { border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 8px; }
+		.stag-sidebar .settings-title { margin: 0 0 6px 0; font-size: 11px; font-weight: 600; }
+		.stag-sidebar .chk { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+		.stag-legend { border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+		.stag-legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+		.stag-legend-swatch { width: 10px; height: 10px; border-radius: 999px; border: 1px solid rgba(0,0,0,0.35); display: inline-block; }
+		.stag-sidebar input[type="range"] {
+			width: 100%;
+			padding: 0;
+			margin: 0;
+			height: 18px;
+			box-sizing: border-box;
+		}
+		.stag-sidebar input[type="range"]::-webkit-slider-runnable-track { margin: 0; }
+		.stag-sidebar input[type="range"]::-moz-range-track { margin: 0; }
+		.stag-range-label { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+		.stag-range-value { font-family: var(--vscode-editor-font-family); color: var(--vscode-descriptionForeground); min-width: 44px; text-align: right; }
+		.stag-row2 { display: flex; gap: 6px; align-items: center; }
+		.stag-row2 .inp { flex: 1; }
+		.stag-icon-btn { width: 28px; min-width: 28px; padding: 4px 0; text-align: center; font-size: 12px; }
+		.stag-btn-active { outline: 1px solid var(--vscode-focusBorder); box-shadow: 0 0 0 1px var(--vscode-focusBorder) inset; }
+		.stag-delete-panel { display: flex; flex-direction: column; gap: 6px; padding: 0; }
+		.stag-delete-panel.is-active { border: 1px solid var(--vscode-focusBorder); border-radius: 6px; padding: 6px; box-shadow: 0 0 0 1px var(--vscode-focusBorder) inset; }
+		.stag-delete-tools { display: flex; flex-direction: column; gap: 6px; }
+		.stag-delete-tools[hidden] { display: none !important; }
+		.stag-delete-title { margin: 0; font-size: 11px; color: var(--vscode-descriptionForeground); }
+		.stag-delete-actions { display: flex; align-items: center; gap: 6px; }
+		.stag-combine-panel { flex-basis: 100%; display: flex; flex-direction: column; gap: 6px; padding-top: 6px; min-width: 280px; }
+		.stag-combine-panel[hidden] { display: none !important; }
+		.stag-combine-list { display: flex; flex-direction: column; gap: 4px; max-height: 140px; overflow: auto; }
+		.stag-combine-row { display: flex; align-items: center; gap: 6px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; padding: 4px; background: var(--vscode-editor-background); }
+		.stag-combine-row.dragging { opacity: 0.65; }
+		.stag-combine-grip { cursor: grab; user-select: none; color: var(--vscode-descriptionForeground); }
+		.stag-combine-actions { display: flex; align-items: center; gap: 6px; }
+		.stag-selection-note { margin: 6px 0 0 0; font-size: 11px; color: var(--vscode-descriptionForeground); }
+		.stag-status-note { margin: 4px 0 0 0; font-size: 11px; color: var(--vscode-descriptionForeground); }
+		.error { margin-top: 8px; color: var(--vscode-errorForeground); }
+		.meta { color: var(--vscode-descriptionForeground); }
+		#tags-main-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+		.tags-header { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 2px 0 12px 0; border-bottom: 1px solid var(--vscode-panel-border); margin-bottom: 12px; }
+		.tags-title { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.2; }
+		.tags-mode-switch { display: flex; gap: 16px; align-items: center; margin: 0; padding: 0; }
+		.tags-mode-switch label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--vscode-descriptionForeground); cursor: pointer; }
+		.tags-mode-switch input { margin: 0; }
+		.tags-selection { flex-shrink: 0; margin-bottom: 12px; padding: 8px 10px; border: 1px solid var(--vscode-panel-border); border-radius: 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+		.tags-selection button { padding: 5px 10px; font-size: 12px; border: none; border-radius: 4px; cursor: pointer;
+			background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+		.tags-selection button.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+		.projects-tags-top { display: inline-flex; align-items: center; gap: 8px; }
+		.projects-tags-top[hidden] { display: none !important; }
+		.projects-tags-top label { font-size: 12px; color: var(--vscode-descriptionForeground); }
+		.projects-tags-top select { padding: 4px 8px; font-size: 12px; border-radius: 4px; cursor: pointer; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); min-width: 180px; }

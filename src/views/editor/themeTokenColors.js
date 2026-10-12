@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Resolves the real theme colors for the six DRIP "Doc Coloring" roles.
+ * Resolves the real theme colors for the nine DRIP "Doc Coloring" roles.
  *
  * The .d.txt editor color comes from VS Code resolving the semantic-token scopes in
  * `package.json` (`semanticTokenScopes`) against the active theme's TextMate rules
@@ -24,7 +24,10 @@ const ROLE_TO_SEMANTIC_TYPE = {
 	color3: 'metakey',
 	color4: 'relationkey',
 	color5: 'metavalue',
-	color6: 'fileidentity'
+	color6: 'fileidentity',
+	color7: 'identityvalue',
+	color8: 'typedvalue',
+	color9: 'relationvalue'
 };
 
 // Semantic token types that render with the `declaration` (bold) modifier in the
@@ -215,7 +218,7 @@ function defaultForeground() {
 }
 
 /**
- * @returns {Record<string, string>} `{ color1..color6: hex }` resolved from the active
+ * @returns {Record<string, string>} `{ color1..color9: hex }` resolved from the active
  * theme (with token/semantic color customizations). Empty string when unknown.
  */
 function getDocRoleThemeColors() {

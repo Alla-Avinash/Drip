@@ -24,6 +24,18 @@ const { isFileEntityIdLine } = require('./dripnoteEntityIds');
 const CREATED_STORE_KEY = 'drip.noteIdentity.createdByUri.v1';
 const FILEID_STORE_KEY = 'drip.noteIdentity.fileIdByUri.v1';
 
+/**
+ * `.d.md` notes use the markdown sync path (`<!-- drip-file … -->` header) for identity,
+ * not this `.d.txt` hash-based identity layer. Any `.d.txt`-style normalization that ran
+ * on a `.d.md` file would rewrite its header and write straight to disk, racing the open
+ * editor and causing "content is newer" save conflicts. So this layer skips them entirely.
+ * @param {string} fsPath
+ * @returns {boolean}
+ */
+function isDripMdNotePath(fsPath) {
+	return String(fsPath || '').toLowerCase().endsWith('.d.md');
+}
+
 function formatCreatedIso(createdMs) {
 	return new Date(createdMs).toISOString();
 }
@@ -258,6 +270,10 @@ async function detectFileIdDrift(fileUri, text, context) {
 }
 
 async function normalizeNoteIdentityText(fileUri, text, options) {
+	// `.d.md` identity lives in the markdown sync layer, not here.
+	if (isDripMdNotePath(fileUri.fsPath)) {
+		return String(text || '').replace(/\r\n/g, '\n');
+	}
 	const opts = options || {};
 	const key = fileUri.toString();
 
@@ -325,7 +341,10 @@ async function normalizeAllNoteIdentities(kbRoot, context) {
 	await forEachKnowledgeBaseNote(
 		kbRoot,
 		async note => {
-			if (!note?.uri || !fileNameMatchesKbNote(path.basename(note.uri.fsPath))) {
+			if (!note?.uri || isDripMdNotePath(note.uri.fsPath)) {
+				return;
+			}
+			if (!fileNameMatchesKbNote(path.basename(note.uri.fsPath))) {
 				return;
 			}
 			await normalizeNoteIdentityFile(note.uri, { context });

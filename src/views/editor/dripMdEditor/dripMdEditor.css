@@ -1,0 +1,795 @@
+html,
+body {
+	height: 100%;
+	margin: 0;
+	padding: 0;
+}
+
+:root {
+	/* Gridline color for table borders and <hr> rules: a tint of the editor foreground, so
+	   it is automatically light on dark themes and dark on light themes, always standing
+	   out from the background. */
+	--md-gridline: color-mix(in srgb, var(--vscode-editor-foreground, #d4d4d4) 45%, transparent);
+}
+
+body {
+	background: var(--vscode-editor-background, #1e1e1e);
+	color: var(--vscode-editor-foreground, #d4d4d4);
+}
+
+#drip-md-editor-root,
+#drip-md-editor-root .cm-editor {
+	height: 100%;
+}
+
+.cm-editor {
+	font-family: var(--vscode-editor-font-family, ui-monospace, "Cascadia Mono", "Segoe UI Mono", monospace);
+	font-size: var(--vscode-editor-font-size, 14px);
+	/* Center the whole editor (fold gutter + text) in the panel, capped at a comfortable
+	   reading width, so the canvas never stretches to the window edges. */
+	width: 100%;
+	max-width: 860px;
+	margin: 0 auto;
+}
+
+/* The document scrolls vertically only. A wide table scrolls inside .md-table-scroll, and
+   that container uses overscroll-behavior: contain so scrolling the table never chains to
+   the document (which would feel like scrolling twice). The #root prefix raises specificity
+   so this beats CodeMirror's own `.cm-scroller { overflow-x: auto }`. */
+#drip-md-editor-root .cm-scroller {
+	overflow-y: auto;
+	overflow-x: hidden;
+}
+
+.cm-content {
+	padding: 8px 0 20vh;
+	cursor: text;
+	/* CodeMirror sets flex-shrink:0, so this element otherwise refuses to shrink below the
+	   widest content (a wide table), overflowing the scroller horizontally. min-width:0
+	   overrides that and lets it shrink to the editor width; a wide table then overflows
+	   its own .md-table-scroll (with a real scroll bar) instead of the document. This also
+	   stops the document from getting stuck scrolled sideways with no way to scroll back. */
+	min-width: 0;
+	max-width: 100%;
+}
+
+/* Gutter (fold buttons) keeps a default/pointer cursor, not the text caret. It sits right
+   beside the text (left of the centered canvas), so fold chevrons are next to the headings. */
+.cm-gutters {
+	cursor: default;
+	border: none;
+	border-radius: 0;
+	background: var(--vscode-editorGutter-background, var(--vscode-editor-background));
+}
+
+/* Fold gutter: sharp corners, no white bar, transparent so it blends with the editor. */
+.cm-foldGutter {
+	background: transparent;
+	border: none;
+	border-radius: 0;
+}
+
+.cm-foldGutter .cm-gutterElement,
+.cm-gutterElement {
+	border-radius: 0;
+}
+
+/* Make the fold markers vertically centered on the line they belong to — the gutter line
+   is as tall as the content line (e.g. a big heading), so center the icon within it. */
+.cm-foldGutter .cm-gutterElement {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0 3px;
+	cursor: pointer;
+	user-select: none;
+}
+
+/* Heading fold chevrons are always visible. */
+.cm-foldGutter .cm-gutterElement.md-fold-heading {
+	opacity: 1;
+}
+
+/* Other sections' fold chevrons are hidden until the mouse is over their line
+   (the runtime adds .md-fold-hovered to the hovered line's gutter element). */
+.cm-foldGutter .cm-gutterElement.md-fold-hover {
+	opacity: 0;
+	transition: opacity 0.1s ease;
+}
+
+.cm-foldGutter .cm-gutterElement.md-fold-hover:hover,
+.cm-foldGutter .cm-gutterElement.md-fold-hover.md-fold-hovered {
+	opacity: 1;
+}
+
+/* The active-line highlight is painted on the line element itself, which sits in front of
+   CodeMirror's selection layer (the selection is drawn behind the text). An opaque highlight
+   would hide the selection entirely, so it is made translucent — the selection shows through
+   it, matching how VS Code paints selection on top of the line highlight. */
+.cm-activeLine {
+	background: color-mix(in srgb, var(--vscode-editor-lineHighlightBackground, rgba(255, 255, 255, 0.03)) 40%, transparent);
+}
+
+.cm-selectionBackground {
+	background: var(--vscode-editor-selectionBackground) !important;
+}
+
+/* ---- WYSIWYG rendered styles ---- */
+
+/* Headings: inline (no block box or top margin) so the text sits on the same line top
+   as its fold marker in the gutter — the marker should be beside the heading, not above it. */
+.md-heading {
+	font-weight: 700;
+	line-height: 1.25;
+}
+
+.md-heading-1 {
+	font-size: 1.9em;
+}
+.md-heading-2 {
+	font-size: 1.6em;
+}
+.md-heading-3 {
+	font-size: 1.35em;
+}
+.md-heading-4 {
+	font-size: 1.15em;
+}
+.md-heading-5 {
+	font-size: 1em;
+}
+.md-heading-6 {
+	font-size: 0.9em;
+	color: var(--vscode-descriptionForeground, #9d9d9d);
+}
+
+.md-strong {
+	font-weight: 700;
+}
+
+.md-em {
+	font-style: italic;
+}
+
+.md-strike {
+	text-decoration: line-through;
+	opacity: 0.7;
+}
+
+.md-underline {
+	text-decoration: underline;
+}
+
+.md-mark {
+	background: var(--vscode-editor-selectionBackground, rgba(38, 79, 120, 0.6));
+	border-radius: 2px;
+	padding: 0 1px;
+}
+
+.md-sub {
+	vertical-align: sub;
+	font-size: 0.8em;
+}
+
+.md-sup {
+	vertical-align: super;
+	font-size: 0.8em;
+}
+
+.md-hr {
+	border: none;
+	border-top: 1px solid var(--md-gridline);
+	/* No vertical margin: block-widget roots must not use vertical margins or they break
+	   the gutter/fold-icon alignment. Spacing comes from the blank lines in the document. */
+	margin: 0;
+}
+
+/* Markers revealed while editing that line (the `#`, `**`, backticks, link brackets) —
+   dimmed so they're visible but don't distract from the styled text. */
+.md-revealed-mark {
+	color: var(--vscode-editorLineNumber-foreground, #858585);
+	opacity: 0.75;
+}
+
+.md-inline-code {
+	font-family: var(--vscode-editor-font-family, ui-monospace, "Cascadia Mono", "Segoe UI Mono", monospace);
+	background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.15));
+	border-radius: 3px;
+	padding: 0 2px;
+}
+
+.md-codeblock {
+	font-family: var(--vscode-editor-font-family, ui-monospace, "Cascadia Mono", "Segoe UI Mono", monospace);
+	background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.15));
+	border-radius: 4px;
+	padding: 0 3px;
+}
+
+.md-link {
+	color: var(--vscode-textLink-foreground, #3794ff);
+	text-decoration: underline;
+	cursor: pointer;
+}
+
+.md-quote {
+	color: var(--vscode-descriptionForeground, #9d9d9d);
+	border-left: 3px solid var(--vscode-editorWidget-border, #454545);
+	padding-left: 0.6em;
+}
+
+.md-checkbox {
+	cursor: pointer;
+	color: var(--vscode-textLink-foreground, #3794ff);
+	margin-right: 0.35em;
+	user-select: none;
+}
+
+.md-checkbox.is-checked {
+	color: var(--vscode-charts-green, #89d185);
+}
+
+.md-bullet {
+	color: var(--vscode-descriptionForeground, #9d9d9d);
+}
+
+/* ---- Images ---- */
+.md-image {
+	max-width: 100%;
+	max-height: 420px;
+	display: inline-block;
+	vertical-align: middle;
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.md-image-placeholder {
+	display: inline-block;
+	padding: 0.1em 0.4em;
+	border: 1px dashed var(--vscode-editorWidget-border, #454545);
+	border-radius: 4px;
+	color: var(--vscode-descriptionForeground, #9d9d9d);
+	cursor: pointer;
+}
+
+/* Wrapper for a resolved local image, so the widget root span stays stable while the
+   <img> is swapped in after the host resolves the file URI. */
+.md-image-wrap {
+	display: inline-block;
+	vertical-align: middle;
+}
+
+/* ---- Tables (rendered, directly editable, horizontally scrollable when wide) ---- */
+/* The wrap fills the (centered, 860px) canvas; a narrow table is centered within it and a
+   wide one overflows into its own horizontal scroll area rather than the document. */
+.md-table-wrap {
+	position: relative;
+	display: block;
+	width: 100%;
+	box-sizing: border-box;
+	/* Padding (not margin) so the block-widget height is measured correctly and the
+	   fold-gutter stays aligned with its heading lines. */
+	padding: 0.4em 0;
+	text-align: center;
+}
+
+/* Inner scroll area: a full-width block with a definite width, so a table wider than it
+   overflows and shows a scroll bar. Padding reserves room outside the table for the
+   row/column handles (left/top) and the "+" buttons (right/bottom). */
+.md-table-scroll {
+	position: relative;
+	display: block;
+	width: 100%;
+	overflow-x: auto;
+	overflow-y: hidden;
+	/* Contain only horizontal scroll so it stays in the table (no chaining to the document
+	   after it reaches the edge); vertical scroll still chains to the document normally. */
+	overscroll-behavior-x: contain;
+	text-align: center;
+	padding: 1.6em;
+	box-sizing: border-box;
+}
+
+/* Inner box shrink-wraps the table; the "+" buttons are positioned on its edges. */
+.md-table-inner {
+	position: relative;
+	display: inline-block;
+	vertical-align: top;
+}
+
+.md-table {
+	border-collapse: collapse;
+	color: var(--vscode-editor-foreground);
+	width: auto;
+}
+
+.md-table th,
+.md-table td {
+	border: 1px solid var(--md-gridline);
+	padding: 0.35em 0.75em;
+	text-align: left;
+	vertical-align: top;
+	white-space: normal;
+	overflow-wrap: break-word;
+	/* Keep each cell a rectangle: a minimum width so every column has real width (cells
+	   never collapse to slivers), and a minimum height so empty cells aren't flat. Text
+	   wraps within the cell after that min width. The table's natural width grows with the
+	   columns and, once wider than the editor, the .md-table-scroll bar appears. */
+	min-width: 10em;
+	min-height: 2.2em;
+	cursor: text;
+	outline: none;
+}
+
+.md-table th {
+	background: var(--vscode-editor-inactiveSelectionBackground, rgba(128, 128, 128, 0.12));
+	font-weight: 700;
+}
+
+.md-table tbody tr:hover {
+	background: var(--vscode-editor-hoverHighlightBackground, rgba(255, 255, 255, 0.03));
+}
+
+.md-table th:focus,
+.md-table td:focus {
+	background: var(--vscode-editor-selectionBackground, rgba(38, 79, 120, 0.6));
+	outline: 1px solid var(--vscode-focusBorder, #007fd4);
+}
+
+/* Row/column drag handles (Obsidian-style reorder grips) — floating, outside the table. */
+.md-table th,
+.md-table td {
+	position: relative;
+}
+
+.md-drag-handle {
+	position: absolute;
+	cursor: grab;
+	user-select: none;
+	color: var(--vscode-descriptionForeground, #9d9d9d);
+	background: var(--vscode-editor-background, #1e1e1e);
+	border: 1px solid var(--vscode-editorWidget-border, #454545);
+	border-radius: 3px;
+	line-height: 1;
+	z-index: 5;
+	opacity: 0;
+	transition: opacity 0.12s ease;
+}
+
+.md-drag-handle::before {
+	content: '⠿';
+}
+
+/* Row handle: to the LEFT of the row, outside the table's left border. */
+.md-drag-row {
+	left: -1.35em;
+	top: 50%;
+	transform: translateY(-50%);
+	padding: 0.1em 0.25em;
+}
+
+/* Column handle: at the TOP of the column, above the table's header. */
+.md-drag-col {
+	top: -1.4em;
+	left: 50%;
+	transform: translateX(-50%);
+	padding: 0.2em 0.25em;
+}
+
+/* Handles appear only when the mouse is near the table edge — a row handle when hovering
+   the row's first cell (left edge), a column handle when hovering its header (top edge). */
+.md-table td.md-first-col:hover > .md-drag-row {
+	opacity: 0.9;
+}
+
+.md-table th:hover > .md-drag-col {
+	opacity: 0.9;
+}
+
+.md-drag-handle:hover {
+	opacity: 1 !important;
+}
+
+.md-drag-handle.is-dragging {
+	opacity: 1;
+	cursor: grabbing;
+}
+
+/* Drop insertion lines while dragging. */
+.md-table tr.md-drop-before {
+	box-shadow: inset 0 2px 0 0 var(--vscode-focusBorder, #007fd4);
+}
+
+.md-table tr.md-drop-after {
+	box-shadow: inset 0 -2px 0 0 var(--vscode-focusBorder, #007fd4);
+}
+
+.md-table td.md-drop-col-left,
+.md-table th.md-drop-col-left {
+	box-shadow: inset 2px 0 0 0 var(--vscode-focusBorder, #007fd4);
+}
+
+.md-table td.md-drop-col-right,
+.md-table th.md-drop-col-right {
+	box-shadow: inset -2px 0 0 0 var(--vscode-focusBorder, #007fd4);
+}
+
+/* "+" add buttons at the end row (below, centered) and end column (right, centered). */
+.md-table-add {
+	position: absolute;
+	width: 20px;
+	height: 20px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 1px solid var(--vscode-editorWidget-border, #454545);
+	border-radius: 50%;
+	background: var(--vscode-editor-background, #1e1e1e);
+	color: var(--vscode-descriptionForeground, #9d9d9d);
+	font-size: 14px;
+	line-height: 1;
+	cursor: pointer;
+	user-select: none;
+	opacity: 0;
+	transition: opacity 0.12s ease;
+	padding: 0;
+}
+
+.md-table-wrap:hover .md-table-add {
+	opacity: 1;
+}
+
+.md-table-add:hover {
+	color: var(--vscode-textLink-foreground, #3794ff);
+	border-color: var(--vscode-textLink-foreground, #3794ff);
+}
+
+.md-table-add-row {
+	left: 50%;
+	bottom: -1.4em;
+	transform: translateX(-50%);
+}
+
+.md-table-add-col {
+	right: -1.4em;
+	top: 50%;
+	transform: translateY(-50%);
+}
+
+/* ---- Table context menu (right-click a cell) ---- */
+.md-context-menu {
+	position: fixed;
+	z-index: 10000;
+	min-width: 160px;
+	padding: 4px;
+	background: var(--vscode-menu-background, var(--vscode-editorWidget-background, #252526));
+	border: 1px solid var(--vscode-menu-border, var(--vscode-editorWidget-border, #454545));
+	border-radius: 4px;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+	color: var(--vscode-menu-foreground, var(--vscode-editor-foreground));
+	font-size: 13px;
+	user-select: none;
+}
+
+.md-menu-item {
+	position: relative;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 4px 10px;
+	border-radius: 3px;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.md-menu-item:hover {
+	background: var(--vscode-menu-selectionBackground, var(--vscode-editor-selectionBackground));
+}
+
+.md-menu-arrow {
+	margin-left: 16px;
+	opacity: 0.7;
+}
+
+.md-submenu {
+	display: none;
+	position: absolute;
+	left: calc(100% - 2px);
+	top: -5px;
+	min-width: 160px;
+	padding: 4px;
+	background: var(--vscode-menu-background, var(--vscode-editorWidget-background, #252526));
+	border: 1px solid var(--vscode-menu-border, var(--vscode-editorWidget-border, #454545));
+	border-radius: 4px;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.md-menu-parent:hover > .md-submenu {
+	display: block;
+}
+
+/* ---- HTML blocks (rendered) ---- */
+.md-html-block {
+	display: block;
+	/* Padding (not margin) so the block-widget height is measured correctly and the
+	   fold-gutter stays aligned. */
+	padding: 0.4em 0.5em;
+	border-left: 3px solid var(--vscode-editorWidget-border, #454545);
+}
+
+/* ---- File identity banner (the `<!-- drip-file … -->` header comment) ---- */
+.md-file-header {
+	display: block;
+	margin: 0 0 0.5em;
+	padding: 0.5em 0.75em;
+	border: 1px solid var(--vscode-editorWidget-border, #454545);
+	border-left: 3px solid var(--vscode-textLink-foreground, #3794ff);
+	border-radius: 4px;
+	background: var(--vscode-editorWidget-background, #252526);
+	user-select: none;
+}
+
+.md-file-header-title {
+	font-weight: 600;
+	font-size: 1.05em;
+	color: var(--vscode-editor-foreground);
+}
+
+.md-file-header-meta {
+	display: flex;
+	gap: 12px;
+	margin-top: 2px;
+	font-size: 0.85em;
+	color: var(--vscode-descriptionForeground, #9d9d9d);
+}
+
+.md-file-header-item {
+	display: inline-flex;
+	align-items: center;
+}
+
+.md-file-header-id {
+	font-family: var(--vscode-editor-font-family, monospace);
+	color: var(--vscode-textLink-foreground, #3794ff);
+}
+
+/* ---- Metadata chips (heading comment rendered as editable chips) ---- */
+.md-chip-row {
+	display: block;
+	padding: 2px 0;
+	line-height: 1.5;
+	user-select: none;
+}
+
+.md-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	margin: 0 4px 0 0;
+	padding: 1px 8px;
+	border-radius: 10px;
+	border: 1px solid var(--vscode-editorWidget-border, #454545);
+	background: var(--vscode-editor-inactiveSelectionBackground, rgba(128, 128, 128, 0.12));
+	font-size: 0.85em;
+	white-space: nowrap;
+}
+
+.md-chip-key {
+	color: var(--vscode-descriptionForeground, #9d9d9d);
+}
+
+.md-chip-value {
+	color: var(--vscode-editor-foreground, #d4d4d4);
+}
+
+.md-chip-type {
+	font-style: italic;
+	color: var(--vscode-textLink-foreground, #3794ff);
+	border-style: dashed;
+	cursor: pointer;
+}
+
+.md-chip-type:hover {
+	border-color: var(--vscode-focusBorder, #007fd4);
+}
+
+.md-chip-editable {
+	cursor: pointer;
+}
+
+.md-chip-editable:hover {
+	border-color: var(--vscode-focusBorder, #007fd4);
+}
+
+.md-chip-static {
+	opacity: 0.75;
+}
+
+.md-chip-add {
+	border-style: dashed;
+	color: var(--vscode-descriptionForeground, #9d9d9d);
+	cursor: pointer;
+	opacity: 0.8;
+}
+
+.md-chip-add:hover {
+	color: var(--vscode-textLink-foreground, #3794ff);
+	border-color: var(--vscode-textLink-foreground, #3794ff);
+	opacity: 1;
+}
+
+.md-chip-required {
+	border-style: solid;
+}
+
+/* Popover menu for editing a chip's value. */
+.md-chip-popover {
+	position: fixed;
+	z-index: 10001;
+	min-width: 160px;
+	max-width: 260px;
+	padding: 4px;
+	background: var(--vscode-menu-background, var(--vscode-editorWidget-background, #252526));
+	border: 1px solid var(--vscode-menu-border, var(--vscode-editorWidget-border, #454545));
+	border-radius: 4px;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+	color: var(--vscode-menu-foreground, var(--vscode-editor-foreground));
+	font-size: 13px;
+	user-select: none;
+}
+
+.md-popover-item {
+	padding: 4px 10px;
+	border-radius: 3px;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.md-popover-item:hover {
+	background: var(--vscode-menu-selectionBackground, var(--vscode-editor-selectionBackground));
+}
+
+.md-popover-item.is-danger {
+	color: var(--vscode-errorForeground, #f14c4c);
+}
+
+/* A popover value row (enum options) — flex so its tick sits right-aligned. */
+.md-popover-item.md-popover-value {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.md-popover-item.is-selected {
+	background: var(--vscode-menu-selectionBackground, var(--vscode-editor-selectionBackground));
+}
+
+/* The tick marking the currently selected value / heading type. */
+.md-popover-tick {
+	margin-left: auto;
+	color: var(--vscode-textLink-foreground, #3794ff);
+	font-weight: 600;
+}
+
+/* "Heading type" picker (title + colored-dot option rows). */
+.md-popover-title {
+	padding: 4px 10px 6px;
+	font-size: 0.85em;
+	color: var(--vscode-descriptionForeground, #9d9d9d);
+}
+
+.md-type-option {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.md-type-option.is-selected {
+	background: var(--vscode-menu-selectionBackground, var(--vscode-editor-selectionBackground));
+}
+
+.md-type-dot {
+	font-size: 0.7em;
+	color: var(--vscode-textLink-foreground, #3794ff);
+	flex: 0 0 auto;
+}
+
+/* Always-visible "+" glyph that promotes a plain heading into a typed heading. Rendered as
+ * a block under the heading, so it never pushes the heading text sideways. */
+.md-heading-promote {
+	display: inline-block;
+	padding: 0 6px;
+	border-radius: 4px;
+	color: var(--vscode-descriptionForeground, #9d9d9d);
+	font-size: 1.1em;
+	font-weight: 600;
+	line-height: 1;
+	cursor: pointer;
+	opacity: 0.45;
+	transition: opacity 0.12s ease;
+}
+
+.md-heading-promote:hover {
+	opacity: 1;
+	color: var(--vscode-textLink-foreground, #3794ff);
+}
+
+.md-popover-input {
+	display: block;
+	width: calc(100% - 16px);
+	margin: 4px 6px;
+	padding: 3px 6px;
+	box-sizing: border-box;
+	background: var(--vscode-input-background, #3c3c3c);
+	color: var(--vscode-input-foreground, #cccccc);
+	border: 1px solid var(--vscode-input-border, transparent);
+	border-radius: 3px;
+	outline: none;
+}
+
+.md-popover-input:focus {
+	border-color: var(--vscode-focusBorder, #007fd4);
+}
+
+.md-popover-select {
+	background: var(--vscode-dropdown-background, #3c3c3c);
+	color: var(--vscode-dropdown-foreground, #cccccc);
+	border: 1px solid var(--vscode-input-border, transparent);
+	border-radius: 3px;
+	padding: 2px 4px;
+	margin-left: 4px;
+}
+
+.md-popover-duration {
+	display: flex;
+	align-items: center;
+	margin: 4px 6px;
+}
+
+/* "Create new tag" input pinned at the bottom of the tags dropdown. */
+.md-popover-create {
+	border-top: 1px solid var(--vscode-menu-border, var(--vscode-editorWidget-border, #454545));
+	margin-top: 4px;
+	padding-top: 4px;
+}
+
+/* Input + "+ Create" button side by side. */
+.md-popover-create-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 0 6px 4px;
+}
+
+.md-popover-create-row .md-popover-input {
+	flex: 1;
+	width: auto;
+	margin: 0;
+}
+
+.md-popover-create-btn {
+	flex: 0 0 auto;
+	background: var(--vscode-button-background, #0e639c);
+	color: var(--vscode-button-foreground, #ffffff);
+	border: none;
+	border-radius: 3px;
+	padding: 3px 8px;
+	font-size: 12px;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.md-popover-create-btn:hover {
+	background: var(--vscode-button-hoverBackground, #1177bb);
+}
+
+/* Scrollable tag list inside the tags dropdown, so a long result set never overflows. */
+.md-tags-list {
+	max-height: 260px;
+	overflow-y: auto;
+}
+
+.md-popover-duration .md-popover-input {
+	width: auto;
+	margin: 0;
+	flex: 1;
+}

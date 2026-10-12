@@ -2,6 +2,10 @@
 # deps / build
 node_modules/
 
+# compiled output (webview bundle + any future TS emit)
+dist/
+out/
+
 # Transformers.js / ONNX embedding weights (extension-local HF cache)
 .cache/
 
