@@ -201,6 +201,9 @@ class DripProjectViewPanel {
 					case 'openProjectOverview':
 						await this.openProjectOverview(message);
 						break;
+					case 'openProjectArchitecture':
+						await this.openProjectArchitecture(message);
+						break;
 					case 'openFeatureOverview':
 						await this.openFeatureOverview(message);
 						break;
@@ -428,6 +431,18 @@ class DripProjectViewPanel {
 			uri = vscode.Uri.joinPath(folderUri, projectIndexFileName(path.basename(folderUri.fsPath)));
 		}
 		await vscode.commands.executeCommand('vscode.open', uri);
+	}
+
+	/**
+	 * Open the Project Architecture graph for this project.
+	 * @param {{ folderPrefix?: string, title?: string }} message
+	 */
+	async openProjectArchitecture(message) {
+		const kbRoot = this.kbRoot();
+		const prefix = String(message.folderPrefix || this._selectedPrefix || '');
+		if (!kbRoot || !prefix) return;
+		const { DripArchitecturePanel } = require('../../../architecture/architecturePanel');
+		DripArchitecturePanel.createOrShow(this.context, this.state, prefix, String(message.title || ''));
 	}
 
 	/**

@@ -7,6 +7,8 @@ const DRIP_TAGS_GRAPH_PANEL_ID = 'drip.tagsGraph';
 const DRIP_RETRIEVER_PANEL_ID = 'drip.retriever';
 /** Editor-area webview panel for Project View (Linear-style) */
 const DRIP_PROJECT_VIEW_PANEL_ID = 'drip.projectView';
+/** Editor-area webview panel for Project Architecture (per-project graph) */
+const DRIP_ARCHITECTURE_PANEL_ID = 'drip.architecture';
 /** RHS secondary-sidebar: chat capture inbox (notes without a heading) */
 const DRIP_CHAT_VIEW_ID = 'drip.chat';
 /** Separate editor panel for a tag with many sub-tags (≥ threshold) */
@@ -49,6 +51,7 @@ module.exports = {
 	DRIP_TAGS_GRAPH_PANEL_ID,
 	DRIP_RETRIEVER_PANEL_ID,
 	DRIP_PROJECT_VIEW_PANEL_ID,
+	DRIP_ARCHITECTURE_PANEL_ID,
 	DRIP_CHAT_VIEW_ID,
 	DRIP_SUBGRAPH_PANEL_ID,
 	DRIP_COMPONENTS_VIEW_ID,

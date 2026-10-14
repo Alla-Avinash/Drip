@@ -2259,6 +2259,7 @@
 			'</h2>' +
 			'<button type="button" class="ghost" id="btnProjectSettings" title="Project settings">\u2699</button>' +
 			'<button type="button" class="ghost" id="btnOverview">Overview</button>' +
+			'<button type="button" class="ghost" id="btnArchitecture">Architecture</button>' +
 			'<button type="button" class="ghost" id="btnTags">Tags</button>' +
 			'<div class="detail-switch">' +
 			'<button type="button" class="vs-btn' +
@@ -2287,6 +2288,11 @@
 		if (btnOverview)
 			btnOverview.addEventListener('click', function () {
 				vscode.postMessage({ type: 'openProjectOverview', folderPrefix: selectedPrefix });
+			});
+		const btnArchitecture = document.getElementById('btnArchitecture');
+		if (btnArchitecture)
+			btnArchitecture.addEventListener('click', function () {
+				vscode.postMessage({ type: 'openProjectArchitecture', folderPrefix: selectedPrefix, title: selectedTitle });
 			});
 		const btnTags = document.getElementById('btnTags');
 		if (btnTags)

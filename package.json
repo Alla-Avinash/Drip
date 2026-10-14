@@ -18,6 +18,8 @@
 		"onCommand:drip.openRetriever",
 		"onCommand:drip.retrieverQuickOpen",
 		"onCommand:drip.openProjectView",
+		"onCommand:drip.openProjectArchitecture",
+		"onWebviewPanel:drip.architecture",
 		"onWebviewPanel:drip.tagsGraph",
 		"onWebviewPanel:drip.retriever",
 		"onCommand:drip.captureSelectionToComposer",
@@ -183,6 +185,12 @@
 				"title": "Open Project View",
 				"category": "DRIP",
 				"icon": "$(folder-library)"
+			},
+			{
+				"command": "drip.openProjectArchitecture",
+				"title": "Open Project Architecture",
+				"category": "DRIP",
+				"icon": "$(type-hierarchy)"
 			},
 			{
 				"command": "drip.captureSelectionToComposer",

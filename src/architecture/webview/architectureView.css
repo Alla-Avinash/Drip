@@ -1,0 +1,335 @@
+:root {
+	--arch-feature: #4ec9b0;
+	--arch-component: #569cd6;
+	--arch-subcomponent: #569cd6;
+	--arch-implementation: #d7ba7d;
+	--arch-edge: #3794ff;
+	--arch-structural: #8b98a8;
+	--arch-accent: var(--vscode-focusBorder, #007acc);
+	--arch-danger: #f14c4c;
+}
+
+html,
+body {
+	margin: 0;
+	padding: 0;
+	height: 100%;
+	overflow: hidden;
+	background: var(--vscode-editor-background, #1e1e1e);
+	color: var(--vscode-foreground, #cccccc);
+	font-family: var(--vscode-font-family);
+	font-size: var(--vscode-font-size, 13px);
+}
+
+/* The `hidden` attribute must win over any `display` rule (e.g. the workflow bar's flex). */
+[hidden] {
+	display: none !important;
+}
+
+body {
+	display: flex;
+	flex-direction: column;
+}
+
+.arch-header {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 12px;
+	border-bottom: 1px solid var(--vscode-panel-border, #3c3c3c);
+	flex: 0 0 auto;
+}
+
+.arch-back {
+	cursor: pointer;
+	color: var(--vscode-textLink-foreground, #3794ff);
+	user-select: none;
+}
+
+.arch-title {
+	margin: 0;
+	font-size: 15px;
+	font-weight: 600;
+}
+
+.arch-project {
+	color: var(--vscode-descriptionForeground, #9d9d9d);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	max-width: 220px;
+}
+
+.arch-spacer {
+	flex: 1 1 auto;
+}
+
+.arch-btn {
+	background: var(--vscode-button-secondaryBackground, #3a3d41);
+	color: var(--vscode-button-secondaryForeground, #cccccc);
+	border: 1px solid transparent;
+	border-radius: 3px;
+	padding: 4px 10px;
+	cursor: pointer;
+}
+
+.arch-btn:hover {
+	background: var(--vscode-button-secondaryHoverBackground, #45494e);
+}
+
+.arch-btn.active {
+	outline: 2px solid var(--arch-accent);
+}
+
+.arch-btn-danger {
+	background: transparent;
+	border-color: var(--arch-danger);
+	color: var(--arch-danger);
+}
+
+.arch-hint {
+	flex: 0 0 auto;
+	padding: 4px 12px;
+	color: var(--vscode-descriptionForeground, #9d9d9d);
+	font-size: 12px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.arch-body {
+	flex: 1 1 auto;
+	display: flex;
+	min-height: 0;
+}
+
+.arch-canvas-wrap {
+	position: relative;
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.arch-canvas-wrap canvas {
+	display: block;
+	width: 100%;
+	height: 100%;
+	cursor: grab;
+}
+
+.arch-canvas-wrap canvas.dragging {
+	cursor: grabbing;
+}
+
+.arch-canvas-wrap canvas.linking {
+	cursor: crosshair;
+}
+
+.arch-hover-label {
+	position: absolute;
+	pointer-events: none;
+	background: var(--vscode-editorWidget-background, #252526);
+	border: 1px solid var(--vscode-panel-border, #3c3c3c);
+	padding: 4px 8px;
+	border-radius: 3px;
+	font-size: 12px;
+	z-index: 5;
+	max-width: 320px;
+}
+
+.arch-sidebar {
+	flex: 0 0 280px;
+	border-left: 1px solid var(--vscode-panel-border, #3c3c3c);
+	padding: 12px;
+	overflow-y: auto;
+	box-sizing: border-box;
+	background: var(--vscode-sideBar-background, #252526);
+}
+
+.arch-sidebar h3 {
+	margin: 0 0 8px;
+	font-size: 13px;
+}
+
+.arch-sidebar .muted {
+	color: var(--vscode-descriptionForeground, #9d9d9d);
+	font-size: 12px;
+}
+
+.arch-field {
+	display: block;
+	width: 100%;
+	box-sizing: border-box;
+	margin: 0 0 8px;
+	padding: 5px 8px;
+	background: var(--vscode-input-background, #3c3c3c);
+	color: var(--vscode-input-foreground, #cccccc);
+	border: 1px solid var(--vscode-input-border, transparent);
+	border-radius: 3px;
+	font-family: inherit;
+	font-size: 13px;
+}
+
+.arch-field:focus {
+	outline: 1px solid var(--arch-accent);
+}
+
+.arch-row {
+	display: flex;
+	gap: 6px;
+	margin-bottom: 8px;
+}
+
+.arch-row .arch-btn {
+	flex: 1 1 auto;
+}
+
+.arch-actions {
+	margin-top: 10px;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.arch-chip {
+	display: inline-block;
+	font-size: 11px;
+	padding: 1px 6px;
+	border-radius: 8px;
+	margin-right: 4px;
+	margin-bottom: 4px;
+	background: var(--vscode-badge-background, #4d4d4d);
+	color: var(--vscode-badge-foreground, #ffffff);
+}
+
+.arch-legend {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-bottom: 12px;
+}
+
+.arch-legend .item {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	font-size: 12px;
+}
+
+.arch-swatch {
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	display: inline-block;
+}
+
+.arch-context {
+	position: absolute;
+	z-index: 10;
+	background: var(--vscode-menu-background, #252526);
+	border: 1px solid var(--vscode-panel-border, #3c3c3c);
+	border-radius: 4px;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+	padding: 4px;
+	min-width: 160px;
+}
+
+.arch-context-item {
+	padding: 5px 10px;
+	border-radius: 3px;
+	cursor: pointer;
+	white-space: nowrap;
+	font-size: 13px;
+}
+
+.arch-context-item:hover {
+	background: var(--vscode-list-hoverBackground, #2a2d2e);
+}
+
+.arch-context-item.danger {
+	color: var(--arch-danger);
+}
+
+.arch-inline-edit {
+	position: absolute;
+	z-index: 9;
+	background: var(--vscode-editorWidget-background, #252526);
+	border: 1px solid var(--vscode-panel-border, #3c3c3c);
+	border-radius: 4px;
+	padding: 4px;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.arch-inline-edit .arch-field {
+	width: 160px;
+	margin: 0;
+}
+
+.arch-workflow-bar {
+	position: absolute;
+	bottom: 12px;
+	left: 50%;
+	transform: translateX(-50%);
+	display: flex;
+	gap: 6px;
+	align-items: center;
+	padding: 6px 10px;
+	background: var(--vscode-editorWidget-background, #252526);
+	border: 1px solid var(--vscode-panel-border, #3c3c3c);
+	border-radius: 6px;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+	z-index: 6;
+	white-space: nowrap;
+}
+
+.arch-wf-status {
+	font-size: 12px;
+	color: var(--vscode-descriptionForeground, #9d9d9d);
+	margin: 0 4px;
+}
+
+.arch-btn.playing {
+	background: #4ec9b0;
+	color: #111;
+}
+
+.arch-flow-row {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	margin-bottom: 6px;
+	flex-wrap: wrap;
+}
+
+.arch-flow-row .arch-field {
+	width: auto;
+	margin: 0;
+	flex: 0 1 auto;
+}
+
+.arch-flow-row .flow-path {
+	flex: 1 1 100%;
+	font-size: 11px;
+	color: var(--vscode-descriptionForeground, #9d9d9d);
+}
+
+.arch-tag-list {
+	list-style: none;
+	margin: 0 0 8px;
+	padding: 0;
+}
+
+.arch-tag-list li {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 3px 0;
+	font-size: 12px;
+}
+
+.arch-tag-list .rm {
+	margin-left: auto;
+	cursor: pointer;
+	color: var(--vscode-descriptionForeground, #9d9d9d);
+}
+
+

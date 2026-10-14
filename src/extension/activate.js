@@ -110,6 +110,7 @@ const {
 	scheduleRetrieverCatalogRebuildIfShown
 } = require('../views/lhs/retriever/panel');
 const { DripProjectViewPanel, refreshProjectViewIfShown } = require('../views/lhs/projects/panel');
+const { DripArchitecturePanel } = require('../architecture/architecturePanel');
 const { DripChatWebviewProvider } = require('../views/rhs/chat/panel');
 const { runRetrieverHeadingQuickOpen } = require('../retrieval/retrieverQuickOpen');
 const { updateKnowledgeBase } = require('../startup/updateKnowledgeBase');
@@ -733,6 +734,15 @@ async function activate(context) {
 		}),
 		vscode.commands.registerCommand('drip.openProjectView', async () => {
 			DripProjectViewPanel.createOrShow(context, state);
+		}),
+		vscode.commands.registerCommand('drip.openProjectArchitecture', async opts => {
+			const o = opts && typeof opts === 'object' && !Array.isArray(opts) ? opts : {};
+			DripArchitecturePanel.createOrShow(
+				context,
+				state,
+				String(o.folderPrefix || ''),
+				String(o.title || '')
+			);
 		}),
 		vscode.commands.registerCommand('drip.retrieverQuickOpen', async () => {
 			await runRetrieverHeadingQuickOpen(state);
