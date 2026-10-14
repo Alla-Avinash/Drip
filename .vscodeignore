@@ -1,0 +1,38 @@
+# Runtime package ignore list.
+#
+# What ships in the .vsix: extension.js, src/, dist/, image_assets/,
+# node_modules (production deps only — handled automatically by vsce),
+# package.json, README.md, and LICENSE.
+#
+# Everything else is excluded below.
+
+# Editor / tooling config (not needed at runtime)
+.vscode/**
+.cursor/**
+.cursorignore
+.git/**
+.gitignore
+.github/**
+eslint.config.mjs
+tsconfig.json
+package-lock.json
+
+# Build tooling & project documentation
+scripts/**
+specs/**
+benchmarks/**
+
+# Local model cache (Transformers.js downloads this on first use)
+.cache/**
+
+# Local scratch / working notes
+___*.md
+___*.txt
+__*.txt
+README.dev.md
+
+# TypeScript emit output (the extension runs from src/, not out/)
+out/**
+
+# Previously packaged archives
+*.vsix

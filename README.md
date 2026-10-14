@@ -1,59 +1,86 @@
-# DRIP
+# DRIP 🧠
 
-A VS Code extension that combines a **plain-text personal knowledge base** with a **Linear-style project tracker** — built to help you (and the AI assistants you code with) keep track of what has actually been built and why.
+**Plain-text notes. Structured thinking. Zero AI required.**
 
-Notes are plain `.d.txt` files in a folder on disk. DRIP indexes them into a local database so they can be searched, sorted, and browsed. On top of that, it groups work into **projects → features → issues** so you always know what exists, what changed, and what's next.
+DRIP is a note-taking and project-tracking workspace that lives inside VS Code. Capture a thought in seconds, file it into a **project → feature → issue** structure, and find it again instantly. Every note is plain text on *your* disk, everything runs locally, and none of the core experience needs an LLM, a cloud account, or an API key.
 
-## Why DRIP
+> Your knowledge, your files, your machine — no lock-in, no cloud, no AI in the way.
 
-When you build a lot — especially vibe-coding with an AI — it's easy to lose track of:
+---
 
-- what functionality already exists,
-- why it was built a certain way,
-- which approaches were considered and rejected,
-- what's done and what still needs work.
+## Why DRIP?
 
-DRIP stores all of that in plain English, not code. The AI assistant checks whether an existing issue already covers a change instead of creating a new one for every edit, so only meaningful work gets recorded.
+Notes and ideas have a way of piling up — scattered across loose files, chat threads, and sticky notes — until you can't find the one thing you're looking for. DRIP gives that a home:
 
-## What it does
+- 🧩 **Everything has a place** — ideas are organized into projects, features, and issues, so you always know what exists and what's next.
+- 📝 **Plain text, always yours** — notes are readable `.d.txt` / `.d.md` files in a folder on your disk. No proprietary format, no database you can't open.
+- ⚡ **Capture in a keystroke** — grab a selection or your clipboard into a note without leaving the editor.
+- 🔎 **Find anything in seconds** — a local index makes search, sorting, and backlinks instant.
+- 🚫 **No AI required** — the whole workflow is local and private. Optional AI layers exist, but they're off by default and never a prerequisite.
 
-- **Knowledge base** — a `.driplock` folder tree of notes, with filtering, drag-drop, and CRUD.
-- **Structured notes** — `.d.txt` files with metadata, tags, relations, and stable IDs that survive renames.
-- **Projects, features, issues** — a Linear-style hierarchy, browsed in the Project View panel.
-- **Indexing** — a local SQLite index for fast search, sorting, and backlinks.
-- **Semantic search** — embeddings-based matching of headings, files, folders, and tags.
-- **AI integration** — an LLM chat with long-term memory, plus a local MCP server so any AI app can manage issues.
-- **Backup** — one-click push/pull of the whole KB to GitHub.
+---
 
-## Getting started
+## ✨ What you get
 
-1. Open the DRIP activity bar in VS Code.
-2. Pick a knowledge base folder with **Select Knowledge Base**.
-3. Create notes and folders from the **New** menu; organize work into projects and features.
-4. Open the **Project View** to browse and manage issues.
+### 📥 Effortless capture
+- **Quick Capture** (`Ctrl+U`) opens the Composer to draft a note in seconds.
+- **Capture selection / clipboard** (`Ctrl+Shift+U`) sends text straight from your editor.
+- DRIP suggests the best place for a note — merge, append, or a new heading — so filing takes one click, not a decision.
 
-### Common shortcuts
+![Capture a note in the Composer, with the Storage panel open on the right](image_assets/composer-storage-panel.png)
+
+### 🗂️ Structured knowledge, not a junk drawer
+- A **Knowledge Base** folder tree with drag-drop, filtering, and full create/rename/delete.
+- **Projects → Features → Issues**, a Linear-style hierarchy so work is grouped the way you actually think about it.
+- Notes carry **metadata, tags, and relations** with stable IDs that survive renames — links don't break.
+
+### 🏷️ Connected by design
+- A **Tags graph** shows how notes relate to each other.
+- **Backlinks and references** keep related notes one hop away.
+- **Daily Notes, Drafts, and Recents** make day-to-day jotting frictionless.
+
+### ✍️ A real writing experience
+- A **rich Markdown editor** for `.d.md` files with DRIP-aware rendering of metadata and tags.
+- **Colored, structured headings** for `.d.txt` notes with autocomplete, diagnostics, and quick fixes.
+
+![A .d.txt note with DRIP's colored, structured headings and metadata rendering](image_assets/dripnote-rendering.png)
+
+### 🔒 Local & private
+- A fast **local SQLite index** — nothing leaves your machine.
+- **Semantic search, always on** — DRIP embeds your notes with a free local model, so you can find content by *meaning*, not just exact words. No API key, no cloud, no cost.
+- **GitHub backup** — one-click push/pull of your whole KB when you want a remote copy.
+- **Optional AI extras** — an LLM chat with memory and a local **MCP server** so any AI app can manage issues. Both off by default, and the core experience never needs them.
+
+---
+
+## 🚀 Getting started
+
+1. **Install** DRIP from the VS Code Marketplace.
+2. Open the **DRIP** activity bar (the notebook icon on the left).
+3. Click **Select Knowledge Base** and choose a `.driplock` folder.
+4. Create notes, projects, and features from the **New** menu.
+5. Press `Ctrl+U` to capture a thought, or `Ctrl+Shift+U` to grab a selection.
+
+That's it — your first note is already filed and searchable.
+
+---
+
+## ⌨️ Keyboard shortcuts
 
 | Action | Shortcut |
 |--------|----------|
 | Open Composer | `Ctrl+U` |
 | Capture selection / clipboard | `Ctrl+Shift+U` |
-| Open Retriever | `Ctrl+Shift+Alt+R` |
+| Open Retriever (search) | `Ctrl+Shift+Alt+R` |
 | Quick jump to a heading | `Ctrl+Shift+Alt+H` |
 
-## Running and developing
+---
 
-```powershell
-# Run in the Extension Development Host (from the VS Code repo root)
-$env:VSCODE_SKIP_PRELAUNCH = "1"
-.\scripts\code.bat
+## 📦 Why plain text?
 
-# Type check
-npm run compile-web
-```
+Your knowledge outlives any app. Because DRIP stores everything as plain `.d.txt` and `.d.md` files, you can read, edit, or migrate your notes with any tool — even without DRIP installed. DRIP adds structure and speed on top, but it never owns your data.
 
-Debug logs: in the Extension Development Host, **Help → Toggle Developer Tools**, then filter for `[DRIP]`.
 
-## Documentation
 
-Detailed, plain-English documentation lives in [`specs/`](specs/README.md) — what the app is, the tech stack, the startup flow, and one file per feature. Read the relevant file before changing behavior, and update it in the same change.
+
+
