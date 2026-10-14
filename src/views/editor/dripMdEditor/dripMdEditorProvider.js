@@ -4,36 +4,24 @@ const vscode = require('vscode');
 const path = require('path');
 const fs = require('fs');
 const { getDripMdEditorHtml } = require('./dripMdEditorHtml');
-const { getMetadataTemplateConfig } = require('../../../document/model/dripnoteMetadataTemplates');
-const { isPathInsideProjectFolder } = require('../../../document/model/dripProjectFolder');
+const {
+	getMetadataTemplateConfig,
+	allowedHeadingTypeIdsForPath
+} = require('../../../document/model/dripnoteMetadataTemplates');
 const { kbRootFor, projectFolderPrefixForNote, listTagsForNote, createTagForNote } = require('../../../graph/noteTagScope');
-
-/**
- * Document metadata types a `.d.md` heading may use, filtered by where the note lives:
- * a normal KB offers `concept` + `task`; a note inside a project/feature folder also gets
- * `issue`. (Project/feature are file-level types for index notes, never heading types.)
- * @param {string} [noteFsPath]
- * @returns {Set<string>}
- */
-function mdHeadingTypeIdsForPath(noteFsPath) {
-	const allowed = new Set(['concept', 'task']);
-	if (isPathInsideProjectFolder(noteFsPath)) {
-		allowed.add('issue');
-	}
-	return allowed;
-}
 
 /**
  * Build a plain, JSON-serializable snapshot of the metadata schema for the webview.
  * `getMetadataTemplateConfig()` returns Maps/Sets for lookup, so we pass only the
- * compact `types` list (filtered to what this note's context allows) plus the allowed
- * relations as an array — everything the chip picker needs, nothing it doesn't.
+ * compact `types` list (filtered to what this note's context allows, via the shared
+ * `allowedHeadingTypeIdsForPath`) plus the allowed relations as an array — everything
+ * the chip picker needs, nothing it doesn't.
  * @param {string} [noteFsPath]
  * @returns {{ types: object[], allowedRelations: string[] }}
  */
 function buildMdEditorSchema(noteFsPath) {
 	const cfg = getMetadataTemplateConfig();
-	const allowed = mdHeadingTypeIdsForPath(noteFsPath);
+	const allowed = allowedHeadingTypeIdsForPath(noteFsPath);
 	return {
 		types: (Array.isArray(cfg.types) ? cfg.types : []).filter(t => allowed.has(String(t.id || '').toLowerCase())),
 		allowedRelations: Array.from(cfg.allowedRelations || [])

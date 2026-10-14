@@ -13,11 +13,12 @@
  *   	# .i-13 child issue …
  */
 
+const { parseHeadingForValidation } = require('../parse/dripnoteHeadingParse');
 const { findIssueHeadingBlock, sectionEnd, indentOf } = require('./issueInboxLayout');
 
-const HEADING_LINE_RE = /^(\s*)#{1,6}\s+\S/;
-const IDENTITY_LINE_RE = /^\s*@+\s*f\d+\s*:\s*h\d+\b/i;
-const ISSUE_HEADING_RE = /^(\s*#{1,6}\s+)(\.i-\d+|\.i\s+i-\d+|i-\d+)\b\s*(.*)$/i;
+const HEADING_LINE_RE = /^(\s*)#\d*\s+\S/;
+const IDENTITY_LINE_RE = /^\s*@+\s*h\d+\s*$/i;
+const ISSUE_HEADING_RE = /^(\s*#\d*\s+)(\.i-\d+|\.i\s+i-\d+|i-\d+)\b\s*(.*)$/i;
 
 /**
  * Metadata lines directly under the heading (until blank line / heading / body text).
@@ -63,8 +64,8 @@ function readMetaRegion(lines, headingLine) {
 function ownContentEnd(found, from) {
 	let end = found.end;
 	for (let j = from; j < found.end; j++) {
-		const hm = String(found.lines[j]).match(HEADING_LINE_RE);
-		if (hm && (hm[1] || '').length > found.indent) {
+		const ph = parseHeadingForValidation(found.lines[j]);
+		if (ph && ph.level > found.indent) {
 			end = j;
 			break;
 		}
@@ -122,8 +123,8 @@ function readIssueBlock(text, issueId) {
  * @param {{ fileId?: number, headingId?: number }} ids
  */
 function locateIssueHeading(lines, issueId, ids) {
-	if (ids.fileId && ids.headingId != null) {
-		const re = new RegExp(`^\\s*@+\\s*f${Number(ids.fileId)}\\s*:\\s*h${Number(ids.headingId)}\\b`, 'i');
+	if (ids.headingId != null) {
+		const re = new RegExp(`^\\s*@+\\s*h${Number(ids.headingId)}\\b`, 'i');
 		const k = lines.findIndex(l => re.test(String(l)));
 		if (k >= 0 && k + 1 < lines.length && HEADING_LINE_RE.test(String(lines[k + 1]))) return k + 1;
 	}
@@ -155,8 +156,8 @@ function readIssueContent(text, issueId, ids = {}) {
 		.split('\n');
 	const start = locateIssueHeading(lines, issueId, ids);
 	if (start < 0) return null;
-	const indent = indentOf(lines[start]);
-	const end = sectionEnd(lines, start, indent);
+	const level = parseHeadingForValidation(lines[start]).level;
+	const end = sectionEnd(lines, start, level);
 
 	const region = readMetaRegion(lines, start);
 	/** @type {Record<string, string>} */
@@ -175,12 +176,13 @@ function readIssueContent(text, issueId, ids = {}) {
 	for (let j = bodyStart; j < end; j++) {
 		const raw = String(lines[j]).replace(/\s+$/, '');
 		if (IDENTITY_LINE_RE.test(raw)) continue;
-		out.push(raw.slice(Math.min(indent, indentOf(raw))));
+		out.push(raw.slice(Math.min(level + 1, indentOf(raw))));
 		const im = raw.match(ISSUE_HEADING_RE);
 		if (im) {
 			const idm = im[2].match(/i-\d+/i);
 			subIssues.push({ id: idm ? idm[0].toLowerCase() : im[2], title: String(im[3] || '').trim() });
-			j = Math.min(sectionEnd(lines, j, indentOf(raw)), end) - 1;
+			const subLevel = parseHeadingForValidation(raw).level;
+			j = Math.min(sectionEnd(lines, j, subLevel), end) - 1;
 		}
 	}
 	const content = out
@@ -267,8 +269,8 @@ function appendIssueNoteText(text, issueId, note) {
 	const lines = found.lines.slice();
 	const region = readMetaRegion(lines, found.start);
 	const at = ownContentEnd(found, region.lastMeta + 1);
-	const headInd = (String(lines[found.start]).match(/^(\s*)/) || ['', ''])[1];
-	const chunk = [''].concat(noteLines.map(l => (l.trim() ? `${headInd}\t${l}` : '')));
+	const headInd = '\t'.repeat(found.indent + 1);
+	const chunk = [''].concat(noteLines.map(l => (l.trim() ? `${headInd}${l}` : '')));
 	if (at < lines.length && String(lines[at]).trim()) chunk.push('');
 	lines.splice(at, 0, ...chunk);
 	return { ok: true, text: lines.join('\n') };

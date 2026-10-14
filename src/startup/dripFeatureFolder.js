@@ -16,7 +16,6 @@ const {
 const { canPlaceFeature } = require('../document/model/dripKbFolderRules');
 const { buildNewNoteFile, writeTextFile } = require('../document/kbNoteOps');
 const { allocateNextEntityNumber, indexNewNoteImmediately } = require('../indexing/dripnoteIndex');
-const { normalizeNoteIdentityFile } = require('../indexing/dripnoteFileIdentity');
 
 /** Prevent recursive create → watch → create loops. */
 const ensuringKeys = new Set();
@@ -115,14 +114,6 @@ async function ensureFeatureIndexFile(folderUri, options = {}) {
 		await writeTextFile(noteUri, text);
 
 		if (kbRoot) {
-			try {
-				await normalizeNoteIdentityFile(noteUri, {
-					context: options.context,
-					kbRoot
-				});
-			} catch (err) {
-				console.error('[DRIP] normalize feature index identity', err);
-			}
 			try {
 				await indexNewNoteImmediately(kbRoot, noteUri, options.context);
 			} catch (err) {

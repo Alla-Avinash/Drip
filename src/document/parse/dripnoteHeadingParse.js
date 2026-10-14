@@ -6,9 +6,9 @@
  */
 
 /**
- * Split file into top region (file keys + h0 block) and body after `---`.
- * When `---` is present, everything before it is top (including the h0 `#` heading).
- * Legacy notes without `---` fall back to metadata-only lines before the first `#` heading.
+ * Split file into the top region (file keys only: `filename` / `fileid` / `headings`) and the
+ * body after `---`. When `---` is present, everything before it is top; the h0 heading lives
+ * below `---`. Legacy notes without `---` fall back to metadata-only lines before the first `#`.
  * @param {string[]} lines
  * @returns {{ topEnd: number, fileSlice: string[] }}
  */
@@ -25,7 +25,7 @@ function splitFileTopRegion(lines) {
 	}
 	if (!sawSeparator) {
 		for (let i = 0; i < lines.length; i++) {
-			if (/^\s*#{1,6}\s+/.test(lines[i] || '')) {
+			if (parseHeadingForValidation(lines[i])) {
 				topEnd = i;
 				break;
 			}
@@ -35,12 +35,37 @@ function splitFileTopRegion(lines) {
 }
 
 /**
- * Heading detection for hierarchy validation and diagnostics. Accepts any leading whitespace
- * before `#` (tabs, spaces, NBSP from paste). Depth is the character length of that indent.
+ * Heading detection for hierarchy validation and diagnostics. A heading is a `#` (root/h0)
+ * or `#N` (level N) marker followed by a space and a title. Hierarchy is the marker number,
+ * not indentation, so `#` = depth 0, `#1` = depth 1, `#2` = depth 2, and so on.
+ * Accepts any leading whitespace before the marker (tabs, spaces, NBSP from paste).
  * @param {string} line
  * @returns {{ tabDepth: number, level: number, title: string, usesNonTabIndent: boolean } | null}
  */
 function parseHeadingForValidation(line) {
+	const m = String(line || '').match(/^(\s*)#(\d*)\s+(.*)$/);
+	if (!m) return null;
+	const ind = m[1] || '';
+	if (ind.length > 0 && /[^\t\s]/.test(ind)) return null;
+	const usesNonTabIndent = ind.length > 0 && !/^\t+$/.test(ind);
+	const level = m[2] ? parseInt(m[2], 10) : 0;
+	if (!Number.isFinite(level) || level < 0) return null;
+	return {
+		tabDepth: level,
+		level,
+		title: String(m[3] || '').trim(),
+		usesNonTabIndent
+	};
+}
+
+/**
+ * Markdown heading detection for `.d.md` notes (`#`…`######`). `.d.md` keeps standard
+ * markdown headings, so its depth comes from the `#` count plus leading whitespace — the
+ * opposite of `.d.txt`'s `#`/`#1`/`#2` markers. Used only by the `.d.md` side.
+ * @param {string} line
+ * @returns {{ tabDepth: number, level: number, title: string, usesNonTabIndent: boolean } | null}
+ */
+function parseMarkdownHeading(line) {
 	const m = String(line || '').match(/^(\s*)(#{1,6})\s+(.*)$/);
 	if (!m) return null;
 	const ind = m[1] || '';
@@ -55,67 +80,9 @@ function parseHeadingForValidation(line) {
 }
 
 /**
- * Metadata / structured lines (not prose) — excluded when detecting column-0 body text.
- * @param {string} line
- */
-function looksLikeMetadataOrStructuredLine(line) {
-	const t = String(line || '').trim();
-	if (!t || t === '---') return true;
-	if (/^\s*\/\//.test(line)) return true;
-	if (/^\s*\.(\w[\w-]*)\b/i.test(line)) return true;
-	if (/^\s*(tags|pre-req|ref)\s*:\s*\[/i.test(line)) return true;
-	if (/^\s*@+\s*f\d+\s*:\s*h\d+\b/i.test(line)) return true;
-	if (/^\s*\[[^\]]*\]\s*$/.test(line)) return true;
-	if (/^\s*[a-z][a-z0-9_-]*\s*:\s*.+$/i.test(line)) return true;
-	return false;
-}
-
-/**
- * @param {string[]} lines
- * @returns {number}
- */
-function findFirstHeadingLineIndex(lines) {
-	for (let i = 0; i < lines.length; i++) {
-		if (parseHeadingForValidation(lines[i])) return i;
-	}
-	return -1;
-}
-
-/**
- * Column-0 prose before the first heading would detach nested headings from a root #.
- * Lines before {@code startIdx} were previously skipped when the first markdown line was an indented {@code #}.
- * @param {string[]} lines
- * @returns {boolean}
- */
-function computeDetachedFromTextBeforeFirstHeading(lines) {
-	const firstH = findFirstHeadingLineIndex(lines);
-	if (firstH <= 0) return false;
-
-	const { topEnd } = splitFileTopRegion(lines);
-	const atSplit = String(lines[topEnd] || '').trim();
-	const scanFrom = atSplit === '---' ? topEnd + 1 : 0;
-
-	let detached = false;
-	for (let i = scanFrom; i < firstH; i++) {
-		const line = lines[i];
-		const trimmed = String(line || '').trim();
-		if (!trimmed || trimmed === '---') continue;
-		if (parseHeadingForValidation(line)) continue;
-		if (looksLikeMetadataOrStructuredLine(line)) continue;
-		if (/^\s*\/\//.test(line)) continue;
-		if (!line.startsWith('\t')) {
-			detached = true;
-		}
-	}
-	return detached;
-}
-
-/**
- * Body = after file-level `---` / header slice. Validation uses {@link parseHeadingForValidation}
- * so pasted spaces before `#` still participate in hierarchy checks (see also “non-tab indent” diagnostic).
- * Marks headings invalid when:
- * - (detached) non-heading line at column 0 (no leading tab) appeared after `---` or before the first heading, so a nested heading cannot attach; or
- * - stack has no shallower parent for a nested heading.
+ * Body = after file-level `---` / header slice. Validation uses {@link parseHeadingForValidation}.
+ * Hierarchy comes from the heading marker number (`#` = depth 0, `#1` = depth 1, `#2` = depth 2).
+ * A heading is invalid only when a non-root heading has no shallower parent in the outline.
  *
  * @param {string[]} lines
  * @param {number} startIdx
@@ -126,64 +93,41 @@ function collectHeadingSequenceValidated(lines, startIdx) {
 	const nodes = [];
 	/** @type {{ lineIndex: number, message: string }[]} */
 	const errors = [];
-
-	let detachedFromRoot = computeDetachedFromTextBeforeFirstHeading(lines);
 	/** @type {{ tabDepth: number; lineIndex: number }[]} */
 	const stack = [];
 
 	for (let i = startIdx; i < lines.length; i++) {
 		const line = lines[i];
-		const trimmed = String(line || '').trim();
 
 		const ph = parseHeadingForValidation(line);
 		if (ph) {
 			const { tabDepth, level, title } = ph;
 			const lineIndex = i;
 
-			if (tabDepth === 0) {
-				detachedFromRoot = false;
-			}
-
 			let valid = true;
-			if (tabDepth > 0 && detachedFromRoot) {
+			while (stack.length && stack[stack.length - 1].tabDepth >= tabDepth) {
+				stack.pop();
+			}
+			if (tabDepth > 0 && stack.length === 0) {
 				valid = false;
-				const hasParent = stack.length > 0;
 				errors.push({
 					lineIndex,
-					message: hasParent
-						? 'Plain paragraph above (no tabs), but this heading uses tabs before #. Either tab-indent that paragraph, or remove the tabs before # on this line so it matches the paragraph.'
-						: 'You need a normal # heading (no tabs before #) higher up before this indented heading. Add one, or tab-indent the lines above.'
+					message: `This heading is at level ${tabDepth}, but no shallower heading sits above it. Add a parent heading one level up first.`
 				});
-			} else {
-				while (stack.length && stack[stack.length - 1].tabDepth >= tabDepth) {
-					stack.pop();
-				}
-				if (tabDepth > 0 && stack.length === 0) {
-					valid = false;
-					errors.push({
-						lineIndex,
-						message:
-							'This heading uses tabs before # but nothing sits above it in the outline. Add a parent heading with fewer tabs before # first.'
-					});
-				}
 			}
 
 			let j = i + 1;
 			const metaLines = [];
 			while (j < lines.length) {
 				const nh = parseHeadingForValidation(lines[j]);
-				/** Any following line that is a # heading starts a new node; do not swallow deeper tab-indented headings into metaLines. */
+				/** Any following heading line starts a new node; do not swallow it into metaLines. */
 				if (nh) {
 					break;
 				}
 				const ml = lines[j];
-				/** `@fN:hM` between headings belongs to the next heading, not this metadata block. */
+				/** `@hN` between headings belongs to the next heading, not this metadata block. */
 				if (/^\s*@+/.test(String(ml || ''))) {
 					break;
-				}
-				const tr = String(ml || '').trim();
-				if (tr && tr !== '---' && !ml.startsWith('\t')) {
-					detachedFromRoot = true;
 				}
 				metaLines.push(ml);
 				j++;
@@ -206,15 +150,7 @@ function collectHeadingSequenceValidated(lines, startIdx) {
 			continue;
 		}
 
-		if (!trimmed) {
-			continue;
-		}
-		if (trimmed === '---') {
-			continue;
-		}
-		if (!line.startsWith('\t')) {
-			detachedFromRoot = true;
-		}
+		// Blank, `---`, prose, or metadata lines never change the outline.
 	}
 
 	return { nodes, errors };
@@ -304,6 +240,7 @@ function ancestorChain(flat, idx) {
 module.exports = {
 	splitFileTopRegion,
 	parseHeadingForValidation,
+	parseMarkdownHeading,
 	parseNoteHeadings,
 	inferMarkerFromMeta,
 	collectHeadingSequenceValidated,

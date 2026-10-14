@@ -49,19 +49,18 @@ function dedentBodyLines(bodyText) {
 }
 
 /**
- * Drop trailing `@fN:hM` and 8-char heading hashes from a line.
+ * Drop trailing `@hN` identity refs from a line.
  * @param {string} line
  * @returns {string}
  */
 function stripTrailingIdentityRefs(line) {
 	return String(line || '')
-		.replace(/\s+@+f\d+\s*:\s*h\d+\b/gi, '')
-		.replace(/\s+#\s*[A-Za-z0-9]{8}\b/g, '')
+		.replace(/\s+@+h\d+\b/gi, '')
 		.replace(/[ \t]+$/g, '');
 }
 
 /**
- * Remove identity-only lines and strip trailing `@f…` refs.
+ * Remove identity-only lines and strip trailing `@h…` refs.
  * @param {string[]} lines
  * @returns {string[]}
  */
@@ -109,7 +108,7 @@ function emptyCapture() {
 }
 
 /**
- * Capture for Composer: strip `@f…` / heading ids and excess blank lines.
+ * Capture for Composer: strip `@h…` / heading ids and excess blank lines.
  * Split into heading title, freeform metadata block, and body — no type parsing.
  * Only a first line that is a real `#` heading becomes the title; otherwise everything is body.
  *

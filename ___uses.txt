@@ -1,0 +1,3 @@
+some of the uses of drip which i find really useful 
+
+    - have a markdown similar to 

@@ -6,6 +6,8 @@ const tagGraphStore = require('../../graph/tagGraphStore');
 const {
 	getMetadataSettings,
 	getMetadataSettingsForNotePath,
+	allowedHeadingTypeIdsForPath,
+	BUILTIN_DOCUMENT_TYPE_IDS,
 	inferTypeFromHeadingLine,
 	inferTypeFromMarkerLine,
 	getTypeRule,
@@ -15,11 +17,7 @@ const { normalizeDateTimeValue } = require('../parse/dripnoteDatetime');
 const { isValidDurationValue, normalizeDurationValue, resolveDurationUnits } = require('../parse/dripnoteDuration');
 const { collectHeadingSequenceValidated, splitFileTopRegion } = require('../parse/dripnoteHeadingParse');
 const { collectHeadingVersusAboveLineIndentErrors } = require('../parse/dripnoteHeadingAboveIndent');
-const {
-	collectHeadingIdentityDiagnostics,
-	parseHeadingIdentityLine
-} = require('../../indexing/dripnoteHeadingIdentity');
-const { parseFileEntityIdNumber } = require('../../indexing/dripnoteEntityIds');
+const { collectHeadingIdentityDiagnostics } = require('../../indexing/dripnoteHeadingIdentity');
 const {
 	isProtectedFolderIndexNotePath,
 	isDripProjectFolderName
@@ -32,16 +30,14 @@ const HEADING_SPACE_BEFORE_HASH_CODE = 'drip.headingIndentSpacesBeforeHash';
 const FOLDER_INDEX_TYPED_CODE = 'drip.folderIndexTypedHeading';
 const CONCEPT_IN_PROJECT_CODE = 'drip.conceptInProject';
 
-const HEADING_RE = /^\s*#{1,6}\s+/;
+const HEADING_RE = /^\s*#\d*\s+/;
 const TYPE_RE = /^\s*\.[a-z][a-z0-9_-]*\b/i;
 const RELATION_RE = /^\s*([a-z][a-z0-9_-]*)\s*:\s*\[[^\]]*\]\s*$/i;
 const SHORTHAND_RE = /^\s*\[[^\]]*\]\s*$/;
 const KEY_VALUE_RE = /^\s*([a-z][a-z0-9_-]*)\s*:\s*(.+)$/i;
-const HEADING_ID_LINE_RE = /^\s*@+\s*f\d+\s*:\s*h\d+\b/i;
+const HEADING_ID_LINE_RE = /^\s*@+\s*h\d+\s*$/i;
 const HEADING_IDENTITY_DUPLICATE_CODE = 'drip.duplicateHeadingIdentity';
-const HEADING_IDENTITY_FILE_MISMATCH_CODE = 'drip.headingIdentityFileMismatch';
 const EXTRA_FILE_LEVEL_HEADING_CODE = 'drip.extraFileLevelHeading';
-const H0_BELOW_SEPARATOR_CODE = 'drip.h0BelowSeparator';
 const COMMENT_RE = /^\s*\/\//;
 const FIXED_ALLOWED_KEYS = new Set(['filename', 'created', 'random', 'fileid', 'tags', 'pre-req']);
 const UNKNOWN_TAG_CODE_PREFIX = 'drip.unknownTag:';
@@ -365,44 +361,27 @@ function pushIssueParentLockDiagnostics(lines, settings, diagnostics) {
 	}
 }
 
-function parseHeaderFileEntityNumber(lines) {
-	for (const line of lines || []) {
-		const m = String(line || '').match(/^\s*fileid\s*:\s*(.+)\s*$/i);
-		if (!m) continue;
-		const n = parseFileEntityIdNumber(String(m[1] || '').trim());
-		if (n != null) return n;
-	}
-	return null;
-}
-
 function pushHeadingIdentityDiagnostics(lines, diagnostics, document) {
 	void document;
-	const headerFileNum = parseHeaderFileEntityNumber(lines);
-	for (const issue of collectHeadingIdentityDiagnostics(lines.join('\n'), headerFileNum)) {
-		if (issue.kind === 'duplicate') {
+	for (const issue of collectHeadingIdentityDiagnostics(lines.join('\n'), null)) {
+		if (issue.kind !== 'duplicate') {
 			continue;
 		}
 		const row = issue.lineIndex;
 		const line = String(lines[row] || '');
-		let message = 'Invalid heading identity line.';
-		if (issue.kind === 'duplicate') {
-			message = `Duplicate heading identity @f${issue.fileNum}:h${issue.headingNum} in this file.`;
-		} else if (issue.kind === 'file-mismatch') {
-			message = `Heading identity @f${issue.fileNum}:h${issue.headingNum} does not match fileid @f${headerFileNum}. Save to realign.`;
-		}
 		const d = new vscode.Diagnostic(
 			new vscode.Range(row, 0, row, Math.max(1, line.length)),
-			message,
+			`Duplicate heading identity @h${issue.headingNum} in this file.`,
 			vscode.DiagnosticSeverity.Error
 		);
-		d.code =
-			issue.kind === 'duplicate' ? HEADING_IDENTITY_DUPLICATE_CODE : HEADING_IDENTITY_FILE_MISMATCH_CODE;
+		d.code = HEADING_IDENTITY_DUPLICATE_CODE;
 		diagnostics.push(d);
 	}
 }
 
 /**
- * File-level metadata (above `---`) may contain only h0. Headings below `---` must not use h0.
+ * File keys (`filename` / `fileid` / `headings`) live above `---`; every heading — including h0 —
+ * lives below it. A heading above `---` is invalid.
  * @param {string[]} lines
  * @param {vscode.Diagnostic[]} diagnostics
  */
@@ -418,33 +397,15 @@ function pushFileLevelHeadingDiagnostics(lines, diagnostics) {
 		return;
 	}
 
-	/** @type {number[]} */
-	const topHeadingRows = [];
 	for (let i = 0; i < sepIdx; i++) {
-		if (HEADING_RE.test(String(lines[i] || ''))) topHeadingRows.push(i);
-	}
-	for (let k = 1; k < topHeadingRows.length; k++) {
-		const row = topHeadingRows[k];
-		const line = String(lines[row] || '');
-		const d = new vscode.Diagnostic(
-			new vscode.Range(row, 0, row, Math.max(1, line.length)),
-			'File-level metadata may only contain one heading (h0). Move extra headings below ---.',
-			vscode.DiagnosticSeverity.Error
-		);
-		d.code = EXTRA_FILE_LEVEL_HEADING_CODE;
-		diagnostics.push(d);
-	}
-
-	for (let i = sepIdx + 1; i < lines.length; i++) {
-		const parsed = parseHeadingIdentityLine(lines[i]);
-		if (!parsed || parsed.headingNum !== 0) continue;
+		if (!HEADING_RE.test(String(lines[i] || ''))) continue;
 		const line = String(lines[i] || '');
 		const d = new vscode.Diagnostic(
 			new vscode.Range(i, 0, i, Math.max(1, line.length)),
-			'h0 is only allowed in file-level metadata above ---. Headings below --- must use h1 or higher.',
+			'Only file metadata (filename / fileid / headings) belongs above ---. Move this heading below ---.',
 			vscode.DiagnosticSeverity.Error
 		);
-		d.code = H0_BELOW_SEPARATOR_CODE;
+		d.code = EXTRA_FILE_LEVEL_HEADING_CODE;
 		diagnostics.push(d);
 	}
 }
@@ -533,13 +494,13 @@ function registerDripnoteMetadataDiagnostics(context) {
 			}
 			for (let i = topEnd; i < lines.length; i++) {
 				const raw = String(lines[i] || '');
-				const ph = /^([\t ]*)(#{1,6})\s+/.exec(raw);
+				const ph = /^([\t ]*)(#\d*)\s+/.exec(raw);
 				if (!ph) continue;
 				const ind = ph[1] || '';
 				if (ind.length > 0 && /[^\t]/.test(ind)) {
 					const d = new vscode.Diagnostic(
 						new vscode.Range(i, 0, i, Math.max(1, raw.length)),
-						'DRIP heading hierarchy uses tab characters for indent before #, not spaces. ' +
+						'Indent before the heading marker must use tabs, not spaces. ' +
 							'Tip: run "Toggle Render Whitespace" (Ctrl+Shift+P) to see tabs (→) vs spaces (·).',
 						vscode.DiagnosticSeverity.Error
 					);
@@ -583,7 +544,7 @@ function registerDripnoteMetadataDiagnostics(context) {
 		for (let i = 0; i < lines.length; i++) {
 			const hLine = String(lines[i] || '');
 			if (!HEADING_RE.test(hLine)) continue;
-			const title = hLine.replace(/^\s*#{1,6}\s+/, '').trim();
+			const title = hLine.replace(/^\s*#\d*\s+/, '').trim();
 			const classification = classifyPersistentHeadingTitle(title, settings);
 			if (!classification.persistent) continue;
 			const typeId = classification.metadataType ? String(classification.metadataType).toLowerCase() : '';
@@ -598,10 +559,16 @@ function registerDripnoteMetadataDiagnostics(context) {
 				diagnostics.push(d);
 			}
 
-			if (underProject && typeId === 'concept') {
+			if (
+				underProject &&
+				typeId &&
+				BUILTIN_DOCUMENT_TYPE_IDS.has(typeId) &&
+				!allowedHeadingTypeIdsForPath(fsPath).has(typeId)
+			) {
+				const allowedList = [...allowedHeadingTypeIdsForPath(fsPath)].join(', ') || 'persistent (untyped)';
 				const d = new vscode.Diagnostic(
 					new vscode.Range(i, 0, i, hLine.length),
-					'Concept headings are not allowed inside a project folder (.p).',
+					`"${typeId}" headings are not allowed here — this note allows: ${allowedList}.`,
 					vscode.DiagnosticSeverity.Error
 				);
 				d.code = CONCEPT_IN_PROJECT_CODE;
@@ -660,7 +627,7 @@ function registerDripnoteMetadataDiagnostics(context) {
 			} else if (!titleMatch.typeId) {
 				// Persistent `# .token` that is not in drip settings → still allowed (untyped), but flag it.
 				// `.p` / `.f` are structural folder markers on index notes, not document metadata shortcuts.
-				const titleOnly = hLine.replace(/^\s*#{1,6}\s+/, '').trim();
+				const titleOnly = hLine.replace(/^\s*#\d*\s+/, '').trim();
 				const unk = titleOnly.match(/^(\.([A-Za-z][A-Za-z0-9_-]*)(#|\d+)?)/);
 				if (unk && unk[1] !== '.') {
 					const prefix = String(unk[1] || '');

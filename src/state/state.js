@@ -8,6 +8,7 @@ const {
 	fileNameMatchesKbNote,
 	getExtensionFromFileName,
 	getKbNoteExtensions,
+	noteFormatForPath,
 	stemFromNotePath,
 	stripKbNoteExtension
 } = require('../document/model/noteFileTypes');
@@ -30,7 +31,6 @@ const {
 	splitFileHeaderAndBody,
 	writeTextFile
 } = require('../document/kbNoteOps');
-const { normalizeNoteIdentityFile, normalizeNoteIdentityText } = require('../indexing/dripnoteFileIdentity');
 const { runGuardedDocumentEdit } = require('../shared/documentEditGuard');
 const {
 	extractFileIdFromHeader,
@@ -935,7 +935,6 @@ class DripState {
 				metadataFilename: t
 			}, { fileEntityNumber: n })
 		);
-		await normalizeNoteIdentityFile(fileUri, { context: this.context });
 		try {
 			await indexNewNoteImmediately(kbRoot, fileUri, this.context);
 		} catch (err) {
@@ -1026,15 +1025,15 @@ class DripState {
 			const headingPathOverride = selection.headingPath || '';
 			const existingContent = await readTextFile(targetUri);
 			const fileStem = stemFromNotePath(targetUri.fsPath);
-			const ingestExt = getExtensionFromFileName(path.basename(targetUri.fsPath));
-			const useDripType1Indent = ingestExt !== '.md';
+			const format = noteFormatForPath(targetUri.fsPath);
 			await writeTextFile(
 				targetUri,
 				buildAppendedNote(existingContent, writeDraft, headingPathOverride, {
 					fileDisplayStem: fileStem,
 					ingestDropRefPath: selection.ingestDropRefPath || '',
 					ingestPosition: selection.ingestPosition || '',
-					useDripType1Indent
+					format,
+					useDripType1Indent: format === 'drip-txt'
 				})
 			);
 		} else if (selection?.targetType === 'folder' && selection.uri) {
@@ -1064,8 +1063,7 @@ class DripState {
 
 			targetUri = vscode.Uri.joinPath(targetFolder, buildNoteFileName(fileName));
 			const n = await allocateNextEntityNumber(kbRoot);
-			await writeTextFile(targetUri, buildNewNoteFile(writeDraft, { fileEntityNumber: n }));
-			await normalizeNoteIdentityFile(targetUri, { context: this.context });
+			await writeTextFile(targetUri, buildNewNoteFile(writeDraft, { fileEntityNumber: n, format: noteFormatForPath(targetUri.fsPath) }));
 			try {
 				await indexNewNoteImmediately(kbRoot, targetUri, this.context);
 			} catch (err) {
@@ -1091,13 +1089,13 @@ class DripState {
 				const paths = extractHeadingPathsFromDripFile(existingContent, { fileFsPath: targetUri.fsPath });
 				const headingPath = bestHeadingPathForNote(normalizedNoteInput, paths) || '';
 				const fileStem = stemFromNotePath(targetUri.fsPath);
-				const ingestExt = getExtensionFromFileName(path.basename(targetUri.fsPath));
-				const useDripType1Indent = ingestExt !== '.md';
+				const format = noteFormatForPath(targetUri.fsPath);
 				await writeTextFile(
 					targetUri,
 					buildAppendedNote(existingContent, writeDraft, headingPath, {
 						fileDisplayStem: fileStem,
-						useDripType1Indent
+						format,
+						useDripType1Indent: format === 'drip-txt'
 					})
 				);
 			} else {
@@ -1108,8 +1106,7 @@ class DripState {
 				}
 				targetUri = vscode.Uri.joinPath(targetFolder, buildNoteFileName(draft.title));
 				const n = await allocateNextEntityNumber(kbRoot);
-				await writeTextFile(targetUri, buildNewNoteFile(writeDraft, { fileEntityNumber: n }));
-				await normalizeNoteIdentityFile(targetUri, { context: this.context });
+				await writeTextFile(targetUri, buildNewNoteFile(writeDraft, { fileEntityNumber: n, format: noteFormatForPath(targetUri.fsPath) }));
 				try {
 					await indexNewNoteImmediately(kbRoot, targetUri, this.context);
 				} catch (err) {
@@ -1160,7 +1157,6 @@ class DripState {
 				metadataFilename: title
 			}, { fileEntityNumber: n })
 		);
-		await normalizeNoteIdentityFile(fileUri, { context: this.context });
 		try {
 			await indexNewNoteImmediately(kbRoot, fileUri, this.context);
 		} catch (err) {
@@ -1501,7 +1497,6 @@ class DripState {
 				{ fileEntityNumber: n, h0TypeMarker: '.f' }
 			)
 		);
-		await normalizeNoteIdentityFile(fileUri, { context: this.context, kbRoot });
 		try {
 			await indexNewNoteImmediately(kbRoot, fileUri, this.context);
 		} catch (err) {
@@ -1840,8 +1835,6 @@ class DripState {
 			}
 		}
 		if (isNoteFile) {
-			await normalizeNoteIdentityFile(newUri, { context: this.context, forceRecomputeFileId: true });
-
 			// Update all L.-based references that point to this file's old id.
 			try {
 				const newText = await readTextFile(newUri);
@@ -2011,7 +2004,7 @@ class DripState {
 		try {
 			await rewriteNotePreferringEditor(newUri, async text => {
 				const next = applyH0TypeMarkerToNoteText(text, '.f', h0Label);
-				return normalizeNoteIdentityText(newUri, next, { context: this.context, kbRoot });
+				return next;
 			});
 			await indexNewNoteImmediately(kbRoot, newUri, this.context);
 		} catch (err) {
@@ -2073,10 +2066,7 @@ class DripState {
 			const title = String(options.demoteIndexTitle || newName).trim() || newName;
 			await rewriteNotePreferringEditor(indexUri, async text => {
 				const demoted = demoteH0TypeToBarePersistent(text, title);
-				return normalizeNoteIdentityText(indexUri, demoted, {
-					context: this.context,
-					kbRoot
-				});
+				return demoted;
 			});
 			try {
 				await indexNewNoteImmediately(kbRoot, indexUri, this.context);

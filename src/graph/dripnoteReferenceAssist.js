@@ -5,10 +5,9 @@ const vscode = require('vscode');
 const { fileNameMatchesKbNote, stripKbNoteExtension } = require('../document/model/noteFileTypes');
 const { extractFileIdFromHeader } = require('./dripnoteReferenceSync');
 const { readTextFile } = require('../indexing/kbFilesystem');
-const { normalizeNoteIdentityText } = require('../indexing/dripnoteFileIdentity');
 
 const REF_LINE_RE = /^\s*L\.\s*!\[[^\]]*\]\([^)]+\)/i;
-const IDENTITY_LINE_RE = /^\s*(filename|created|random|fileid)\s*:/i;
+const IDENTITY_LINE_RE = /^\s*(filename|fileid)\s*:/i;
 
 function relPath(fromFile, toFile) {
 	const fromDir = path.dirname(fromFile.fsPath);
@@ -68,28 +67,6 @@ function registerDripnoteReferenceAssist(context, state) {
 					}
 				}
 			}
-		})
-	);
-
-	// Enforce immutable filename/fileid on save without external fs writes.
-	context.subscriptions.push(
-		vscode.workspace.onWillSaveTextDocument(ev => {
-			const doc = ev.document;
-			if (!doc || doc.languageId !== 'dripnote' || doc.uri.scheme !== 'file') return;
-			const base = path.basename(doc.uri.fsPath).toLowerCase();
-			if (base === '_index.d.txt' || base.startsWith('_index.')) return;
-			const before = doc.getText().replace(/\r\n/g, '\n');
-			ev.waitUntil(
-				(async () => {
-					const next = await normalizeNoteIdentityText(doc.uri, before, {
-						context,
-						allowAutoCorrectFileIdDrift: true
-					});
-					if (next === before) return [];
-					const full = new vscode.Range(0, 0, doc.lineCount, 0);
-					return [vscode.TextEdit.replace(full, next)];
-				})()
-			);
 		})
 	);
 

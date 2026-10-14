@@ -22,9 +22,7 @@
  * argument. When `fileid` is empty the field is simply omitted from the comment.
  */
 
-const { parseHeadingForValidation } = require('../parse/dripnoteHeadingParse');
-const { classifyPersistentHeadingTitle } = require('./dripnotePersistentHeading');
-const { getMetadataSettings } = require('./dripnoteMetadataTemplates');
+const { parseMarkdownHeading } = require('../parse/dripnoteHeadingParse');
 const { isHeadingComment } = require('./dripMdNoteComment');
 const { parseFileEntityIdNumber } = require('../../indexing/dripnoteEntityIds');
 
@@ -116,15 +114,13 @@ function firstNonBlankLineIndex(lines, start) {
  * @returns {number}
  */
 function countPersistentHeadings(bodyLines) {
-	const settings = getMetadataSettings();
 	let count = 0;
 	for (let i = 0; i < bodyLines.length; i++) {
-		const parsed = parseHeadingForValidation(bodyLines[i]);
+		const parsed = parseMarkdownHeading(bodyLines[i]);
 		if (!parsed || !String(parsed.title || '').trim()) continue;
-		// Persistent = a hidden `<!-- drip hN -->` comment directly under the heading, or a
-		// legacy `.c`/`.task`/`.i-N` prefix (pre-migration notes).
+		// Persistent = a hidden `<!-- drip hN -->` comment directly under the heading.
 		const hasComment = i + 1 < bodyLines.length && isHeadingComment(bodyLines[i + 1]);
-		if (hasComment || classifyPersistentHeadingTitle(parsed.title, settings).persistent) {
+		if (hasComment) {
 			count += 1;
 		}
 	}
@@ -156,7 +152,7 @@ function reconcileMdNoteFileHeader(text, opts) {
 	let headerCommentIndex = -1;
 	let firstHeadingIndex = -1;
 	for (let i = 0; i < lines.length; i++) {
-		if (firstHeadingIndex < 0 && parseHeadingForValidation(lines[i])) firstHeadingIndex = i;
+		if (firstHeadingIndex < 0 && parseMarkdownHeading(lines[i])) firstHeadingIndex = i;
 		if (headerCommentIndex < 0 && isFileHeaderComment(lines[i])) headerCommentIndex = i;
 	}
 
@@ -166,7 +162,7 @@ function reconcileMdNoteFileHeader(text, opts) {
 		// Header comment present: the h0 is the first heading after it.
 		let h0Index = -1;
 		for (let i = headerCommentIndex + 1; i < lines.length; i++) {
-			if (parseHeadingForValidation(lines[i])) {
+			if (parseMarkdownHeading(lines[i])) {
 				h0Index = i;
 				break;
 			}

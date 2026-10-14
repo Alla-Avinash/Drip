@@ -2,7 +2,7 @@
 
 const { collectHeadingSequenceValidated } = require('../document/parse/dripnoteHeadingParse');
 const {
-	findSeparatorLineIndex,
+	findH0HeadingLine,
 	findHeadingIdentityForNode,
 	isH0HeadingNode,
 	parseFileEntityFromLines
@@ -43,22 +43,15 @@ function parseHeadingsCountFromLines(lines) {
 function buildHeadingIdPoolFromText(text) {
 	const normalized = String(text || '').replace(/\r\n/g, '\n');
 	const lines = normalized.split('\n');
-	const sepIdx = findSeparatorLineIndex(lines);
 	const { nodes } = collectHeadingSequenceValidated(lines, 0);
 	const titled = nodes.filter(node => /\S/.test(String(node.title || '').trim()));
 
-	let firstRootBeforeSep = -1;
-	for (const node of titled) {
-		if (node.tabDepth !== 0) continue;
-		if (sepIdx >= 0 && node.lineIndex >= sepIdx) continue;
-		firstRootBeforeSep = node.lineIndex;
-		break;
-	}
+	const h0LineIndex = findH0HeadingLine(lines);
 
 	/** @type {Set<number>} */
 	const used = new Set();
 	for (const node of titled) {
-		if (isH0HeadingNode(node, sepIdx, firstRootBeforeSep)) continue;
+		if (isH0HeadingNode(node, h0LineIndex)) continue;
 		const attached = findHeadingIdentityForNode(lines, node);
 		const num = attached && attached.parsed.headingNum > 0 ? attached.parsed.headingNum : null;
 		if (num != null) {

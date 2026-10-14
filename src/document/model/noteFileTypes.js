@@ -155,6 +155,20 @@ function stemFromNotePath(fsPath, extensions) {
 	return stripKbNoteExtension(base, extensions);
 }
 
+/**
+ * Canonical note format for a path: `drip-md` (`.d.md` markdown notes with hidden
+ * comments), `md` (plain markdown), or `drip-txt` (`.d.txt` type-1 notes). Order matters
+ * — `.d.md` must be checked before `.md`.
+ * @param {string} fsPath
+ * @returns {'drip-md' | 'md' | 'drip-txt'}
+ */
+function noteFormatForPath(fsPath) {
+	const base = String(fsPath || '').toLowerCase();
+	if (base.endsWith('.d.md')) return 'drip-md';
+	if (base.endsWith('.md')) return 'md';
+	return 'drip-txt';
+}
+
 module.exports = {
 	DEFAULT_KB_EXTENSIONS,
 	getKbNoteExtensions,
@@ -165,5 +179,6 @@ module.exports = {
 	stripKbNoteExtension,
 	getDefaultNewNoteExtension,
 	buildNoteFileName,
-	stemFromNotePath
+	stemFromNotePath,
+	noteFormatForPath
 };

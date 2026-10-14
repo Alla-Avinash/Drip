@@ -14,9 +14,9 @@ const DOCUMENT_WATCH_MANIFEST = Object.freeze([
 	{
 		id: 'heading-id-allocate',
 		event: 'onDidChangeTextDocument',
-		trigger: 'New or stub heading needs `@fN:hM` identity line above `# title`',
+		trigger: 'New or stub heading needs `@hN` identity line above `#`/`#N` title',
 		check: 'needsHeadingIdentityReconcile(text)',
-		action: 'reconcile heading identities (allocate ids, no hash refresh)',
+		action: 'reconcile heading identities (allocate ids)',
 		debounceMs: 0
 	},
 	{
@@ -24,7 +24,7 @@ const DOCUMENT_WATCH_MANIFEST = Object.freeze([
 		event: 'onDidChangeTextDocument',
 		trigger: 'Heading title or metadata block changed (`.type`, key-values, tags, relations, ref)',
 		check: 'headingMetadataSignature(text) changed vs last seen',
-		action: 'reconcile heading identities + recompute `#hash` suffix on identity lines',
+		action: 'reconcile heading identities',
 		debounceMs: 400
 	},
 	{
@@ -32,7 +32,7 @@ const DOCUMENT_WATCH_MANIFEST = Object.freeze([
 		event: 'onWillSaveTextDocument',
 		trigger: 'User saves note',
 		check: 'always (KB note)',
-		action: 'final hash reconcile before disk write',
+		action: 'final identity reconcile before disk write',
 		debounceMs: 0
 	},
 	{
@@ -40,7 +40,7 @@ const DOCUMENT_WATCH_MANIFEST = Object.freeze([
 		event: 'onDidChangeTextDocument (buffered flush)',
 		trigger: 'edit line range mapped to shallowest affected heading',
 		check: 'reparse tags/refs/typed metadata for that subtree only; reuse cached rows for siblings',
-		action: 'merge into in-memory parse cache → incremental DB write for dirty heading hashes',
+		action: 'merge into in-memory parse cache → incremental DB write for dirty headings',
 		debounceMs: 6000
 	},
 	{
@@ -86,9 +86,9 @@ const DOCUMENT_WATCH_MANIFEST = Object.freeze([
 	{
 		id: 'heading-hash-flush-close',
 		event: 'onDidCloseTextDocument',
-		trigger: 'Editor tab closed with unsaved hash drift',
+		trigger: 'Editor tab closed with unsaved identity drift',
 		check: 'reconciled text differs from buffer on close',
-		action: 'write hashes to disk + index upsert',
+		action: 'write identities to disk + index upsert',
 		debounceMs: 0
 	},
 	{
@@ -109,7 +109,7 @@ const DOCUMENT_WATCH_MANIFEST = Object.freeze([
 	}
 ]);
 
-/** Debounce for heading hash refresh while typing (see manifest `heading-hash-refresh`). */
+/** Debounce for heading identity refresh while typing (see manifest `heading-hash-refresh`). */
 const HEADING_HASH_REFRESH_MS = 400;
 
 /** Trailing debounce before buffered `index.drip` writes (see `dripnoteIndexUpdateQueue.js`). */
@@ -146,7 +146,6 @@ function computeIndexPersistenceSignature(parsed) {
 	const headings = (parsed.headings || [])
 		.map(h => [
 			h.heading_id,
-			h.hash,
 			h.title,
 			h.metadata_type
 		])
@@ -183,44 +182,6 @@ function shouldPersistIndexUpdate(previous, next) {
 	return previous !== next;
 }
 
-/**
- * Compare parsed heading hashes with rows already in index.drip.
- * Returns heading ids whose hash differs or are new/missing in DB.
- *
- * @param {import('../db/dripSqlite').DripSqliteDatabase} db
- * @param {number} fileId
- * @param {{ heading_id: number, hash: string }[]} parsedHeadings
- * @returns {number[]}
- */
-function findDirtyHeadingIdsByHash(db, fileId, parsedHeadings) {
-	/** @type {Map<number, string>} */
-	const dbHashes = new Map();
-	const stmt = db.prepare(
-		'SELECT heading_id, hash FROM headings WHERE file_id = ? ORDER BY heading_id'
-	);
-	stmt.bind([fileId]);
-	while (stmt.step()) {
-		const row = stmt.get();
-		dbHashes.set(Number(row[0]), String(row[1] || ''));
-	}
-	stmt.free();
-
-	/** @type {number[]} */
-	const dirty = [];
-	for (const h of parsedHeadings || []) {
-		const id = h.heading_id;
-		const prev = dbHashes.get(id);
-		if (prev === undefined || prev !== h.hash) {
-			dirty.push(id);
-		}
-		dbHashes.delete(id);
-	}
-	for (const removedId of dbHashes.keys()) {
-		dirty.push(removedId);
-	}
-	return [...new Set(dirty)].sort((a, b) => a - b);
-}
-
 module.exports = {
 	DOCUMENT_WATCH_MANIFEST,
 	HEADING_HASH_REFRESH_MS,
@@ -228,6 +189,5 @@ module.exports = {
 	computeMetadataEditSignature,
 	computeIndexPersistenceSignature,
 	shouldPersistIndexUpdate,
-	needsImmediateHeadingIdAllocation,
-	findDirtyHeadingIdsByHash
+	needsImmediateHeadingIdAllocation
 };

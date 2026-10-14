@@ -726,7 +726,10 @@
 			identityLine: lastPayload && lastPayload.identityLine,
 			tabDepth: lastPayload && lastPayload.tabDepth,
 			typePrefix,
-			level: (lastPayload && lastPayload.level) || 1,
+			level:
+				lastPayload && Number.isFinite(Number(lastPayload.level))
+					? Number(lastPayload.level)
+					: 0,
 			typeId,
 			titleDisplay: String(titleEl.value || '').trim(),
 			issueEntityId: lastPayload && lastPayload.issueEntityId,

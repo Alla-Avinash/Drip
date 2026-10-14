@@ -2,12 +2,17 @@
 
 const path = require('path');
 const { collectHeadingSequenceValidated, parseHeadingForValidation } = require('../document/parse/dripnoteHeadingParse');
-const { getMetadataSettings } = require('../document/model/dripnoteMetadataTemplates');
 const {
-	classifyPersistentHeadingTitle
+	getMetadataSettings,
+	getMetadataSettingsForIndex,
+	allowedHeadingTypeIdsForPath,
+	matchHeadingTitleTypePrefix
+} = require('../document/model/dripnoteMetadataTemplates');
+const {
+	classifyPersistentHeadingTitle,
+	stripHeadingTitleTypePrefix
 } = require('../document/model/dripnotePersistentHeading');
 const { stripKbNoteExtension } = require('../document/model/noteFileTypes');
-const { computeHeadingHash } = require('./dripIndexParse');
 const { parseFileEntityIdNumber, formatFileEntityId } = require('./dripnoteEntityIds');
 const {
 	initEmptyDripIndexFile,
@@ -33,8 +38,8 @@ function clearHeadingAllocCache() {
 	headingAllocCache.clear();
 }
 
-/** `@f23:h0` or `@f23:h1 #abc12345` */
-const HEADING_IDENTITY_LINE_RE = /^\s*@+\s*f(\d+)\s*:\s*h(\d+)\b(?:\s+#\s*([A-Za-z0-9]{8}))?\s*$/i;
+/** `@h0` or `@h1` — the heading's per-file number (no file id, no hash). */
+const HEADING_IDENTITY_LINE_RE = /^\s*@+\s*h(\d+)\s*$/i;
 
 /**
  * @param {string} line
@@ -46,29 +51,23 @@ function isHeadingIdentityLine(line) {
 
 /**
  * @param {string} line
- * @returns {{ fileNum: number, headingNum: number, hash: string } | null}
+ * @returns {{ headingNum: number } | null}
  */
 function parseHeadingIdentityLine(line) {
 	const m = HEADING_IDENTITY_LINE_RE.exec(String(line || ''));
 	if (!m) return null;
-	const fileNum = parseInt(m[1], 10);
-	const headingNum = parseInt(m[2], 10);
-	if (!Number.isFinite(fileNum) || !Number.isFinite(headingNum)) return null;
-	return { fileNum, headingNum, hash: String(m[3] || '').trim() };
+	const headingNum = parseInt(m[1], 10);
+	if (!Number.isFinite(headingNum)) return null;
+	return { headingNum };
 }
 
 /**
- * @param {string} fileEntityId e.g. `@f23`
  * @param {number} headingNum
- * @param {string} [hash]
  * @returns {string}
  */
-function formatHeadingIdentityLine(fileEntityId, headingNum, hash) {
-	const fid = String(fileEntityId || '').trim();
+function formatHeadingIdentityLine(headingNum) {
 	const n = Math.max(0, Math.floor(Number(headingNum) || 0));
-	const base = `${fid}:h${n}`;
-	const h = String(hash || '').trim();
-	return h ? `${base} #${h}` : base;
+	return `@h${n}`;
 }
 
 /**
@@ -216,90 +215,158 @@ function resolveFilenameStem(lines, options) {
 }
 
 /**
+ * Canonical h0 title for a note: `# . <filename>` (persistent) by default. When the current
+ * h0 already carries a metadata type that is acceptable for this file (`.c`/`.t` on a regular
+ * note, `.p`/`.f` on an index note), the title is kept exactly as written. Any unacceptable
+ * type is dropped to the persistent convention, keeping the existing name part so only the
+ * type marker changes. The h0's body, tags, and relations stay untouched either way.
+ *
+ * @param {string} currentTitle existing h0 title without the `#` marker, or ''
+ * @param {string} filename
+ * @param {string | null | undefined} noteFsPath
+ * @returns {string}
+ */
+function resolveCanonicalH0Title(currentTitle, filename, noteFsPath) {
+	const title = String(currentTitle || '').trim();
+	const settings = getMetadataSettingsForIndex();
+	const allowed = allowedHeadingTypeIdsForPath(noteFsPath || undefined);
+	const matched = matchHeadingTitleTypePrefix(title, settings);
+	if (
+		matched.typeId &&
+		!matched.invalid &&
+		allowed.has(String(matched.typeId).toLowerCase())
+	) {
+		return title;
+	}
+	const name =
+		stripHeadingTitleTypePrefix(title) ||
+		String(filename || '').trim() ||
+		'Untitled';
+	return `. ${name}`;
+}
+
+/**
+ * Bump a heading marker one level (`#` → `#1`, `#1` → `#2`, …), preserving indentation,
+ * whitespace, and title. Used when the h0 heading is demoted to a regular heading because
+ * its name no longer matches the file name.
+ * @param {string} line
+ * @returns {string}
+ */
+function demoteHeadingLine(line) {
+	return String(line || '').replace(/^(\s*#)(\d*)(\s+)/, (m, hash, num, ws) => {
+		const n = num ? parseInt(num, 10) : 0;
+		return `${hash}${n + 1}${ws}`;
+	});
+}
+
+/**
+ * True when an h0 title's name (type marker stripped) equals the file name — either the
+ * resolved filename (file stem) or the existing `filename:` header (human title).
+ * @param {string} title
+ * @param {string} filename
+ * @param {string[]} lines
+ * @returns {boolean}
+ */
+function h0NameMatchesFilename(title, filename, lines) {
+	const name = stripHeadingTitleTypePrefix(title || '').trim().toLowerCase();
+	if (!name) return false;
+	const candidates = new Set();
+	const stem = String(filename || '').trim().toLowerCase();
+	if (stem) candidates.add(stem);
+	for (const line of lines || []) {
+		const m = String(line || '').match(/^\s*filename\s*:\s*(.*)$/i);
+		if (m && String(m[1] || '').trim()) {
+			candidates.add(String(m[1]).trim().toLowerCase());
+			break;
+		}
+	}
+	return candidates.has(name);
+}
+
+/**
  * Canonical file-level block used by live reconcile and reconcile-update:
  *   filename / fileid / headings
+ *   ---
  *   blank
- *   @fN:h0
+ *   @h0
  *   # . h0 title
  *   optional about/body text under h0 (kept as-is, including blank lines)
- *   ---
+ *   ...remaining body headings...
  *
- * Extra headings above `---` are moved below it. Prose under h0 stays above `---`.
+ * The h0 heading sits **below** `---` (one empty line after it); the file keys stay above `---`.
+ * Extra headings above `---` are moved below it. Prose under h0 stays with the h0 block.
  *
  * @param {string[]} lines
- * @param {{ fileEntityId: string, filename: string }} opts
+ * @param {{ fileEntityId: string, filename: string, noteFsPath?: string | null }} opts
  * @returns {string[]}
  */
 function rebuildCanonicalFileLevelBlock(lines, opts) {
 	const src = [...(lines || [])];
 	const filename = String(opts.filename || 'Untitled').trim() || 'Untitled';
 	const fileEntityId = String(opts.fileEntityId || '').trim() || '@f0';
+	const noteFsPath = opts.noteFsPath || null;
 	const sepIdx = findSeparatorLineIndex(src);
-	const top = sepIdx >= 0 ? src.slice(0, sepIdx) : [];
-	let body;
-	if (sepIdx >= 0) {
-		body = src.slice(sepIdx + 1);
-	} else {
-		let start = 0;
-		while (start < src.length) {
-			const raw = String(src[start] || '');
-			if (!raw.trim() || isFileKeyLine(raw)) {
-				start += 1;
-				continue;
-			}
-			break;
-		}
-		body = src.slice(start);
-	}
 
-	/** @type {number[]} */
-	const headingRows = [];
-	for (let i = 0; i < top.length; i++) {
-		if (parseHeadingForValidation(top[i])) headingRows.push(i);
-	}
+	// h0 = first root-level (`#`) heading, wherever it currently sits (above or below `---`).
+	const { nodes } = collectHeadingSequenceValidated(src, 0);
+	const h0Node = nodes.find(node => node.tabDepth === 0);
 
-	const h0HeadingLine = headingRows.length ? headingRows[0] : -1;
 	let h0Title = `. ${filename}`;
 	/** @type {string[]} */
 	let h0Meta = [];
-	if (h0HeadingLine >= 0) {
-		const parsed = parseHeadingForValidation(top[h0HeadingLine]);
-		const title = parsed && String(parsed.title || '').trim();
-		if (title) h0Title = title;
-		const nextHeading = headingRows.length > 1 ? headingRows[1] : top.length;
-		const nextStart = headingRows.length > 1 ? headingBlockStart(top, headingRows[1]) : top.length;
-		const metaEnd = Math.min(nextHeading, nextStart);
-		h0Meta = top.slice(h0HeadingLine + 1, metaEnd).filter(line => !isFileKeyLine(line));
-	}
-
 	/** @type {string[]} */
-	const moved = [];
-	for (let k = 1; k < headingRows.length; k++) {
-		const start = headingBlockStart(top, headingRows[k]);
-		const end =
-			k + 1 < headingRows.length ? headingBlockStart(top, headingRows[k + 1]) : top.length;
-		const block = top.slice(start, end);
-		if (!block.length) continue;
-		if (moved.length) moved.push('');
-		moved.push(...block);
-	}
-	if (moved.length) {
-		const trimmedBody = [...body];
-		while (trimmedBody.length && !String(trimmedBody[0] || '').trim()) trimmedBody.shift();
-		body = trimmedBody.length ? [...moved, '', ...trimmedBody] : moved;
+	let promotedBlock = [];
+	let h0BlockStart = -1;
+	let h0BlockEnd = src.length;
+
+	if (h0Node) {
+		const parsed = parseHeadingForValidation(src[h0Node.lineIndex]);
+		const title = parsed && String(parsed.title || '').trim();
+		const h0Name = title ? stripHeadingTitleTypePrefix(title).trim() : '';
+		h0BlockStart = headingBlockStart(src, h0Node.lineIndex);
+		const nextHeading = nodes.find(node => node.lineIndex > h0Node.lineIndex);
+		let metaEnd = nextHeading ? headingBlockStart(src, nextHeading.lineIndex) : src.length;
+		if (sepIdx >= 0 && sepIdx > h0Node.lineIndex && sepIdx < metaEnd) metaEnd = sepIdx;
+		h0BlockEnd = metaEnd;
+
+		if (h0Name && !h0NameMatchesFilename(title, filename, src)) {
+			// The h0 heading is named after something other than the file: demote it to a
+			// regular heading (its `@h0` is dropped here and renumbered by the identity
+			// reconcile), then place a fresh `# . <filename>` h0 at the top.
+			promotedBlock = src.slice(h0Node.lineIndex, metaEnd);
+			promotedBlock[0] = demoteHeadingLine(promotedBlock[0]);
+			for (let i = 1; i < promotedBlock.length; i++) {
+				if (String(promotedBlock[i]).trim()) promotedBlock[i] = `\t${promotedBlock[i]}`;
+			}
+			h0Title = `. ${filename}`;
+			h0Meta = [];
+		} else {
+			if (title) h0Title = resolveCanonicalH0Title(title, filename, noteFsPath);
+			h0Meta = src.slice(h0Node.lineIndex + 1, metaEnd).filter(line => !isFileKeyLine(line));
+		}
 	}
 
-	// Do not strip trailing blank lines at EOF — leave the user's empty space as-is.
+	// Body = everything that is neither a file key, the separator, nor the h0 block.
+	const body = [];
+	for (let i = 0; i < src.length; i++) {
+		if (h0BlockStart >= 0 && i >= h0BlockStart && i < h0BlockEnd) continue;
+		const line = src[i];
+		if (isFileKeyLine(line)) continue;
+		if (String(line).trim() === '---') continue;
+		body.push(line);
+	}
+	while (body.length && !String(body[0]).trim()) body.shift();
 
 	return [
 		`filename: ${filename}`,
 		`fileid: ${fileEntityId}`,
 		'headings: 0',
+		'---',
 		'',
-		`${fileEntityId}:h0`,
+		'@h0',
 		`# ${h0Title}`,
 		...h0Meta,
-		'---',
+		...promotedBlock,
 		...body
 	];
 }
@@ -335,16 +402,31 @@ function stripManagedIdentityInputLines(lines) {
 }
 
 /**
- * @param {{ lineIndex: number, tabDepth: number }} node
- * @param {number} sepIdx
- * @param {number} firstRootBeforeSep
+ * Line index of the h0 heading — the first root-level (`#`) heading after the `---` separator.
+ * @param {string[]} lines
+ * @returns {number}
  */
-function isH0HeadingNode(node, sepIdx, firstRootBeforeSep) {
-	return node.lineIndex === firstRootBeforeSep && node.tabDepth === 0;
+function findH0HeadingLine(lines) {
+	const sepIdx = findSeparatorLineIndex(lines);
+	const { nodes } = collectHeadingSequenceValidated(lines, 0);
+	for (const node of nodes) {
+		if (node.tabDepth !== 0) continue;
+		if (sepIdx >= 0 && node.lineIndex <= sepIdx) continue;
+		return node.lineIndex;
+	}
+	return -1;
 }
 
 /**
- * First heading line that owns this `@fN:hM` line.
+ * @param {{ lineIndex: number, tabDepth: number }} node
+ * @param {number} h0LineIndex
+ */
+function isH0HeadingNode(node, h0LineIndex) {
+	return node.lineIndex === h0LineIndex && node.tabDepth === 0;
+}
+
+/**
+ * First heading line that owns this `@hN` line.
  * Canonical: `@` directly above a heading. Legacy: `@` directly below a heading when only prose follows.
  * @param {string[]} lines
  * @param {number} identityLineIndex
@@ -402,7 +484,7 @@ function findOwnedIdentityLineIndex(lines, headingLineIndex) {
 /**
  * @param {string[]} lines
  * @param {number} headingLineIndex
- * @returns {{ lineIndex: number, parsed: { fileNum: number, headingNum: number, hash: string } } | null}
+ * @returns {{ lineIndex: number, parsed: { headingNum: number } } | null}
  */
 function findIdentityLineAbove(lines, headingLineIndex) {
 	const idLine = findOwnedIdentityLineIndex(lines, headingLineIndex);
@@ -440,7 +522,7 @@ function findHeadingIdentityForNode(lines, node) {
 }
 
 /**
- * `@f…` line above a heading, including while the user is still typing the id.
+ * `@h…` line above a heading, including while the user is still typing the id.
  * @param {string} line
  * @returns {boolean}
  */
@@ -469,13 +551,13 @@ function headingHasIdentitySlot(lines, node) {
 }
 
 /**
- * Leading whitespace before `#` on a heading line — identity uses the same indent.
+ * Leading whitespace before the `#`/`#N` marker — identity line uses the same indent.
  * @param {string[]} lines
  * @param {number} headingLineIndex
  * @returns {string}
  */
 function headingLineIndent(lines, headingLineIndex) {
-	const m = String(lines[headingLineIndex] || '').match(/^(\s*)#{1,6}\s+/);
+	const m = String(lines[headingLineIndex] || '').match(/^(\s*)#\d*\s+/);
 	return m ? m[1] : '';
 }
 
@@ -498,7 +580,7 @@ function isEmptyHeadingTitleLine(line) {
  */
 function isHeadingStubLine(line) {
 	if (isEmptyHeadingTitleLine(line)) return true;
-	return /^(\s*)(#{1,6})\s*$/.test(String(line || ''));
+	return /^(\s*)(#\d*)\s*$/.test(String(line || ''));
 }
 
 /**
@@ -508,19 +590,12 @@ function isHeadingStubLine(line) {
  */
 function hasHeadingNeedingIdAllocation(text) {
 	const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
-	const sepIdx = findSeparatorLineIndex(lines);
 	const { nodes } = collectHeadingSequenceValidated(lines, 0);
 	const settings = getMetadataSettings();
-	let firstRootBeforeSep = -1;
-	for (const node of nodes) {
-		if (node.tabDepth !== 0) continue;
-		if (sepIdx >= 0 && node.lineIndex >= sepIdx) continue;
-		firstRootBeforeSep = node.lineIndex;
-		break;
-	}
+	const h0LineIndex = findH0HeadingLine(lines);
 	for (const node of nodes) {
 		if (!/\S/.test(String(node.title || '').trim())) continue;
-		const isH0 = isH0HeadingNode(node, sepIdx, firstRootBeforeSep);
+		const isH0 = isH0HeadingNode(node, h0LineIndex);
 		if (!isH0 && !classifyPersistentHeadingTitle(node.title, settings).persistent) continue;
 		if (headingHasIdentitySlot(lines, node)) continue;
 		return true;
@@ -530,25 +605,18 @@ function hasHeadingNeedingIdAllocation(text) {
 
 /**
  * True when a heading that is no longer persistent (dot removed) still carries
- * an `@fN:hM` identity line — reconcile must delete it.
+ * an `@hN` identity line — reconcile must delete it.
  * @param {string} text
  * @returns {boolean}
  */
 function hasIdentityOnNonPersistentHeading(text) {
 	const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
-	const sepIdx = findSeparatorLineIndex(lines);
 	const { nodes } = collectHeadingSequenceValidated(lines, 0);
 	const settings = getMetadataSettings();
-	let firstRootBeforeSep = -1;
-	for (const node of nodes) {
-		if (node.tabDepth !== 0) continue;
-		if (sepIdx >= 0 && node.lineIndex >= sepIdx) continue;
-		firstRootBeforeSep = node.lineIndex;
-		break;
-	}
+	const h0LineIndex = findH0HeadingLine(lines);
 	for (const node of nodes) {
 		if (!/\S/.test(String(node.title || '').trim())) continue;
-		if (isH0HeadingNode(node, sepIdx, firstRootBeforeSep)) continue;
+		if (isH0HeadingNode(node, h0LineIndex)) continue;
 		if (classifyPersistentHeadingTitle(node.title, settings).persistent) continue;
 		if (findHeadingIdentityForNode(lines, node)) return true;
 	}
@@ -571,20 +639,13 @@ function hasEmptyHeadingWithIdentity(text) {
 
 function countNonH0HeadingsInText(text) {
 	const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
-	const sepIdx = findSeparatorLineIndex(lines);
 	const { nodes } = collectHeadingSequenceValidated(lines, 0);
 	const settings = getMetadataSettings();
 	const titled = nodes.filter(node => /\S/.test(String(node.title || '').trim()));
-	let firstRootBeforeSep = -1;
-	for (const node of titled) {
-		if (node.tabDepth !== 0) continue;
-		if (sepIdx >= 0 && node.lineIndex >= sepIdx) continue;
-		firstRootBeforeSep = node.lineIndex;
-		break;
-	}
+	const h0LineIndex = findH0HeadingLine(lines);
 	let nonH0Count = 0;
 	for (const node of titled) {
-		if (isH0HeadingNode(node, sepIdx, firstRootBeforeSep)) continue;
+		if (isH0HeadingNode(node, h0LineIndex)) continue;
 		if (!classifyPersistentHeadingTitle(node.title, settings).persistent) continue;
 		nonH0Count += 1;
 	}
@@ -624,23 +685,19 @@ function hasDuplicateHeadingIdsInFile(text) {
 	if (hasRawDuplicateIdentityNums(lines)) {
 		return true;
 	}
-	const sepIdx = findSeparatorLineIndex(lines);
 	const { nodes } = collectHeadingSequenceValidated(lines, 0);
-	let firstRootBeforeSep = -1;
-	for (const node of nodes) {
-		if (node.tabDepth !== 0) continue;
-		if (sepIdx >= 0 && node.lineIndex >= sepIdx) continue;
-		firstRootBeforeSep = node.lineIndex;
-		break;
-	}
+	const h0LineIndex = findH0HeadingLine(lines);
 	/** @type {Set<number>} */
 	const seen = new Set();
 	for (const node of nodes) {
 		if (!/\S/.test(String(node.title || '').trim())) continue;
-		if (isH0HeadingNode(node, sepIdx, firstRootBeforeSep)) continue;
+		if (isH0HeadingNode(node, h0LineIndex)) continue;
 		const attached = findHeadingIdentityForNode(lines, node);
-		if (!attached || attached.parsed.headingNum <= 0) continue;
+		if (!attached) continue;
 		const num = attached.parsed.headingNum;
+		// `@h0` (id 0) is reserved for the file-name heading. On any other heading it
+		// is an invalid duplicate that reconcile must renumber.
+		if (num <= 0) return true;
 		if (seen.has(num)) return true;
 		seen.add(num);
 	}
@@ -648,19 +705,16 @@ function hasDuplicateHeadingIdsInFile(text) {
 }
 
 /**
- * True when two or more parsed `@fN:hM` lines in the file share the same hM (same file entity).
+ * True when two or more parsed `@hN` lines in the file share the same N.
  * @param {string[]} lines
  * @returns {boolean}
  */
 function hasRawDuplicateIdentityNums(lines) {
-	const file = parseFileEntityFromLines(lines);
-	const fileNum = file?.fileNum ?? null;
 	/** @type {Set<number>} */
 	const seen = new Set();
 	for (let i = 0; i < lines.length; i++) {
 		const parsed = parseHeadingIdentityLine(lines[i]);
 		if (!parsed || parsed.headingNum <= 0) continue;
-		if (fileNum != null && parsed.fileNum !== fileNum) continue;
 		if (seen.has(parsed.headingNum)) return true;
 		seen.add(parsed.headingNum);
 	}
@@ -668,21 +722,19 @@ function hasRawDuplicateIdentityNums(lines) {
 }
 
 /**
- * Renumber duplicate `@fN:hM` lines in file order (first occurrence keeps id).
+ * Renumber duplicate `@hN` lines in file order (first occurrence keeps id).
  * @param {string[]} lines
- * @param {{ fileNum: number, fileEntityId: string }} file
  * @param {Set<number>} usedNonH0
  * @param {() => number} allocateNonH0Id
  * @returns {boolean}
  */
-function forceResolveRawDuplicateIdentityLines(lines, file, usedNonH0, allocateNonH0Id) {
+function forceResolveRawDuplicateIdentityLines(lines, usedNonH0, allocateNonH0Id) {
 	/** @type {Set<number>} */
 	const seenNums = new Set();
 	let changed = false;
 	for (let i = 0; i < lines.length; i++) {
 		const parsed = parseHeadingIdentityLine(lines[i]);
 		if (!parsed || parsed.headingNum <= 0) continue;
-		if (parsed.fileNum !== file.fileNum) continue;
 		if (!seenNums.has(parsed.headingNum)) {
 			seenNums.add(parsed.headingNum);
 			usedNonH0.add(parsed.headingNum);
@@ -691,7 +743,7 @@ function forceResolveRawDuplicateIdentityLines(lines, file, usedNonH0, allocateN
 		const newNum = allocateNonH0Id();
 		usedNonH0.add(newNum);
 		const indent = String(lines[i] || '').match(/^(\s*)/)?.[1] || '';
-		lines[i] = `${indent}${formatHeadingIdentityLine(file.fileEntityId, newNum, parsed.hash)}`;
+		lines[i] = `${indent}${formatHeadingIdentityLine(newNum)}`;
 		changed = true;
 	}
 	return changed;
@@ -700,16 +752,15 @@ function forceResolveRawDuplicateIdentityLines(lines, file, usedNonH0, allocateN
 /**
  * @param {string[]} lines
  * @param {{ lineIndex: number, title?: string }[]} nodes
- * @param {number} sepIdx
- * @param {number} firstRootBeforeSep
  * @returns {number[]}
  */
-function collectUsedNonH0IdsFromNodes(lines, nodes, sepIdx, firstRootBeforeSep) {
+function collectUsedNonH0IdsFromNodes(lines, nodes) {
+	const h0LineIndex = findH0HeadingLine(lines);
 	/** @type {Set<number>} */
 	const used = new Set();
 	for (const node of nodes) {
 		if (!/\S/.test(String(node.title || '').trim())) continue;
-		if (isH0HeadingNode(node, sepIdx, firstRootBeforeSep)) continue;
+		if (isH0HeadingNode(node, h0LineIndex)) continue;
 		const attached = findHeadingIdentityForNode(lines, node);
 		if (attached && attached.parsed.headingNum > 0) {
 			used.add(attached.parsed.headingNum);
@@ -760,12 +811,12 @@ function removeOrphanIdentityNearEmptyHeadings(lines) {
 
 /**
  * @param {string[]} lines
- * @param {number} sepIdx
- * @param {number} firstRootBeforeSep
  * @param {{ title: string }[]} nodes
+ * @param {{ fileEntityId: string }} file
  * @returns {string}
  */
-function finalizeReconciledText(lines, sepIdx, firstRootBeforeSep, nodes, file) {
+function finalizeReconciledText(lines, nodes, file) {
+	const h0LineIndex = findH0HeadingLine(lines);
 	const sepIdxFinal = findSeparatorLineIndex(lines);
 	const topEndFinal = sepIdxFinal >= 0 ? sepIdxFinal : lines.length;
 	const topLines = lines.slice(0, topEndFinal);
@@ -773,7 +824,7 @@ function finalizeReconciledText(lines, sepIdx, firstRootBeforeSep, nodes, file) 
 	const settings = getMetadataSettings();
 	let nonH0Count = 0;
 	for (const node of nodes) {
-		if (isH0HeadingNode(node, sepIdx, firstRootBeforeSep)) continue;
+		if (isH0HeadingNode(node, h0LineIndex)) continue;
 		if (!classifyPersistentHeadingTitle(node.title, settings).persistent) continue;
 		nonH0Count += 1;
 	}
@@ -789,20 +840,13 @@ function finalizeReconciledText(lines, sepIdx, firstRootBeforeSep, nodes, file) 
  */
 function headingMetadataSignature(text) {
 	const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
-	const sepIdx = findSeparatorLineIndex(lines);
 	const { nodes } = collectHeadingSequenceValidated(lines, 0);
 	const settings = getMetadataSettings();
-	let firstRootBeforeSep = -1;
-	for (const node of nodes) {
-		if (node.tabDepth !== 0) continue;
-		if (sepIdx >= 0 && node.lineIndex >= sepIdx) continue;
-		firstRootBeforeSep = node.lineIndex;
-		break;
-	}
+	const h0LineIndex = findH0HeadingLine(lines);
 	return nodes
 		.filter(
 			node =>
-				isH0HeadingNode(node, sepIdx, firstRootBeforeSep) ||
+				isH0HeadingNode(node, h0LineIndex) ||
 				classifyPersistentHeadingTitle(node.title, settings).persistent
 		)
 		.map(
@@ -929,7 +973,6 @@ function removeExtraIdentityLinesForHeadings(lines, nodes) {
 function reconcileHeadingIdentitiesInText(text, options = {}) {
 	const normalized = String(text || '').replace(/\r\n/g, '\n');
 	let lines = normalized.split('\n');
-	const refreshHashes = options.refreshHashes === true;
 	const lockedFromOpts = options.lockedFile || null;
 	const file = parseFileEntityFromLines(lines) || lockedFromOpts;
 	if (!file) {
@@ -939,30 +982,23 @@ function reconcileHeadingIdentitiesInText(text, options = {}) {
 	const filenameStem = resolveFilenameStem(lines, options);
 	const rebuilt = rebuildCanonicalFileLevelBlock(lines, {
 		fileEntityId: file.fileEntityId,
-		filename: filenameStem
+		filename: filenameStem,
+		noteFsPath: options.noteUri ? options.noteUri.fsPath : null
 	});
 	if (rebuilt.join('\n') !== lines.join('\n')) {
 		lines = rebuilt;
 	}
 
-	const sepIdx = findSeparatorLineIndex(lines);
 	const { nodes: allNodes } = collectHeadingSequenceValidated(lines, 0);
 	const nodes = allNodes.filter(node => /\S/.test(String(node.title || '').trim()));
 	const settings = getMetadataSettings();
-
-	let firstRootBeforeSep = -1;
-	for (const node of nodes) {
-		if (node.tabDepth !== 0) continue;
-		if (sepIdx >= 0 && node.lineIndex >= sepIdx) continue;
-		firstRootBeforeSep = node.lineIndex;
-		break;
-	}
+	const h0LineIndex = findH0HeadingLine(lines);
 
 	removeOrphanIdentityNearEmptyHeadings(lines);
 
 	if (!nodes.length) {
 		removeOrphanHeadingIdentityLines(lines, []);
-		const fin = finalizeReconciledText(lines, sepIdx, firstRootBeforeSep, nodes, file);
+		const fin = finalizeReconciledText(lines, nodes, file);
 		return {
 			text: fin.nextText,
 			changed: fin.nextText !== normalized,
@@ -984,7 +1020,7 @@ function reconcileHeadingIdentitiesInText(text, options = {}) {
 	// Non-persistent headings never claim an id — their identity line is removed below
 	// and the number returns to the free pool.
 	for (const node of nodes) {
-		if (isH0HeadingNode(node, sepIdx, firstRootBeforeSep)) {
+		if (isH0HeadingNode(node, h0LineIndex)) {
 			wantNumByLine.set(node.lineIndex, 0);
 			continue;
 		}
@@ -995,7 +1031,9 @@ function reconcileHeadingIdentitiesInText(text, options = {}) {
 		}
 		const num = attached.parsed.headingNum;
 		if (num <= 0) {
-			wantNumByLine.set(node.lineIndex, 0);
+			// `@h0` (id 0) belongs only to the file-name heading; a non-h0 heading
+			// carrying it must be renumbered — never keep 0.
+			duplicateHeadingLines.add(node.lineIndex);
 			continue;
 		}
 		if (claimedIds.has(num)) {
@@ -1059,7 +1097,7 @@ function reconcileHeadingIdentitiesInText(text, options = {}) {
 	for (const node of nodes) {
 		if (wantNumByLine.has(node.lineIndex)) continue;
 		if (headingHasIdentitySlot(lines, node) && !duplicateHeadingLines.has(node.lineIndex)) continue;
-		if (isH0HeadingNode(node, sepIdx, firstRootBeforeSep)) {
+		if (isH0HeadingNode(node, h0LineIndex)) {
 			wantNumByLine.set(node.lineIndex, 0);
 			continue;
 		}
@@ -1075,29 +1113,15 @@ function reconcileHeadingIdentitiesInText(text, options = {}) {
 
 	for (const node of nodes) {
 		const attachedBefore = findHeadingIdentityForNode(lines, node);
-		const isH0 = isH0HeadingNode(node, sepIdx, firstRootBeforeSep);
+		const isH0 = isH0HeadingNode(node, h0LineIndex);
 		const classification = classifyPersistentHeadingTitle(node.title, settings);
 		if (!isH0 && !classification.persistent) {
 			if (attachedBefore) removeIdentityForHeadingLines.add(node.lineIndex);
 			continue;
 		}
 		const wantNum = wantNumByLine.get(node.lineIndex) ?? 0;
-		const metadataType = classification.metadataType || '';
-		const prevNum = attachedBefore ? attachedBefore.parsed.headingNum : null;
-		const prevHash = attachedBefore ? attachedBefore.parsed.hash : '';
-		const sameNum = prevNum != null && prevNum === wantNum;
-		let hash;
-		if (sameNum && !refreshHashes && prevHash) {
-			hash = prevHash;
-		} else {
-			hash = computeHeadingHash(
-				node.title,
-				metadataType,
-				metaLinesForHash(node.metaLines || [])
-			);
-		}
 		const indent = headingLineIndent(lines, node.lineIndex);
-		wantLineByIndex.set(node.lineIndex, `${indent}${formatHeadingIdentityLine(file.fileEntityId, wantNum, hash)}`);
+		wantLineByIndex.set(node.lineIndex, `${indent}${formatHeadingIdentityLine(wantNum)}`);
 	}
 
 	const sorted = [...nodes].sort((a, b) => b.lineIndex - a.lineIndex);
@@ -1130,7 +1154,7 @@ function reconcileHeadingIdentitiesInText(text, options = {}) {
 	}
 
 	while (hasRawDuplicateIdentityNums(lines)) {
-		if (!forceResolveRawDuplicateIdentityLines(lines, file, usedNonH0, allocateNonH0Id)) {
+		if (!forceResolveRawDuplicateIdentityLines(lines, usedNonH0, allocateNonH0Id)) {
 			break;
 		}
 	}
@@ -1144,14 +1168,9 @@ function reconcileHeadingIdentitiesInText(text, options = {}) {
 	);
 	removeOrphanHeadingIdentityLines(lines, titledAfterIdentity);
 
-	const fin = finalizeReconciledText(lines, sepIdx, firstRootBeforeSep, titledAfterIdentity, file);
+	const fin = finalizeReconciledText(lines, titledAfterIdentity, file);
 
-	const usedIds = collectUsedNonH0IdsFromNodes(
-		fin.nextText.split('\n'),
-		titledAfterIdentity,
-		sepIdx,
-		firstRootBeforeSep
-	);
+	const usedIds = collectUsedNonH0IdsFromNodes(fin.nextText.split('\n'), titledAfterIdentity);
 
 	return {
 		text: fin.nextText,
@@ -1233,26 +1252,22 @@ async function reconcileHeadingIdentitiesForKbNote(kbRoot, text, options = {}) {
 
 /**
  * @param {string} text
- * @param {number | null | undefined} headerFileNum
- * @returns {{ lineIndex: number, fileNum: number, headingNum: number }[]}
+ * @param {number | null | undefined} _headerFileNum unused (heading identity carries no file id)
+ * @returns {{ lineIndex: number, headingNum: number, kind: string }[]}
  */
-function collectHeadingIdentityDiagnostics(text, headerFileNum) {
+function collectHeadingIdentityDiagnostics(text, _headerFileNum) {
 	const lines = String(text || '').replace(/\r?\n/g, '\n').split('\n');
-	/** @type {Map<string, number>} */
+	/** @type {Map<number, number>} */
 	const seen = new Map();
-	/** @type {{ lineIndex: number, fileNum: number, headingNum: number }[]} */
+	/** @type {{ lineIndex: number, headingNum: number, kind: string }[]} */
 	const out = [];
 	for (let i = 0; i < lines.length; i++) {
 		const parsed = parseHeadingIdentityLine(lines[i]);
-		if (!parsed) continue;
-		const key = `${parsed.fileNum}:${parsed.headingNum}`;
-		if (seen.has(key)) {
-			out.push({ lineIndex: i, fileNum: parsed.fileNum, headingNum: parsed.headingNum, kind: 'duplicate' });
+		if (!parsed || parsed.headingNum <= 0) continue;
+		if (seen.has(parsed.headingNum)) {
+			out.push({ lineIndex: i, headingNum: parsed.headingNum, kind: 'duplicate' });
 		} else {
-			seen.set(key, i);
-		}
-		if (headerFileNum != null && parsed.fileNum !== headerFileNum) {
-			out.push({ lineIndex: i, fileNum: parsed.fileNum, headingNum: parsed.headingNum, kind: 'file-mismatch' });
+			seen.set(parsed.headingNum, i);
 		}
 	}
 	return out;
@@ -1287,6 +1302,7 @@ module.exports = {
 	headingHasIdentitySlot,
 	isHeadingIdentitySlotLine,
 	findSeparatorLineIndex,
+	findH0HeadingLine,
 	isH0HeadingNode,
 	findHeadingLineAboveIndex,
 	headingLineIndent,

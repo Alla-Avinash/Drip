@@ -21,8 +21,7 @@
 const vscode = require('vscode');
 const {
 	getMetadataSettings,
-	getTypeRule,
-	matchHeadingTitleTypePrefix
+	getTypeRule
 } = require('./dripnoteMetadataTemplates');
 const { isValidDurationValue } = require('../parse/dripnoteDuration');
 
@@ -208,7 +207,7 @@ function getConfiguredAllowedMetadataKeys() {
  *
  * Rules (mirroring the `.d.txt` diagnostics, applied one-time on file open):
  *   - The comment's type token is the authority; fields that don't belong to that type
- *     are dropped. A comment with no type falls back to the legacy heading-line prefix.
+ *     are dropped.
  *   - Unknown keys (not a type attribute, relation, or allowed custom key) are removed.
  *   - Empty values (including `[]`) are removed.
  *   - enum / datetime / duration / issue_parent values that fail their rule are removed.
@@ -216,25 +215,18 @@ function getConfiguredAllowedMetadataKeys() {
  *     supplied); a `tags` field left empty by that is dropped.
  *
  * @param {string} commentLine the raw `<!-- drip … -->` line
- * @param {string} headingLine the heading line above it (e.g. `# My Concept`)
  * @param {Set<string>} [knownTagsLower] lowercase tag labels valid for this note's graph
  * @returns {{ text: string | null, changed: boolean, removed: string[] }}
  *   `text` is `null` when the line is not a heading comment (caller leaves it alone).
  */
-function validateHeadingComment(commentLine, headingLine, knownTagsLower) {
+function validateHeadingComment(commentLine, knownTagsLower) {
 	const parsed = parseHeadingComment(commentLine);
 	if (!parsed) return { text: null, changed: false, removed: [] };
 
 	const settings = getMetadataSettings();
-	// Type authority: the comment itself. In the `.d.md` format the heading line carries
-	// no type prefix (`# .c Foo`), so the type lives only in the comment — `persistent`
-	// for untyped-but-indexed headings. Fall back to the legacy heading-line prefix only
-	// when the comment has no type yet (pre-migration notes still using `.c`/`.task`/`.i-N`).
-	let authoritativeType = String(parsed.typeId || '').toLowerCase();
-	if (!authoritativeType) {
-		const headingMatch = matchHeadingTitleTypePrefix(headingLine, settings);
-		authoritativeType = headingMatch.typeId ? String(headingMatch.typeId).toLowerCase() : '';
-	}
+	// Type authority: the comment itself. The heading line carries no type prefix, so the
+	// type lives only in the comment — `persistent` for untyped-but-indexed headings.
+	const authoritativeType = String(parsed.typeId || '').toLowerCase();
 
 	const relationKeys = settings.allowedRelations || new Set();
 	const customKeys = getConfiguredAllowedMetadataKeys();

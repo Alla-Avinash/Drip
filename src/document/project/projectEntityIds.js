@@ -140,7 +140,9 @@ function liveIssueNumbers(db, projectFolderPrefix) {
 				.get(normalized, prefix);
 			if (project && project.projectId != null) {
 				const rows = db.native
-					.prepare(`SELECT issue_key AS issueKey FROM issues WHERE project_id = ?`)
+					.prepare(
+						`SELECT issue_key AS issueKey FROM issue_metadata WHERE project_id = ? AND issue_key IS NOT NULL`
+					)
 					.all(Number(project.projectId));
 				for (const row of rows || []) {
 					const m = String(row.issueKey || '')

@@ -7,7 +7,8 @@ DRIP maintains a local SQLite index (`.dripindex/index.drip`) that mirrors the K
 ## How to access it
 
 - Mostly background — it runs on save and startup automatically.
-- The only user-facing trigger is **Update index** on the Knowledge Base toolbar (forces a full rebuild).
+- **Update index** on the Knowledge Base toolbar forces a full rebuild (keeps `index.drip`).
+- **Reset/reindex** on the Knowledge Base toolbar wipes `index.drip` and `projects.drip`, then re-parses every note and re-encodes all embeddings.
 
 ## What the index stores
 
@@ -20,12 +21,13 @@ DRIP maintains a local SQLite index (`.dripindex/index.drip`) that mirrors the K
 
 ## Identity
 
-- Files get a stable file ID (in the header).
-- Headings get stable heading IDs.
+- Files get a stable file ID (in the header): `@fN`.
+- Headings get a per-file number written as `@hN` on the line above each `#`/`#N` heading (`@h0` for the file heading, which sits below the `---` separator). There is no file-id prefix or hash suffix on the heading identity line. `@h0` is reserved for the file-name heading only — reconcile renumbers any other heading that ends up carrying `@h0` (for example after a deleted id) rather than leaving a duplicate.
+- Heading ids are kept stable — reconcile never renumbers an existing heading to close a gap (that would break links). New ids (for headings that lost or never had an id) reuse the lowest free number first. If the `h0` heading's name doesn't match the file name, it is demoted to a regular heading with a new id and a fresh `@h0` file heading is added at the top.
 - Projects and features get entity IDs (`f-N`).
 - Issues get entity IDs (`i-N`).
 
-These IDs survive renames, moves, and restructuring, so links keep pointing correctly.
+These IDs survive renames, moves, and restructuring, so links keep pointing correctly. A heading's parent in the index is derived from the heading marker level (`#` = 0, `#1` = 1, …), not from tab indentation.
 
 ## How the index is kept up to date
 
@@ -34,6 +36,7 @@ These IDs survive renames, moves, and restructuring, so links keep pointing corr
 - **Startup reconcile** — on startup, path/name mismatches are repaired lightly (no full re-parse).
 - **Full rebuild** — available on demand ("Update index") for a complete re-parse.
 - **Static schema** — the database schema is fixed; a fresh index is created with the current schema and there is no in-place upgrade from older versions.
+- **One lifecycle for both formats** — `.d.txt` and `.d.md` notes register through a single lifecycle entry point. It detects the format from the file path and dispatches to the right reconcile algorithm, both of which follow the same buffer-first rule: reconcile an open document through the editor buffer, and write straight to disk only when the tab is closed.
 
 ## Flow (plain steps)
 

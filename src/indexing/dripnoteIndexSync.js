@@ -4,14 +4,10 @@ const path = require('path');
 const vscode = require('vscode');
 const { isStartupCheckReady, runStartupCheck } = require('../startup/startupCheck');
 const { updateKnowledgeBase } = require('../startup/updateKnowledgeBase');
-const {
-	detectFileIdDrift,
-	normalizeNoteIdentityText
-} = require('./dripnoteFileIdentity');
-const { writeTextFile, readTextFile } = require('./kbFilesystem');
-const { applyFileIdLinkMigrationKb, processAllPendingLinkMigrations } = require('./dripnoteReferencePhase3');
+const { writeTextFile } = require('./kbFilesystem');
+const { processAllPendingLinkMigrations } = require('./dripnoteReferencePhase3');
 const { removeFileFromDripIndex, resolveSequentialFileEntityForKbNote } = require('./dripIndexDb');
-const { updateNoteInDripIndex, updateDripIndexScope } = require('./sync/dripnoteIndexUpdate');
+const { updateDripIndexScope } = require('./sync/dripnoteIndexUpdate');
 const { createDripnoteIndexUpdateQueue } = require('./sync/dripnoteIndexUpdateQueue');
 const { promptAndRunKbReindex } = require('./sync/dripnoteKbReindex');
 const {
@@ -89,7 +85,7 @@ function registerDripnoteIndexSync(context, state) {
 	const HEADING_ID_ALLOCATION_DEBOUNCE_MS = 500;
 
 	/**
-	 * Defer only while the caret is on an `@fN:hM` identity slot line (user editing the id).
+	 * Defer only while the caret is on an `@hN` identity slot line (user editing the id).
 	 * Titled headings that still need an id must allocate on debounce — do not wait for leave.
 	 */
 	function shouldDeferHeadingIdAllocation(document) {
@@ -138,84 +134,6 @@ function registerDripnoteIndexSync(context, state) {
 		return vscode.workspace.textDocuments.find(d => d.uri.toString() === key) || null;
 	}
 
-	async function maybeRealignFileIdOnOpen(document) {
-		if (!document || document.languageId !== 'dripnote' || document.uri.scheme !== 'file') {
-			return;
-		}
-		const kbRoot = state.getKnowledgeBaseRoot();
-		if (!kbRoot) {
-			return;
-		}
-		const relToKb = path.relative(kbRoot.fsPath, document.uri.fsPath);
-		if (relToKb.startsWith('..') || path.isAbsolute(relToKb)) {
-			return;
-		}
-		if (document.isDirty) {
-			return;
-		}
-
-		await ensureStartupIndexReconcile();
-
-		const text = document.getText();
-		const drift = await detectFileIdDrift(document.uri, text, context);
-		if (!drift.drift) {
-			return;
-		}
-
-		const next = await normalizeNoteIdentityText(document.uri, text, {
-			context,
-			forceCanonicalFileId: true
-		});
-		if (next === text.replace(/\r\n/g, '\n')) {
-			return;
-		}
-
-		let diskPersisted = false;
-		const fullRange = new vscode.Range(
-			document.positionAt(0),
-			document.positionAt(text.length)
-		);
-		const applied = await runGuardedDocumentEdit(async () =>
-			vscode.workspace.applyEdit(new vscode.WorkspaceEdit().replace(document.uri, fullRange, next))
-		);
-		if (applied) {
-			try {
-				await document.save();
-				diskPersisted = true;
-			} catch (err) {
-				console.error('[DRIP] save after fileid realign', err);
-			}
-		}
-		if (!diskPersisted && document.isClosed) {
-			try {
-				await writeTextFile(document.uri, next);
-				diskPersisted = true;
-			} catch (err) {
-				console.error('[DRIP] writeTextFile after fileid realign', err);
-				void vscode.window.showErrorMessage(
-					'DRIP could not write the realigned note to disk. Reload the file and try again.'
-				);
-				return;
-			}
-		}
-		if (!diskPersisted) {
-			console.error('[DRIP] fileid realign could not persist while editor is open');
-			return;
-		}
-
-		if (drift.currentId && drift.expectedId && drift.currentId !== drift.expectedId) {
-			const migration = { oldId: drift.currentId, newId: drift.expectedId, relPath: relToKb.replace(/\\/g, '/') };
-			await applyFileIdLinkMigrationKb(kbRoot, context, migration, document.uri);
-		} else {
-			await updateNoteInDripIndex(kbRoot, document.uri, context, { force: true });
-		}
-
-		void vscode.window.setStatusBarMessage(
-			`DRIP: fileid set to ${drift.expectedId} (index updated).`,
-			5000
-		);
-	}
-
 	function isDripnoteFileDocument(document) {
 		if (!document || document.uri.scheme !== 'file') return false;
 		if (document.languageId === 'dripnote') return true;
@@ -242,12 +160,13 @@ function registerDripnoteIndexSync(context, state) {
 	}
 
 	function parseHeadingLineInfo(line) {
-		const m = String(line || '').match(/^(\s*)(#{1,6})\s+(.*)$/);
-		if (!m) return null;
+		const ph = parseHeadingForValidation(line);
+		if (!ph) return null;
+		const level = ph.level;
 		return {
-			indent: m[1] || '',
-			title: String(m[3] || '').trim(),
-			tabDepth: (m[1] || '').length
+			// Marker string (`#` for level 0, `#N` otherwise) — no leading whitespace in the canonical format.
+			indent: level === 0 ? '#' : `#${level}`,
+			title: ph.title
 		};
 	}
 
@@ -439,7 +358,7 @@ function registerDripnoteIndexSync(context, state) {
 	}
 
 	/**
-	 * When reconcile only inserts `@fN:hM` lines, tweaks `headings:`, and/or rewrites `.t` → `.tN`
+	 * When reconcile only inserts `@hN` lines, tweaks `headings:`, and/or rewrites `.t` → `.tN`
 	 * on heading titles, patch in place so the cursor is not disturbed by a full-buffer replace.
 	 * @param {string} textBefore
 	 * @param {string} reconciled
@@ -494,7 +413,7 @@ function registerDripnoteIndexSync(context, state) {
 	}
 
 	/**
-	 * Same line count; only `@fN:hM` and/or `.tN` heading title lines differ.
+	 * Same line count; only `@hN` and/or `.tN` heading title lines differ.
 	 * @param {string} textBefore
 	 * @param {string} reconciled
 	 * @returns {{ inserts: { line: number, text: string }[], replacements: { line: number, text: string }[] } | null}
@@ -981,7 +900,6 @@ function registerDripnoteIndexSync(context, state) {
 	context.subscriptions.push(
 		vscode.workspace.onDidOpenTextDocument(doc => {
 			void (async () => {
-				await maybeRealignFileIdOnOpen(doc);
 				if (isDripnoteFileDocument(doc)) {
 					await ensureStartupIndexReconcile();
 					if (isKbNoteDocument(doc)) {

@@ -8,7 +8,8 @@
 				<button class="navBtn active" data-panel="kb">Knowledge Base</button>
 				<button class="navBtn" data-panel="editor">Editor</button>
 				<button class="navBtn" data-panel="update">Update</button>
-				<button class="navBtn" data-panel="types">Metadata Types</button>
+				<button class="navBtn" data-panel="kb-types">KB Metadata</button>
+				<button class="navBtn" data-panel="project-types">Project Metadata</button>
 				<button class="navBtn" data-panel="relations">Tags & Relations</button>
 				<button class="navBtn" data-panel="metadata">Markdown</button>
 				<button class="navBtn" data-panel="doccoloring">Doc Coloring</button>
@@ -88,8 +89,8 @@
 				</div>
 			</section>
 
-			<section id="panel-types" class="panel">
-				<h3>Metadata Types</h3>
+			<section id="panel-kb-types" class="panel">
+				<h3>KB Metadata</h3>
 				<div class="card">
 					<label class="row"><input type="checkbox" id="opt-template-enabled"><span>Enable metadata templates</span></label>
 					<label class="row"><input type="checkbox" id="opt-template-auto"><span>Auto insert template keys when type marker is added in valid metadata zone</span></label>
@@ -99,26 +100,36 @@
 					<label class="row"><input type="checkbox" id="opt-heading-hierarchy-indent"><span>Show heading hierarchy indent errors (body line vs next heading tabs)</span></label>
 				</div>
 				<div class="card">
-					<h3>Projects</h3>
-					<p class="meta">Project (<code>.p</code>), feature (<code>.f</code>), and issue (<code>.issue</code> / <code>i</code>) types. Shortcuts are fixed. Issues are headings inside project folders; their metadata (status, priority, deadline, category, parent <code>i-N</code>) feeds Project View.</p>
-					<div id="file-level-types-list" class="typeList"></div>
-					<div class="actions">
-						<button id="btn-save-file-types">Save Project Types</button>
-						<button id="btn-reset-file-types" class="secondary">Revert Project Types</button>
-					</div>
-				</div>
-				<div class="card">
 					<h3>Document KB types</h3>
-					<p class="meta">Heading metadata types for the note zone (marker, shortcut, attributes). Defaults include <code>.concept</code> and <code>.task</code>.</p>
+					<p class="meta">Heading metadata types for the note zone (marker, shortcut, attributes). The type list is fixed — <code>.concept</code>, <code>.task</code>, <code>.issue</code>, <code>.decision</code>. You can add or edit keys (attributes) on these types, but cannot add new types.</p>
 					<div id="metadata-types-list" class="typeList"></div>
 					<div class="actions">
-						<button id="btn-add-type" class="iconBtn" title="Add Metadata Type">+</button>
 						<button id="btn-save-types">Save Document Types</button>
 						<button id="btn-reset-types" class="secondary">Revert Document Types</button>
 					</div>
 				</div>
 				<div class="actions">
-					<button id="btn-save-metadata-panel">Save Metadata Types Settings</button>
+					<button id="btn-save-metadata-panel">Save KB Metadata Settings</button>
+				</div>
+			</section>
+
+			<section id="panel-project-types" class="panel">
+				<h3>Project Metadata</h3>
+				<div class="card">
+					<label class="row" style="align-items:center;">
+						<span style="min-width:8em;">Select project</span>
+						<select id="project-select" style="flex:1; max-width:18em; padding:4px 6px; background:var(--vscode-dropdown-background); color:var(--vscode-dropdown-foreground); border:1px solid var(--vscode-dropdown-border); border-radius:4px;"></select>
+					</label>
+					<p class="meta" id="project-metadata-hint"></p>
+				</div>
+				<div class="card">
+					<h3 id="project-metadata-heading">Default project template</h3>
+					<p class="meta">Project (<code>.p</code>), feature (<code>.f</code>), and issue (<code>.issue</code> / <code>i</code>) types. Shortcuts are fixed. Issues are headings inside project folders; their metadata (status, priority, deadline, category, parent <code>i-N</code>) feeds Project View. Per-project changes add keys or change enum values; built-in keys cannot be deleted.</p>
+					<div id="file-level-types-list" class="typeList"></div>
+					<div class="actions">
+						<button id="btn-save-project-metadata">Save Project Metadata</button>
+						<button id="btn-reset-project-metadata" class="secondary">Revert</button>
+					</div>
 				</div>
 			</section>
 

@@ -18,18 +18,12 @@
  * one, rewrites the comment, then re-parses). Nothing here touches the database.
  */
 
-const { parseHeadingForValidation } = require('../document/parse/dripnoteHeadingParse');
-const { getMetadataSettingsForIndex } = require('../document/model/dripnoteMetadataTemplates');
-const {
-	classifyPersistentHeadingTitle,
-	stripHeadingTitleTypePrefix
-} = require('../document/model/dripnotePersistentHeading');
+const { parseMarkdownHeading } = require('../document/parse/dripnoteHeadingParse');
 const { parseFileEntityIdNumber } = require('./dripnoteEntityIds');
 const { parseFileHeaderComment, isFileHeaderComment } = require('../document/model/dripMdNoteFileHeader');
 const { parseHeadingComment, isHeadingComment } = require('../document/model/dripMdNoteComment');
 const { normalizeMetadataTypeForIndex, getKnownMetadataTypeIds } = require('./parse/dripIndexMetadataType');
 const {
-	computeHeadingHash,
 	collectSearchTagsFromLines,
 	collectRelationsFromLines
 } = require('./dripIndexParse');
@@ -62,10 +56,9 @@ function toLines(text) {
  * }[]}
  */
 function walkDripMdNoteHeadings(lines) {
-	const settings = getMetadataSettingsForIndex();
 	const headings = [];
 	for (let i = 0; i < lines.length; i++) {
-		const parsed = parseHeadingForValidation(lines[i]);
+		const parsed = parseMarkdownHeading(lines[i]);
 		if (!parsed) continue;
 
 		let commentLineIndex = -1;
@@ -74,11 +67,9 @@ function walkDripMdNoteHeadings(lines) {
 		}
 		const comment = commentLineIndex >= 0 ? parseHeadingComment(lines[commentLineIndex]) : null;
 
-		// Persistence comes from the hidden comment (the new `.d.md` format): a heading is
-		// indexed when a `<!-- drip hN -->` comment sits directly under it, and its type is
-		// the comment's type token. Fall back to the legacy `.c`/`.task`/`.i-N` prefix so
-		// pre-migration notes keep indexing until the prefix is stripped.
-		const legacy = classifyPersistentHeadingTitle(parsed.title, settings);
+		// Persistence comes only from the hidden comment: a heading is indexed when a
+		// `<!-- drip hN -->` comment sits directly under it, and its type is the comment's
+		// type token.
 		headings.push({
 			lineIndex: i,
 			commentLineIndex,
@@ -87,9 +78,9 @@ function walkDripMdNoteHeadings(lines) {
 			// Nesting depth: indentation + `#` level, so both `## …` and `\t# …` nest one level.
 			depth: parsed.tabDepth + (parsed.level - 1),
 			title: parsed.title,
-			cleanTitle: stripHeadingTitleTypePrefix(parsed.title),
-			persistent: !!comment || legacy.persistent,
-			typeId: (comment && comment.typeId) || (legacy.metadataType || ''),
+			cleanTitle: parsed.title,
+			persistent: !!comment,
+			typeId: comment ? comment.typeId : '',
 			comment
 		});
 	}
@@ -107,7 +98,7 @@ function walkDripMdNoteHeadings(lines) {
  * @returns {{
  *   fileId: number | null,
  *   file: { path: string, name: string, created_at: number, updated_at: number },
- *   headings: { heading_id: number | null, title: string, tab_depth: number, metadata_type: string | null, hash: string, parent: number | null }[],
+ *   headings: { heading_id: number | null, title: string, tab_depth: number, metadata_type: string | null, parent: number | null }[],
  *   searchtags: { source_heading_id: number, tag_name: string }[],
  *   relations: { source_heading_id: number, relation_type: string, tag_name: string }[],
  *   typedMetadata: object[],
@@ -149,7 +140,6 @@ function parseDripMdNoteForIndex(text, relPath, fileName, times, options) {
 		const headingId = isH0 ? 0 : comment && comment.headingNum > 0 ? comment.headingNum : null;
 		const fields = comment ? comment.fields : [];
 		const metaLines = fields.map(f => `${f.key}: ${f.value}`);
-		const hash = computeHeadingHash(w.title, metadataType || '', metaLines);
 
 		let parent = null;
 		if (!isH0) {
@@ -165,7 +155,6 @@ function parseDripMdNoteForIndex(text, relPath, fileName, times, options) {
 			title: w.cleanTitle,
 			tab_depth: w.tabDepth,
 			metadata_type: metadataType,
-			hash,
 			parent
 		});
 

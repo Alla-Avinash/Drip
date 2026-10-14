@@ -130,6 +130,16 @@ function resolveValidatedAttributeValue(rule, rawValue, now) {
 		return `i-${n}`;
 	}
 
+	// Generic entity reference (i-N / c-N / d-N). Normalizes the id to lowercase
+	// prefix + number; the specific entity type is implied by the field that uses it.
+	if (kind === 'ref') {
+		const m = value.match(/^([a-z]+)-(\d+)$/i);
+		if (!m) return undefined;
+		const n = parseInt(m[2], 10);
+		if (!Number.isFinite(n) || n < 1) return undefined;
+		return `${m[1].toLowerCase()}-${n}`;
+	}
+
 	return undefined;
 }
 

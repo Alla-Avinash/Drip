@@ -9,13 +9,12 @@ const { buildHeadingIdPoolFromText } = require('./dripnoteHeadingIdPool');
 const {
 	reconcileHeadingIdentitiesForKbNote,
 	needsHeadingIdentityReconcile,
-	collectHeadingIdentityDiagnostics,
-	parseFileEntityFromLines
+	collectHeadingIdentityDiagnostics
 } = require('./dripnoteHeadingIdentity');
 const { collectHeadingSequenceValidated } = require('../document/parse/dripnoteHeadingParse');
 
 /**
- * `.d.md` notes use the markdown sync path and have no `@fN:hM` identity lines — this
+ * `.d.md` notes use the markdown sync path and have no `@hN` identity lines — this
  * `.d.txt` reconcile must never touch them (it would write directly to disk, racing the
  * open editor).
  * @param {string} fsPath
@@ -65,7 +64,7 @@ async function applyReconciledTextToOpenNoteIfClean(noteUri, reconciled) {
 }
 
 /**
- * Reconcile heading `@fN:hM` lines and `headings:` count on disk; refresh open clean buffers.
+ * Reconcile heading `@hN` lines and `headings:` count on disk; refresh open clean buffers.
  *
  * @param {import('vscode').Uri} kbRootUri
  * @param {import('vscode').Uri} noteUri
@@ -75,7 +74,7 @@ async function applyReconciledTextToOpenNoteIfClean(noteUri, reconciled) {
  */
 async function reconcileNoteHeadingIdentitiesOnDisk(kbRootUri, noteUri, _context, options = {}) {
 	// `.d.md` notes are handled by the markdown sync path, not this `.d.txt` reconcile.
-	// Rewriting them here would inject `@fN:hM` identity lines and write directly to disk,
+	// Rewriting them here would inject `@hN` identity lines and write directly to disk,
 	// racing the open editor and causing "content is newer" conflicts.
 	if (isDripMdNotePath(noteUri.fsPath)) {
 		return {
@@ -163,21 +162,14 @@ function collectHeadingReconcileIssues(text) {
 		issues.push({ line: e.lineIndex + 1, message: e.message, severity: 'error' });
 	}
 
-	const file = parseFileEntityFromLines(lines);
-	for (const d of collectHeadingIdentityDiagnostics(normalized, file?.fileNum ?? null)) {
+	for (const d of collectHeadingIdentityDiagnostics(normalized, null)) {
 		if (d.kind === 'duplicate') {
 			issues.push({
 				line: d.lineIndex + 1,
-				message: `Duplicate heading identity @f${d.fileNum}:h${d.headingNum}`,
+				message: `Duplicate heading identity @h${d.headingNum}`,
 				severity: 'warning'
 			});
-			continue;
 		}
-		const msg =
-			d.kind === 'file-mismatch'
-				? `Heading identity @f${d.fileNum} does not match fileid in header`
-				: `Invalid heading identity @f${d.fileNum}:h${d.headingNum}`;
-		issues.push({ line: d.lineIndex + 1, message: msg, severity: 'error' });
 	}
 
 	if (needsHeadingIdentityReconcile(normalized)) {

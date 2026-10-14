@@ -2,15 +2,15 @@
 
 /**
  * Read / append / merge a single heading's body text in a `.d.txt` note (pure — no vscode).
- * Locates the heading by its identity line (`@fN:hM`) so the search index's fileId/headingId
- * maps directly onto disk content. Reuses the same section rule as `issueInboxLayout.sectionEnd`.
+ * Locates the heading by its identity line (`@hN`) so the search index's headingId maps
+ * directly onto disk content. Reuses the same section rule as `issueInboxLayout.sectionEnd`.
  */
 
 const { parseHeadingIdentityLine } = require('../indexing/dripnoteHeadingIdentity');
-const { sectionEnd, indentOf } = require('../document/project/issueInboxLayout');
+const { sectionEnd, headingLevelOf } = require('../document/project/issueInboxLayout');
 const { findMetadataBlockEndExclusive } = require('../document/model/persistentHeadingZones');
 
-const HEADING_LINE_RE = /^\s*#{1,6}\s+\S/;
+const HEADING_LINE_RE = /^\s*#\d*\s+\S/;
 
 /**
  * @param {string} text
@@ -24,28 +24,28 @@ function toLines(text) {
 }
 
 /**
- * Find a heading line by its `@fN:hM` identity line (the heading directly below it).
+ * Find a heading line by its `@hN` identity line (the heading directly below it).
+ * `fileId` is kept for call-site compatibility — identity no longer carries a file id.
  * @param {string[]} lines
- * @param {string|number} fileId
+ * @param {string|number} _fileId
  * @param {string|number} headingId
  * @returns {{ headingLine: number, identityLine: number, indent: number, title: string } | null}
  */
-function findHeadingByIdentity(lines, fileId, headingId) {
-	const fid = String(fileId).replace(/^f/i, '');
+function findHeadingByIdentity(lines, _fileId, headingId) {
 	const hid = String(headingId);
 	for (let i = 0; i < lines.length; i++) {
 		const parsed = parseHeadingIdentityLine(lines[i]);
 		if (!parsed) continue;
-		if (String(parsed.fileNum) !== fid || String(parsed.headingNum) !== hid) continue;
+		if (String(parsed.headingNum) !== hid) continue;
 		for (let j = i + 1; j < lines.length; j++) {
 			const raw = String(lines[j] || '');
 			if (!raw.trim()) continue;
 			if (HEADING_LINE_RE.test(raw)) {
-				const m = raw.match(/^\s*#{1,6}\s+(.*)$/);
+				const m = raw.match(/^\s*#\d*\s+(.*)$/);
 				return {
 					headingLine: j,
 					identityLine: i,
-					indent: indentOf(raw),
+					indent: headingLevelOf(raw),
 					title: (m ? String(m[1]) : '').trim()
 				};
 			}
@@ -151,7 +151,7 @@ function appendToHeadingAtLine(text, headingLine, noteText) {
 	const lines = toLines(text);
 	const raw = String(lines[headingLine] || '');
 	if (!HEADING_LINE_RE.test(raw)) return null;
-	return appendToBlock(blockAt(lines, { headingLine, indent: indentOf(raw) }), noteText);
+	return appendToBlock(blockAt(lines, { headingLine, indent: headingLevelOf(raw) }), noteText);
 }
 
 /**

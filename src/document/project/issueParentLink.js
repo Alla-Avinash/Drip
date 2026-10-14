@@ -3,10 +3,10 @@
 /**
  * Logical issue parent (`parent: i-N`) rules — one place for RHS, diagnostics, index, Project View.
  *
- * - Locked: issue sits inside another issue's indented section in the same file → parent is that
- *   issue (nearest outline ancestor issue; plain headings in between are skipped; sections end as
- *   in `issueInboxLayout.sectionEnd`, so text at the parent's indent closes it). Implied only:
- *   no `parent:` line is written and the RHS hides the field.
+ * - Locked: issue sits inside another issue's section in the same file → parent is that issue
+ *   (nearest outline ancestor issue; plain headings in between are skipped; sections end as in
+ *   `issueInboxLayout.sectionEnd`, so a heading at the parent's marker level closes it). Implied
+ *   only: no `parent:` line is written and the RHS hides the field.
  * - Free: no issue above it in the outline → optional `parent:` may be any existing issue in
  *   the same project (any file / feature / folder), except itself or its own sub-issues.
  */
@@ -92,7 +92,7 @@ function nearestOutlineParentIssueKey(headingId, parentByHeadingId, issueKeyByHe
 }
 
 /**
- * Nested issues get their parent from indentation, so `parent:` is dropped (never repeated).
+ * Nested issues get their parent from the heading hierarchy, so `parent:` is dropped (never repeated).
  * Free issues keep whatever the user set (optional).
  *
  * @param {Record<string, unknown>} attributes
@@ -159,7 +159,7 @@ function validateIssueParentChoice(args) {
 		return {
 			ok: false,
 			value: '',
-			error: `Parent is set by indentation (${locked}). Outdent this issue to choose a different parent.`
+			error: `Parent is set by the heading hierarchy (${locked}). Move this issue out of that section to choose a different parent.`
 		};
 	}
 	if (!raw) return { ok: true, value: '' };
@@ -252,7 +252,7 @@ function setIssueParentLineInLines(lines, headingLine, parentId) {
 			if (lastMeta >= 0) break;
 			continue;
 		}
-		if (/^\s*#{1,6}\s/.test(raw) || /^\s*@/.test(raw)) break;
+		if (/^\s*#\d*\s/.test(raw) || /^\s*@/.test(raw)) break;
 		if (tr.startsWith('//')) continue;
 		if (!/^(\.[a-z]|[a-z][a-z0-9_-]*\s*:|\[)/i.test(tr)) break;
 		if (/^\.issue\b/i.test(tr)) markerIdx = j;

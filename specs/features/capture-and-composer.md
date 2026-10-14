@@ -25,6 +25,7 @@ The Composer is where a user drafts a new note or captures a selection/clipboard
 
 - After writing, DRIP decides where the note should go: merge into an existing note, append, or create a new heading/file.
 - Ingest candidates are computed to suggest the best destination.
+- The note is written in the target file's own format. A `.d.txt` target gets a tab-nested type-1 heading; a plain `.md` target gets a flush-left markdown heading; a `.d.md` target gets a markdown heading with a hidden `<!-- drip h0 | persistent -->` comment directly under it, so the ingested note becomes an indexed persistent heading (its real `hN` id is resolved on the next open/save). A brand-new `.d.md` file gets the `<!-- drip-file … -->` header, the h0 title, then the body.
 
 ## Flow (plain steps)
 

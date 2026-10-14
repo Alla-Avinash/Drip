@@ -11,11 +11,13 @@ const SETTINGS_BODY_HTML = fs.readFileSync(path.join(__dirname, 'settings', 'web
 /**
  * @param {import('vscode').Webview} webview
  * @param {import('vscode').Uri} extensionUri
- * @param {{ initialPanel?: string }} [opts]
+ * @param {{ initialPanel?: string, initialProject?: string, initialProjectTitle?: string }} [opts]
  */
 function getSettingsWebviewHtml(webview, extensionUri, opts = {}) {
 	const nonce = getNonce();
 	const initialPanelJson = JSON.stringify(/^[a-z-]+$/.test(String(opts.initialPanel || '')) ? opts.initialPanel : 'kb');
+	const initialProjectJson = JSON.stringify(String(opts.initialProject || ''));
+	const initialProjectTitleJson = JSON.stringify(String(opts.initialProjectTitle || ''));
 	const defaultTypesJson = JSON.stringify(DEFAULT_METADATA_TYPES).replace(/</g, '\\u003c');
 	const defaultFileTypesJson = JSON.stringify(DEFAULT_FILE_LEVEL_METADATA_TYPES).replace(/</g, '\\u003c');
 
@@ -35,6 +37,8 @@ ${SETTINGS_BODY_HTML}
 	<script nonce="${nonce}">
 		window.__dripSettingsInit = {
 			initialPanel: ${initialPanelJson},
+			initialProject: ${initialProjectJson},
+			initialProjectTitle: ${initialProjectTitleJson},
 			defaultMetadataTypes: ${defaultTypesJson},
 			defaultFileLevelMetadataTypes: ${defaultFileTypesJson}
 		};

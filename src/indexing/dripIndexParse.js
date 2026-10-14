@@ -1,13 +1,12 @@
 'use strict';
 
-const crypto = require('crypto');
 const { collectHeadingSequenceValidated } = require('../document/parse/dripnoteHeadingParse');
 const { getMetadataSettingsForIndex } = require('../document/model/dripnoteMetadataTemplates');
 const {
 	classifyPersistentHeadingTitle,
 	stripHeadingTitleTypePrefix
 } = require('../document/model/dripnotePersistentHeading');
-const { parseFileEntityIdNumber, parseHeadingEntityIdNumber } = require('./dripnoteEntityIds');
+const { parseFileEntityIdNumber } = require('./dripnoteEntityIds');
 const { parseTypedMetadataForHeading } = require('./parse/dripIndexTypedMetadata');
 const {
 	getKnownMetadataTypeIds,
@@ -20,7 +19,6 @@ const {
 	mergeParsedNoteWithCache,
 	resolveReparsedNodeIndices
 } = require('./parse/dripIndexIncrementalParse');
-const { outlineParentsByLine } = require('../document/project/issueInboxLayout');
 
 /**
  * @param {string} text
@@ -52,18 +50,10 @@ function parseFileIdFromHeader(headerLines) {
  */
 function parseHeadingMetaBlock(metaLines) {
 	let headingIdNum = null;
-	let hash = '';
 	let metadataType = '';
 
 	for (const line of metaLines || []) {
-		const hashMatch = String(line || '').match(/#\s*([A-Za-z0-9]{8})\b/);
-		if (hashMatch) {
-			hash = hashMatch[1];
-		}
-
-		const scoped = String(line || '').match(/@+\s*f?\d*\s*:?\s*h(\d+)/i);
-		const plain = String(line || '').match(/@\s*h(\d+)/i);
-		const idMatch = scoped || plain;
+		const idMatch = String(line || '').match(/@\s*h(\d+)/i);
 		if (idMatch) {
 			headingIdNum = parseInt(idMatch[1], 10);
 		}
@@ -74,7 +64,7 @@ function parseHeadingMetaBlock(metaLines) {
 		}
 	}
 
-	return { headingIdNum, hash, metadataType };
+	return { headingIdNum, metadataType };
 }
 
 /**
@@ -91,37 +81,12 @@ function parseBracketTokens(raw) {
 const BRACKET_RELATION_LINE_RE = /^\s*([A-Za-z][A-Za-z0-9_-]*)\s*:\s*\[([^\]]*)\]\s*$/i;
 const SHORT_BRACKET_LINE_RE = /^\s*\[([^\]]+)\]\s*$/;
 const TAGS_RELATION_KEY = 'tags';
-const HEADING_IDENTITY_LINE_RE = /^\s*@+\s*f(\d+)\s*:\s*h(\d+)\b(?:\s+#\s*([A-Za-z0-9]{8}))?\s*$/i;
-
-/**
- * @param {string} line
- * @returns {boolean}
- */
-function isStructuredHeadingMetadataLine(line) {
-	const s = String(line || '');
-	const t = s.trim();
-	if (!t || t === '---') return false;
-	if (HEADING_IDENTITY_LINE_RE.test(s)) return false;
-	if (/^\s*\/\//.test(s)) return false;
-	if (/^\s*\.(\w[\w-]*)\b/i.test(t)) return true;
-	if (/^\s*(tags|pre-req)\s*:\s*\[/i.test(s)) return true;
-	if (/^\s*\[[^\]]*\]\s*$/.test(t)) return true;
-	if (/^\s*[a-z][a-z0-9_-]*\s*:\s*.+$/i.test(t)) return true;
-	return false;
-}
-
-/**
- * @param {string[]} metaLines
- * @returns {string[]}
- */
-function structuredMetaLinesForHash(metaLines) {
-	return (metaLines || []).filter(isStructuredHeadingMetadataLine);
-}
+const HEADING_IDENTITY_LINE_RE = /^\s*@+\s*h(\d+)\s*$/i;
 
 /**
  * @param {string[]} lines
  * @param {number} headingLineIndex
- * @returns {{ headingIdNum: number, hash: string } | null}
+ * @returns {{ headingIdNum: number } | null}
  */
 function parseHeadingIdentityAbove(lines, headingLineIndex) {
 	for (let j = headingLineIndex - 1; j >= 0; j--) {
@@ -129,11 +94,10 @@ function parseHeadingIdentityAbove(lines, headingLineIndex) {
 		if (!line.trim()) continue;
 		const m = HEADING_IDENTITY_LINE_RE.exec(line);
 		if (m) {
-			const headingIdNum = parseInt(m[2], 10);
+			const headingIdNum = parseInt(m[1], 10);
 			if (!Number.isFinite(headingIdNum)) return null;
-			return { headingIdNum, hash: String(m[3] || '').trim() };
+			return { headingIdNum };
 		}
-		if (/^(\s*)#{1,6}\s+/.test(line)) break;
 		break;
 	}
 	return null;
@@ -238,21 +202,6 @@ function collectTagsAndRelationsFromLines(lines, sourceHeadingId, knownTagsLower
 }
 
 /**
- * @param {string} title
- * @param {string} metadataType
- * @param {string[]} metaLines
- */
-function computeHeadingHash(title, metadataType, metaLines) {
-	const seed = [title, metadataType, ...(metaLines || [])].join('|');
-	return crypto
-		.createHash('sha1')
-		.update(seed)
-		.digest('base64url')
-		.replace(/[^a-zA-Z0-9]/g, '')
-		.slice(0, 8);
-}
-
-/**
  * Parse one heading node into index rows (heading + scoped edges).
  *
  * @param {string[]} lines
@@ -278,19 +227,13 @@ function parseHeadingNodeForIndex(lines, node, knownTagsLower, nextAutoHeadingId
 		options?.metadataType,
 		options?.knownMetadataTypeIds || getKnownMetadataTypeIds()
 	);
-	const hashMetaLines = structuredMetaLinesForHash(node.metaLines || []);
-	const hash =
-		above?.hash ||
-		meta.hash ||
-		computeHeadingHash(node.title, metadataType, hashMetaLines);
 
 	const heading = {
 		heading_id: headingId,
 		// File keeps `# .c Title`; index stores clean words only (type lives in metadata_type_id).
 		title: stripHeadingTitleTypePrefix(node.title),
 		tab_depth: node.tabDepth,
-		metadata_type: metadataType,
-		hash
+		metadata_type: metadataType
 	};
 
 	/** @type {{ source_heading_id: number, tag_name: string }[]} */
@@ -323,12 +266,11 @@ function parseHeadingNodeForIndex(lines, node, knownTagsLower, nextAutoHeadingId
  * this heading (same rule as issue blocks: text or plain headings at the same or a shallower
  * indent close a section — see `outlineParentsByLine`).
  *
- * @param {string[]} lines
  * @param {import('../document/parse/dripnoteHeadingParse').HeadingNodeFlat[]} nodes
  * @param {Map<number, number>} headingIdByNodeIndex
  * @param {{ heading_id: number, parent?: number | null }[]} headings
  */
-function assignHeadingParentsFromIndent(lines, nodes, headingIdByNodeIndex, headings) {
+function assignHeadingParentsFromIndent(nodes, headingIdByNodeIndex, headings) {
 	/** @type {Map<number, { heading_id: number, parent?: number | null }>} */
 	const byId = new Map();
 	for (const h of headings || []) {
@@ -340,10 +282,18 @@ function assignHeadingParentsFromIndent(lines, nodes, headingIdByNodeIndex, head
 		const node = nodes[nodeIndex];
 		if (node && byId.has(Number(headingId))) headingIdByLine.set(node.lineIndex, Number(headingId));
 	}
-	const parentLines = outlineParentsByLine(lines, new Set(headingIdByLine.keys()));
-	for (const [line, parentLine] of parentLines) {
-		const h = byId.get(/** @type {number} */ (headingIdByLine.get(line)));
-		if (h) h.parent = parentLine == null ? null : /** @type {number} */ (headingIdByLine.get(parentLine));
+	// Parent = nearest earlier heading with a strictly smaller marker level (tabDepth).
+	/** @type {{ line: number, depth: number }[]} */
+	const stack = [];
+	for (const node of nodes) {
+		const headingId = headingIdByLine.get(node.lineIndex);
+		if (headingId == null) continue;
+		const h = byId.get(headingId);
+		if (!h) continue;
+		while (stack.length && stack[stack.length - 1].depth >= node.tabDepth) stack.pop();
+		const parentLine = stack.length ? stack[stack.length - 1].line : null;
+		h.parent = parentLine == null ? null : headingIdByLine.get(parentLine) ?? null;
+		stack.push({ line: node.lineIndex, depth: node.tabDepth });
 	}
 }
 
@@ -362,7 +312,7 @@ function parseAllHeadingNodesForIndex(lines, nodes, knownTagsLower, options) {
 		node =>
 			node.valid !== false &&
 			node.tabDepth === 0 &&
-			(separatorIndex < 0 || node.lineIndex < separatorIndex)
+			(separatorIndex < 0 || node.lineIndex > separatorIndex)
 	);
 
 	/** @type {object[]} */
@@ -416,7 +366,7 @@ function parseAllHeadingNodesForIndex(lines, nodes, knownTagsLower, options) {
 		typedMetadata.push(...parsed.typedMetadata);
 	}
 
-	assignHeadingParentsFromIndent(lines, nodes, headingIdByNodeIndex, headings);
+	assignHeadingParentsFromIndent(nodes, headingIdByNodeIndex, headings);
 
 	return { headings, searchtags, relations, typedMetadata, headingIdByNodeIndex };
 }
@@ -504,7 +454,6 @@ module.exports = {
 	parseAllHeadingNodesForIndex,
 	parseHeadingNodeForIndex,
 	assignHeadingParentsFromIndent,
-	computeHeadingHash,
 	collectSearchTagsFromLines,
 	collectRelationsFromLines,
 	collectTagsAndRelationsFromLines

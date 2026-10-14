@@ -97,11 +97,11 @@ const { registerDripnoteMetadataDiagnostics } = require('../document/validate/dr
 const { registerDripMdNoteMetadataValidation } = require('../document/validate/dripMdNoteMetadataValidation');
 const { registerDripMdNoteFileHeaderReconcile } = require('../document/validate/dripMdNoteFileHeaderReconcile');
 const { registerDripnoteMetadataCompletion } = require('../views/editor/dripnoteMetadataCompletion');
+const { registerDripnoteHeadingShorthand } = require('../views/editor/dripnoteHeadingShorthand');
 const { registerDripnoteCustomDecorations } = require('../views/editor/dripnoteCustomDecorations');
 const { registerDripnoteHeadingIdentityDisplay } = require('../views/editor/dripnoteHeadingIdentityDisplay');
 const { DripMdEditorProvider } = require('../views/editor/dripMdEditor/dripMdEditorProvider');
-const { registerDripnoteIndexSync } = require('../indexing/dripnoteIndexSync');
-const { registerDripMdNoteIndexSync } = require('../indexing/sync/dripMdNoteSync');
+const { registerNoteLifecycle } = require('../indexing/sync/dripnoteLifecycle');
 const { registerStartupCheck, resetStartupCheckCache, runStartupCheck } = require('../startup/startupCheck');
 const {
 	DripRetrieverPanel,
@@ -138,6 +138,22 @@ async function postDripSettingsValuesToWebview(webview, dripState, extensionCont
 	const defs = getDefaultKnowledgeBaseSettingsObject();
 	const docTypes = getMetadataSettings().types;
 	const fileTypes = getFileLevelMetadataSettings().types;
+	/** @type {{ folderPrefix: string, title: string }[]} */
+	let projects = [];
+	/** @type {Record<string, any>} */
+	let projectMetadataOverrides = {};
+	if (kbRoot) {
+		try {
+			const { listProjectsFromIndex } = require('../indexing/projectViewQuery');
+			projects = (await listProjectsFromIndex(kbRoot)).projects.map(p => ({
+				folderPrefix: String(p.folderPrefix || ''),
+				title: String(p.title || '')
+			}));
+		} catch (err) {
+			console.error('[DRIP] list projects for settings failed', err);
+		}
+		projectMetadataOverrides = await require('../document/model/dripnoteProjectMetadata').loadProjectMetadataSettings(kbRoot);
+	}
 	/** @type {unknown} */
 	let githubBackupStatus = null;
 	if (kbRoot && extensionContext) {
@@ -190,6 +206,8 @@ async function postDripSettingsValuesToWebview(webview, dripState, extensionCont
 		editHeadingsInFile: c.get('editHeadingsInFile', defs.editHeadingsInFile === true),
 		editHeadingsViaRhs: c.get('editHeadingsViaRhs', defs.editHeadingsViaRhs !== false),
 		kbSettingsFilePath: kbRoot ? getSettingsDripFileUri(kbRoot).fsPath : '',
+		projects,
+		projectMetadataOverrides,
 		githubBackupStatus,
 		llmStatus,
 		mcpStatus: await require('../integrations/mcp/mcpBridge').getMcpStatus()
@@ -210,6 +228,7 @@ async function activate(context) {
 	registerDripMdNoteMetadataValidation(context);
 	registerDripMdNoteFileHeaderReconcile(context);
 	registerDripnoteMetadataCompletion(context);
+	registerDripnoteHeadingShorthand(context);
 	registerDripnoteCustomDecorations(context);
 	registerDripnoteHeadingIdentityDisplay(context);
 	context.subscriptions.push(
@@ -220,8 +239,7 @@ async function activate(context) {
 		)
 	);
 	const state = new DripState(context);
-	registerDripnoteIndexSync(context, state);
-	registerDripMdNoteIndexSync(context, state);
+	registerNoteLifecycle(context, state);
 	registerPersistentHeadingSoftLock(context);
 	registerDripProjectFolderWatch(context, state);
 	registerDripFeatureFolderWatch(context, state);
@@ -595,6 +613,19 @@ async function activate(context) {
 						await require('../llm/llmSettings').clearLlmApiKey(context);
 						await postDripSettingsValuesToWebview(webview, state, context);
 						break;
+					case 'saveProjectMetadata': {
+						const kbRoot = state.getKnowledgeBaseRoot();
+						if (!kbRoot) {
+							void vscode.window.showWarningMessage(
+								'Select a DRIP knowledge base folder before saving project metadata.'
+							);
+							break;
+						}
+						const pm = require('../document/model/dripnoteProjectMetadata');
+						await pm.saveProjectMetadataSettings(kbRoot, message.projectKey, message.overrides);
+						await postDripSettingsValuesToWebview(webview, state, context);
+						break;
+					}
 				}
 			} catch (error) {
 				console.error(error);
@@ -603,11 +634,18 @@ async function activate(context) {
 	}
 
 	/** @param {string} [panelId] settings nav id to show (e.g. `mcp`) */
-	function createOrShowSettingsPanel(panelId) {
+	function createOrShowSettingsPanel(panelId, projectKey, projectTitle) {
 		const column = vscode.window.activeTextEditor?.viewColumn || vscode.ViewColumn.One;
 		if (settingsPanel) {
 			settingsPanel.reveal(column, false);
-			if (panelId) void settingsPanel.webview.postMessage({ type: 'showPanel', panel: panelId });
+			if (panelId) {
+				void settingsPanel.webview.postMessage({
+					type: 'showPanel',
+					panel: panelId,
+					projectKey: projectKey || '',
+					projectTitle: projectTitle || ''
+				});
+			}
 			return settingsPanel;
 		}
 		settingsPanel = vscode.window.createWebviewPanel(
@@ -620,7 +658,11 @@ async function activate(context) {
 				localResourceRoots: [context.extensionUri]
 			}
 		);
-		settingsPanel.webview.html = getSettingsWebviewHtml(settingsPanel.webview, context.extensionUri, { initialPanel: panelId });
+		settingsPanel.webview.html = getSettingsWebviewHtml(settingsPanel.webview, context.extensionUri, {
+			initialPanel: panelId,
+			initialProject: projectKey,
+			initialProjectTitle: projectTitle
+		});
 		wireSettingsWebviewMessageHandler(settingsPanel.webview);
 		const mcpBridge = require('../integrations/mcp/mcpBridge');
 		const panelWebview = settingsPanel.webview;
@@ -764,7 +806,11 @@ async function activate(context) {
 			dripChatProvider.appendToInput(text);
 		}),
 		vscode.commands.registerCommand('drip.openDripSettingsView', async opts => {
-			createOrShowSettingsPanel(opts && typeof opts.panel === 'string' ? opts.panel : undefined);
+			createOrShowSettingsPanel(
+				opts && typeof opts.panel === 'string' ? opts.panel : undefined,
+				opts && typeof opts.projectKey === 'string' ? opts.projectKey : undefined,
+				opts && typeof opts.projectTitle === 'string' ? opts.projectTitle : undefined
+			);
 		}),
 		vscode.commands.registerCommand('drip.github.configureRemote', async opts => {
 			const kbRoot = state.getKnowledgeBaseRoot();

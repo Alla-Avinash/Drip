@@ -75,7 +75,6 @@ CREATE TABLE headings (
 	heading_id      INTEGER NOT NULL,
 	title           TEXT NOT NULL,
 	metadata_type_id INTEGER,
-	hash            TEXT,
 	parent          INTEGER,
 	PRIMARY KEY (file_id, heading_id),
 	FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE,

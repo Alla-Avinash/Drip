@@ -2,7 +2,6 @@
 
 const vscode = require('vscode');
 const { ensureDripIndexSkeleton } = require('./initializeDripIndex');
-const { normalizeAllNoteIdentities } = require('../indexing/dripnoteFileIdentity');
 const {
 	dripIndexNeedsRebuild,
 	rebuildDripIndex,
@@ -43,7 +42,6 @@ async function updateKnowledgeBase(context, kbRootUri, options) {
 		return { ok: true, updated: false };
 	}
 
-	await normalizeAllNoteIdentities(kbRootUri, context);
 	await reconcileAllKbNoteHeadingIdentities(kbRootUri, context);
 	await rebuildDripIndex(kbRootUri, context);
 

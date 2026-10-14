@@ -93,7 +93,7 @@ function classifyMetaLine(metaLine) {
  * @returns {string}
  */
 function rawTitleFromHeadingLine(headingLine) {
-	const m = String(headingLine || '').match(/^(\s*)(#{1,6})\s+(.*)$/);
+	const m = String(headingLine || '').match(/^(\s*)(#\d*)\s+(.*)$/);
 	return m ? String(m[3] || '') : '';
 }
 
@@ -156,7 +156,7 @@ function splitPersistentHeadingTitle(title, rawTitle) {
  */
 function isPersistentHeadingReadyForRhs(titleOrHeadingLine) {
 	const s = String(titleOrHeadingLine || '');
-	if (/^\s*#{1,6}\s+/.test(s)) {
+	if (/^\s*#\d*\s+/.test(s)) {
 		const ph = parseHeadingForValidation(s);
 		return splitPersistentHeadingTitle(ph ? ph.title : '', rawTitleFromHeadingLine(s)).readyForRhs;
 	}
@@ -316,8 +316,10 @@ function findPersistentZoneAtLine(text, lineIndex, settings) {
  */
 function serializePersistentHeadingBlock(model, settings) {
 	const s = settings || getMetadataSettings();
-	const level = Math.min(6, Math.max(1, Number(model.level) || 1));
-	const tabs = '\t'.repeat(Math.max(0, Number(model.tabDepth) || 0));
+	// Hierarchy is the marker number (`#` = 0, `#1` = 1, `#2` = 2), never tab indentation.
+	const level = Math.min(6, Math.max(0, Number(model.level) || 0));
+	const marker = level === 0 ? '#' : `#${level}`;
+	const depth = Math.max(0, Number(model.tabDepth) || 0);
 	const typeId = String(model.typeId || '').trim().toLowerCase();
 	const typeDef =
 		(s.typeById && s.typeById.get(typeId)) ||
@@ -330,10 +332,10 @@ function serializePersistentHeadingBlock(model, settings) {
 		prefix = `.${typeId}`;
 	}
 	const titlePart = String(model.titleDisplay || '').trim();
-	const titleLine = `${tabs}${'#'.repeat(level)} ${prefix}${titlePart ? ` ${titlePart}` : ' '}`;
+	const titleLine = `${marker} ${prefix}${titlePart ? ` ${titlePart}` : ' '}`;
 
-	const metaIndent = `${tabs}\t`;
-	const attrIndent = `${tabs}\t\t`;
+	const metaIndent = '\t'.repeat(depth + 1);
+	const attrIndent = '\t'.repeat(depth + 2);
 	/** @type {string[]} */
 	const meta = [];
 	if (typeDef) {

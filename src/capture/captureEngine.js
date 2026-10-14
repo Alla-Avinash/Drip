@@ -244,7 +244,6 @@ async function reindexNote(kbRoot, uri, context) {
  */
 async function createNewNote(kbRoot, title, noteText, context) {
 	const { allocateNextEntityNumber, indexNewNoteImmediately } = require('../indexing/dripnoteIndex');
-	const { normalizeNoteIdentityFile } = require('../indexing/dripnoteFileIdentity');
 	const safeTitle =
 		(String(title || '').trim() || String(noteText.split('\n')[0] || '').trim() || 'Untitled').slice(0, 80) ||
 		'Untitled';
@@ -263,7 +262,6 @@ async function createNewNote(kbRoot, title, noteText, context) {
 		{ fileEntityNumber: entity }
 	);
 	await vscode.workspace.fs.writeFile(uri, Buffer.from(text, 'utf8'));
-	await normalizeNoteIdentityFile(uri, { context, kbRoot });
 	await indexNewNoteImmediately(kbRoot, uri, context);
 	return uri;
 }

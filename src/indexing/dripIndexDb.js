@@ -34,7 +34,6 @@ const {
 const { forEachKnowledgeBaseNote } = require('../document/kbNoteOps');
 const { parseNoteForIndex, splitHeaderAndBody, parseFileIdFromHeader } = require('./dripIndexParse');
 const { formatFileEntityId } = require('./dripnoteEntityIds');
-const { findDirtyHeadingIdsByHash } = require('./sync/dripnoteDocumentWatch');
 const { normalizeMetadataTypeForIndex } = require('./parse/dripIndexMetadataType');
 const tagGraphStore = require('../graph/tagGraphStore');
 
@@ -94,9 +93,6 @@ function deleteFileHeadingScopedRows(db, fileId, zone) {
 	for (const table of typedMetadataTablesForZone(zone)) {
 		db.run(`DELETE FROM ${table} WHERE file_id = ?`, [fileId]);
 	}
-	if (zone === 'project') {
-		db.run(`DELETE FROM issues WHERE file_id = ?`, [fileId]);
-	}
 	db.run(`DELETE FROM ${REMAINING_METADATA_TABLE} WHERE file_id = ?`, [fileId]);
 	db.run('DELETE FROM headings WHERE file_id = ?', [fileId]);
 }
@@ -120,9 +116,6 @@ function deleteHeadingScopedRows(db, fileId, headingId, options, zone) {
 	]);
 	for (const table of typedMetadataTablesForZone(zone)) {
 		db.run(`DELETE FROM ${table} WHERE file_id = ? AND heading_id = ?`, [fileId, headingId]);
-	}
-	if (zone === 'project') {
-		db.run(`DELETE FROM issues WHERE file_id = ? AND heading_id = ?`, [fileId, headingId]);
 	}
 	db.run(`DELETE FROM ${REMAINING_METADATA_TABLE} WHERE file_id = ? AND heading_id = ?`, [
 		fileId,
@@ -575,15 +568,15 @@ function insertParsedHeadingsAndReferences(
 			: null;
 		if (isProject) {
 			db.run(
-				`INSERT INTO headings (file_id, heading_id, title, metadata_type_id, hash, parent, project_id, feature_id)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-				[fileId, headingId, heading.title, metadataTypeId, heading.hash, parent, projectId, featureId]
+				`INSERT INTO headings (file_id, heading_id, title, metadata_type_id, parent, project_id, feature_id)
+				 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				[fileId, headingId, heading.title, metadataTypeId, parent, projectId, featureId]
 			);
 		} else {
 			db.run(
-				`INSERT INTO headings (file_id, heading_id, title, metadata_type_id, hash, parent)
-				 VALUES (?, ?, ?, ?, ?, ?)`,
-				[fileId, headingId, heading.title, metadataTypeId, heading.hash, parent]
+				`INSERT INTO headings (file_id, heading_id, title, metadata_type_id, parent)
+				 VALUES (?, ?, ?, ?, ?)`,
+				[fileId, headingId, heading.title, metadataTypeId, parent]
 			);
 		}
 	}
@@ -953,7 +946,11 @@ async function rebuildDripIndex(kbRootUri, context) {
 			projectHandle.db.run(`DELETE FROM ${table}`);
 		}
 		projectHandle.db.run(`DELETE FROM ${REMAINING_METADATA_TABLE}`);
-		projectHandle.db.run('DELETE FROM issues');
+		projectHandle.db.run('DELETE FROM issue_concept_links');
+		projectHandle.db.run('DELETE FROM issue_decision_links');
+		projectHandle.db.run('DELETE FROM decision_concept_links');
+		projectHandle.db.run('DELETE FROM decisions');
+		projectHandle.db.run('DELETE FROM concepts');
 		projectHandle.db.run('DELETE FROM headings');
 		projectHandle.db.run('DELETE FROM features');
 		projectHandle.db.run('DELETE FROM projects');
@@ -1101,7 +1098,7 @@ async function applyParsedNoteToIndex(kbRootUri, relPath, parsed, context, optio
 				if (incremental && parsed._parseMode === 'incremental-subtree') {
 					const dirtyIds = Array.isArray(parsed._dirtyHeadingIds)
 						? [...new Set(parsed._dirtyHeadingIds.map(Number).filter(Number.isFinite))]
-						: findDirtyHeadingIdsByHash(scopeDb, fileId, parsed.headings || []);
+						: (parsed.headings || []).map(h => Number(h.heading_id)).filter(n => Number.isFinite(n));
 					if (dirtyIds.length) {
 						const dirtySet = new Set(dirtyIds);
 						/** @type {Set<number>} */

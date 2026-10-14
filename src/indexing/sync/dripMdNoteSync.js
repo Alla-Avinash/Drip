@@ -207,28 +207,6 @@ function injectHeadingComments(lines, walked, idByLine) {
 }
 
 /**
- * Strip legacy `.c` / `.task` / `.i-N` / `. Title` type prefixes from heading lines, so the
- * type lives only in the hidden comment (the new `.d.md` format). The stripped title is
- * already computed as `cleanTitle` on each walked heading, so this just rewrites the heading
- * line. `.i-34 Title` keeps its issue number (`i-34 Title`) — only the type dot is dropped.
- *
- * @param {string[]} lines
- * @param {ReturnType<typeof walkDripMdNoteHeadings>} walked
- * @returns {string[]}
- */
-function stripLegacyHeadingPrefixes(lines, walked) {
-	const out = [...lines];
-	for (let ni = 0; ni < walked.length; ni++) {
-		const w = walked[ni];
-		if (ni === 0 || w.cleanTitle === w.title) continue; // h0 + already-clean headings
-		const m = lines[w.lineIndex].match(/^(\s*)(#{1,6})\s+.*$/);
-		if (!m) continue;
-		out[w.lineIndex] = `${m[1]}${m[2]} ${w.cleanTitle}`;
-	}
-	return out;
-}
-
-/**
  * Rebuild the whole note: inject heading comments, then produce the canonical file header
  * (comment + h0 + blank line) using the resolved file id. Reuses `reconcileMdNoteFileHeader`
  * so the header rules stay identical to the standalone structural reconcile.
@@ -241,8 +219,7 @@ function stripLegacyHeadingPrefixes(lines, walked) {
  * @returns {string}
  */
 function rebuildDripMdNoteText(text, fileStem, fileEntityId, walked, idByLine) {
-	const stripped = stripLegacyHeadingPrefixes(toLines(text), walked);
-	const injected = injectHeadingComments(stripped, walked, idByLine);
+	const injected = injectHeadingComments(toLines(text), walked, idByLine);
 	const result = reconcileMdNoteFileHeader(injected.join('\n'), { fileStem, fileid: fileEntityId });
 	return [...result.headerLines, ...injected.slice(result.bodyStartLineIndex)].join('\n');
 }

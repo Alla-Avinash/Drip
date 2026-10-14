@@ -79,7 +79,6 @@ CREATE TABLE headings (
 	heading_id      INTEGER NOT NULL,
 	title           TEXT NOT NULL,
 	metadata_type_id INTEGER,
-	hash            TEXT,
 	parent          INTEGER,
 	project_id      INTEGER,
 	feature_id      INTEGER,
@@ -126,45 +125,143 @@ CREATE INDEX idx_relations_tag  ON relations(tag_id);
 CREATE INDEX idx_relations_type ON relations(relation_type_id);
 
 -- -----------------------------------------------------------------------------
--- issue_metadata — fixed columns for an issue heading (hot keys only).
+-- issue_metadata — the single canonical issue store. Keyed by location
+-- (file_id, heading_id) for the generic typed-metadata write path, with a
+-- per-project unique entity key for the Project View + link tables.
+--   issue_key = the issue's own i-N; parent_issue_key = logical parent i-N (cross-file)
 -- -----------------------------------------------------------------------------
 CREATE TABLE issue_metadata (
-	file_id         INTEGER NOT NULL,
-	heading_id      INTEGER NOT NULL,
-	status          TEXT,
-	category        TEXT,
-	deadline        INTEGER,
-	priority        TEXT,
-	parent_issue_key TEXT,
-	PRIMARY KEY (file_id, heading_id),
-	FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
-);
-CREATE INDEX idx_issue_sort       ON issue_metadata(deadline, priority);
-CREATE INDEX idx_issue_parent_key ON issue_metadata(parent_issue_key);
-
--- -----------------------------------------------------------------------------
--- issues — canonical Project View issue store.
---   issue_key = i-N (per project); parent_issue_key = logical parent i-N (cross-file)
--- -----------------------------------------------------------------------------
-CREATE TABLE issues (
-	project_id       INTEGER NOT NULL,
-	issue_key        TEXT NOT NULL,
 	file_id          INTEGER NOT NULL,
 	heading_id       INTEGER NOT NULL,
-	title            TEXT,
-	parent_issue_key TEXT,
+	issue_key        TEXT,
+	project_id       INTEGER,
+	feature_id       INTEGER,
 	status           TEXT,
 	category         TEXT,
 	deadline         INTEGER,
 	priority         TEXT,
-	PRIMARY KEY (project_id, issue_key),
+	parent_issue_key TEXT,
+	PRIMARY KEY (file_id, heading_id),
+	UNIQUE (project_id, issue_key),
+	FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE,
+	FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE,
+	FOREIGN KEY (feature_id) REFERENCES features(feature_id) ON DELETE SET NULL
+);
+CREATE INDEX idx_issue_sort       ON issue_metadata(deadline, priority);
+CREATE INDEX idx_issue_parent_key ON issue_metadata(parent_issue_key);
+CREATE INDEX idx_issue_project    ON issue_metadata(project_id);
+
+-- -----------------------------------------------------------------------------
+-- concept_metadata — fixed columns for a concept heading (c-N) in a project
+-- _concepts folder. concept_key = c-N's integer number.
+-- -----------------------------------------------------------------------------
+CREATE TABLE concept_metadata (
+	file_id     INTEGER NOT NULL,
+	heading_id  INTEGER NOT NULL,
+	concept_key INTEGER,
+	status      TEXT,
+	domain      TEXT,
+	PRIMARY KEY (file_id, heading_id),
+	FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
+);
+CREATE INDEX idx_concept_key ON concept_metadata(concept_key);
+
+-- -----------------------------------------------------------------------------
+-- decision_metadata — fixed columns for a decision heading (d-N) in a project
+-- _decisions folder. `superseded_by` = another d-N number, `concept_key` = c-N number.
+-- -----------------------------------------------------------------------------
+CREATE TABLE decision_metadata (
+	file_id       INTEGER NOT NULL,
+	heading_id    INTEGER NOT NULL,
+	decision_key  INTEGER,
+	status        TEXT,
+	category      TEXT,
+	superseded_by INTEGER,
+	concept_key   INTEGER,
+	PRIMARY KEY (file_id, heading_id),
+	FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
+);
+CREATE INDEX idx_decision_key       ON decision_metadata(decision_key);
+CREATE INDEX idx_decision_superseded ON decision_metadata(superseded_by);
+
+-- -----------------------------------------------------------------------------
+-- concepts — canonical Project View concept store (c-N number per project).
+-- Concepts live in _concepts, outside any feature → no feature_id column.
+-- -----------------------------------------------------------------------------
+CREATE TABLE concepts (
+	project_id  INTEGER NOT NULL,
+	concept_key INTEGER NOT NULL,
+	file_id     INTEGER NOT NULL,
+	heading_id  INTEGER NOT NULL,
+	title       TEXT,
+	status      TEXT,
+	domain      TEXT,
+	PRIMARY KEY (project_id, concept_key),
 	UNIQUE (file_id, heading_id),
 	FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE,
 	FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
 );
-CREATE INDEX idx_issues_project ON issues(project_id);
-CREATE INDEX idx_issues_parent  ON issues(project_id, parent_issue_key);
-CREATE INDEX idx_issues_sort    ON issues(deadline, priority);
+CREATE INDEX idx_concepts_project ON concepts(project_id);
+
+-- -----------------------------------------------------------------------------
+-- decisions — canonical Project View decision store (d-N number per project).
+-- superseded_by = another d-N number; concept_key = the c-N number this decision
+-- is about.
+-- -----------------------------------------------------------------------------
+CREATE TABLE decisions (
+	project_id    INTEGER NOT NULL,
+	decision_key  INTEGER NOT NULL,
+	file_id       INTEGER NOT NULL,
+	heading_id    INTEGER NOT NULL,
+	title         TEXT,
+	status        TEXT,
+	category      TEXT,
+	superseded_by INTEGER,
+	concept_key   INTEGER,
+	PRIMARY KEY (project_id, decision_key),
+	UNIQUE (file_id, heading_id),
+	FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE,
+	FOREIGN KEY (file_id, heading_id) REFERENCES headings(file_id, heading_id) ON DELETE CASCADE
+);
+CREATE INDEX idx_decisions_project ON decisions(project_id);
+
+-- -----------------------------------------------------------------------------
+-- issue_concept_links / issue_decision_links — many-to-many "list" links (like
+-- tags): one issue can connect to many concepts / decisions.
+-- -----------------------------------------------------------------------------
+CREATE TABLE issue_concept_links (
+	project_id  INTEGER NOT NULL,
+	issue_key   TEXT NOT NULL,
+	concept_key INTEGER NOT NULL,
+	PRIMARY KEY (project_id, issue_key, concept_key),
+	FOREIGN KEY (project_id, issue_key)   REFERENCES issue_metadata(project_id, issue_key) ON DELETE CASCADE,
+	FOREIGN KEY (project_id, concept_key) REFERENCES concepts(project_id, concept_key) ON DELETE CASCADE
+);
+CREATE INDEX idx_issue_concept_links_concept ON issue_concept_links(project_id, concept_key);
+
+CREATE TABLE issue_decision_links (
+	project_id   INTEGER NOT NULL,
+	issue_key    TEXT NOT NULL,
+	decision_key INTEGER NOT NULL,
+	PRIMARY KEY (project_id, issue_key, decision_key),
+	FOREIGN KEY (project_id, issue_key)    REFERENCES issue_metadata(project_id, issue_key) ON DELETE CASCADE,
+	FOREIGN KEY (project_id, decision_key) REFERENCES decisions(project_id, decision_key) ON DELETE CASCADE
+);
+CREATE INDEX idx_issue_decision_links_decision ON issue_decision_links(project_id, decision_key);
+
+-- -----------------------------------------------------------------------------
+-- decision_concept_links — many-to-many "list" links (like tags): one decision
+-- can connect to many concepts.
+-- -----------------------------------------------------------------------------
+CREATE TABLE decision_concept_links (
+	project_id   INTEGER NOT NULL,
+	decision_key INTEGER NOT NULL,
+	concept_key  INTEGER NOT NULL,
+	PRIMARY KEY (project_id, decision_key, concept_key),
+	FOREIGN KEY (project_id, decision_key) REFERENCES decisions(project_id, decision_key) ON DELETE CASCADE,
+	FOREIGN KEY (project_id, concept_key)  REFERENCES concepts(project_id, concept_key) ON DELETE CASCADE
+);
+CREATE INDEX idx_decision_concept_links_concept ON decision_concept_links(project_id, concept_key);
 
 -- -----------------------------------------------------------------------------
 -- metadata_remaining_keys — EAV store for non-fixed metadata keys.

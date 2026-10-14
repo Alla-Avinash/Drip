@@ -8,7 +8,7 @@
  * (projects, features, issues, project headings) lives in `projects.drip` — see
  * `dripProjectSchema.js` — so project headings never surface in global search.
  *
- * Heading identity in `.d.txt` files: `@fN:hM #hash` on the line **above** `# title` (not below).
+ * Heading identity in `.d.txt` files: `@hN` on the line **above** the `#`/`#N` heading (not below).
  * Per-file heading id allocator: `index_meta.heading_alloc_<file_id>` → JSON `{ "next": N, "free": […] }`.
  *
  * Defaults (application-enforced; see `headings.metadata_type_id`):
@@ -31,7 +31,7 @@ const { ensureHeadingEmbeddingStorage } = require('../embeddings/headingEmbeddin
 const { ensureFolderEmbeddingStorage } = require('../embeddings/folderEmbeddingStore');
 const { ensureTagEmbeddingStorage } = require('../embeddings/tagEmbeddingStore');
 
-const SCHEMA_VERSION = 17;
+const SCHEMA_VERSION = 18;
 
 /** @type {string} */
 const SCHEMA_SQL = `
@@ -65,8 +65,7 @@ CREATE TABLE IF NOT EXISTS headings (
 	heading_id INTEGER NOT NULL,
 	title TEXT NOT NULL,
 	metadata_type_id INTEGER,
-	hash TEXT,
-	-- Parent heading_id in the same file (from tab indent at index time). NULL = root.
+	-- Parent heading_id in the same file (from the heading marker level). NULL = root.
 	parent INTEGER,
 	PRIMARY KEY (file_id, heading_id),
 	FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE,

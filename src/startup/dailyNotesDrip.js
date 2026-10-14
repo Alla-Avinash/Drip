@@ -4,7 +4,6 @@ const path = require('path');
 const vscode = require('vscode');
 const { buildNewNoteFile } = require('../document/kbNoteOps');
 const { allocateNextEntityNumber, indexNewNoteImmediately } = require('../indexing/dripnoteIndex');
-const { normalizeNoteIdentityFile } = require('../indexing/dripnoteFileIdentity');
 const { DAILY_NOTES_DIR } = require('../shared/constants');
 
 const MONTH_NAMES = [
@@ -140,7 +139,6 @@ async function ensureTodayDailyNote(kbRootUri, now = new Date(), options = {}) {
 		{ fileEntityNumber: n }
 	);
 	await vscode.workspace.fs.writeFile(uri, Buffer.from(text, 'utf8'));
-	await normalizeNoteIdentityFile(uri, { context: options.context, kbRoot: kbRootUri });
 	try {
 		await indexNewNoteImmediately(kbRootUri, uri, options.context);
 	} catch (err) {

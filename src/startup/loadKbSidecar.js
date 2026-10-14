@@ -2,6 +2,7 @@
 
 const { loadSettingsFromDripIndex } = require('./settingsDrip');
 const { invalidateKbNoteExtensionsCache } = require('../document/model/noteFileTypes');
+const { loadProjectMetadataSettings } = require('../document/model/dripnoteProjectMetadata');
 const { loadDraftsFromDripIndex, migrateGlobalDraftsToDripIndex } = require('./draftsDrip');
 const { migrateWorkspaceRecentsToDripIndex, loadRecentsFromDripIndex } = require('./recentsDrip');
 const tagGraphStore = require('../graph/tagGraphStore');
@@ -16,6 +17,7 @@ const tagGraphStore = require('../graph/tagGraphStore');
 async function loadKbSidecar(context, kbRootUri, hooks) {
 	await loadSettingsFromDripIndex(kbRootUri);
 	invalidateKbNoteExtensionsCache();
+	await loadProjectMetadataSettings(kbRootUri);
 	await migrateGlobalDraftsToDripIndex(context, kbRootUri);
 	if (hooks && typeof hooks.refreshDrafts === 'function') {
 		await hooks.refreshDrafts();

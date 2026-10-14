@@ -52,19 +52,14 @@ function listStructuredMetaLines(lines, headingLine) {
 function buildHeadingTitleLine(model, settings, existingHeadingLine) {
 	const s = settings || getMetadataSettings();
 	const existing = parseHeadingForValidation(existingHeadingLine || '');
-	const level = Math.min(
-		6,
-		Math.max(1, Number(model.level) || (existing && existing.level) || 1)
-	);
-	const tabDepth = Math.max(
-		0,
-		Number.isFinite(Number(model.tabDepth))
-			? Number(model.tabDepth)
-			: existing
-				? existing.tabDepth
-				: 0
-	);
-	const tabs = '\t'.repeat(tabDepth);
+	// Hierarchy is the marker number (`#` = 0, `#1` = 1, `#2` = 2), never tab indentation.
+	const rawLevel = Number.isFinite(Number(model.level))
+		? Number(model.level)
+		: existing && Number.isFinite(existing.level)
+			? existing.level
+			: 0;
+	const level = Math.min(6, Math.max(0, rawLevel));
+	const marker = level === 0 ? '#' : `#${level}`;
 	const typeId = String(model.typeId || '').trim().toLowerCase();
 	const typeDef =
 		(s.typeById && s.typeById.get(typeId)) ||
@@ -107,7 +102,7 @@ function buildHeadingTitleLine(model, settings, existingHeadingLine) {
 	}
 
 	// Keep a trailing space after prefix when title is empty so the heading stays "ready" for RHS.
-	return `${tabs}${'#'.repeat(level)} ${prefix}${titlePart ? ` ${titlePart}` : ' '}`;
+	return `${marker} ${prefix}${titlePart ? ` ${titlePart}` : ' '}`;
 }
 
 /**
@@ -210,7 +205,7 @@ function planPersistentHeadingPatch(lines, zone, model, settings) {
 	const s = settings || getMetadataSettings();
 	const headingLine = zone.headingLine;
 	const titleText = buildHeadingTitleLine(
-		{ ...model, level: model.level || zone.level, tabDepth: model.tabDepth ?? zone.tabDepth },
+		{ ...model, level: model.level ?? zone.level, tabDepth: model.tabDepth ?? zone.tabDepth },
 		s,
 		lines[headingLine]
 	);

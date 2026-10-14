@@ -68,7 +68,7 @@ async function listProjectsFromIndex(kbRootUri) {
 			.prepare(
 				`SELECT p.project_id AS projectId, p.folder_prefix AS folderPrefix, p.title AS title,
 				        p.status AS status, p.deadline AS deadline, p.priority AS priority, p.index_file_id AS indexFileId,
-				        (SELECT COUNT(*) FROM issues i WHERE i.project_id = p.project_id) AS issueCount
+				        (SELECT COUNT(*) FROM issue_metadata i WHERE i.project_id = p.project_id) AS issueCount
 				 FROM projects p
 				 ORDER BY LOWER(COALESCE(p.title, p.folder_prefix)) ASC`
 			)
@@ -78,7 +78,8 @@ async function listProjectsFromIndex(kbRootUri) {
 		const statusRows = db.native
 			.prepare(
 				`SELECT project_id AS projectId, LOWER(COALESCE(status, '')) AS status, COUNT(*) AS n
-				 FROM issues
+				 FROM issue_metadata
+				 WHERE issue_key IS NOT NULL
 				 GROUP BY project_id, LOWER(COALESCE(status, ''))`
 			)
 			.all();
@@ -267,22 +268,22 @@ async function listProjectChildrenFromIndex(kbRootUri, projectFolderPrefix) {
 		if (projectId) {
 			issueRows = db.native
 				.prepare(
-					`SELECT i.project_id AS projectId, i.file_id AS fileId, i.heading_id AS headingId,
-					        i.title AS title, i.issue_key AS issueKey, i.parent_issue_key AS parentIssueKey,
-					        i.status AS status, i.priority AS priority, i.deadline AS deadline,
-					        h.parent AS parent
-					 FROM issues i
-					 LEFT JOIN headings h
-					   ON h.file_id = i.file_id AND h.heading_id = i.heading_id
-					 WHERE i.project_id = ?
-					 ORDER BY
-					   CASE LOWER(COALESCE(i.priority, ''))
-					     WHEN 'high' THEN 0
-					     WHEN 'medium' THEN 1
-					     WHEN 'low' THEN 2
-					     ELSE 3
-					   END,
-					   LOWER(COALESCE(i.title, i.issue_key)) ASC`
+				`SELECT i.project_id AS projectId, i.file_id AS fileId, i.heading_id AS headingId,
+				        h.title AS title, i.issue_key AS issueKey, i.parent_issue_key AS parentIssueKey,
+				        i.status AS status, i.priority AS priority, i.deadline AS deadline,
+				        h.parent AS parent
+				 FROM issue_metadata i
+				 LEFT JOIN headings h
+				   ON h.file_id = i.file_id AND h.heading_id = i.heading_id
+				 WHERE i.project_id = ?
+				 ORDER BY
+				   CASE LOWER(COALESCE(i.priority, ''))
+				     WHEN 'high' THEN 0
+				     WHEN 'medium' THEN 1
+				     WHEN 'low' THEN 2
+				     ELSE 3
+				   END,
+				   LOWER(COALESCE(h.title, i.issue_key)) ASC`
 				)
 				.all(projectId);
 		}
@@ -367,10 +368,12 @@ async function listProjectIssuesForParentPicker(kbRootUri, projectFolderPrefix) 
 		if (!projectId) return [];
 		const rows = db.native
 			.prepare(
-				`SELECT i.issue_key AS issueKey, i.title AS title, i.parent_issue_key AS parentIssueKey,
+				`SELECT i.issue_key AS issueKey, h.title AS title, i.parent_issue_key AS parentIssueKey,
 				        i.file_id AS fileId
-				 FROM issues i
-				 WHERE i.project_id = ?`
+				 FROM issue_metadata i
+				 LEFT JOIN headings h
+				   ON h.file_id = i.file_id AND h.heading_id = i.heading_id
+				 WHERE i.project_id = ? AND i.issue_key IS NOT NULL`
 			)
 			.all(projectId);
 		const pathMap = await loadFilePathMap(kbRootUri);

@@ -51,6 +51,11 @@ When a `.d.txt` file is open in the editor, DRIP provides VS Code language featu
 
 - Persistent headings (the `# .…` sections that hold identity/metadata) can be edited either directly in the file or through the RHS Heading form. When edited via the form, the title/metadata area is soft-locked in the editor to prevent accidental edits.
 
+### Heading shorthand
+
+- Typing a bare `# ` at the start of a line auto-upgrades the marker to the numbered `#N` form from the leading tab indent: `# ` stays root, `\t# ` becomes `#1`, `\t\t# ` becomes `#2`, and so on. This happens as soon as the space after `#` is typed, so the user never types the `#N` number by hand.
+- Only lines whose `#` is preceded by whitespace (tabs/spaces) are upgraded — any non-whitespace before the `#` means it is not a heading and is left alone. `.d.md` / markdown notes are never touched.
+
 ## Flow (plain steps)
 
 1. User opens/edits a `.d.txt` file.

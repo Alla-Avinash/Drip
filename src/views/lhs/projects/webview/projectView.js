@@ -2257,6 +2257,7 @@
 			'<h2>' +
 			esc(title) +
 			'</h2>' +
+			'<button type="button" class="ghost" id="btnProjectSettings" title="Project settings">\u2699</button>' +
 			'<button type="button" class="ghost" id="btnOverview">Overview</button>' +
 			'<button type="button" class="ghost" id="btnTags">Tags</button>' +
 			'<div class="detail-switch">' +
@@ -2277,6 +2278,11 @@
 		if (backBtn) backBtn.addEventListener('click', goBack);
 		const btnNew = document.getElementById('btnNewIssue');
 		if (btnNew) btnNew.addEventListener('click', function () { openCompose(''); });
+		const btnProjectSettings = document.getElementById('btnProjectSettings');
+		if (btnProjectSettings)
+			btnProjectSettings.addEventListener('click', function () {
+				vscode.postMessage({ type: 'openProjectSettings', folderPrefix: selectedPrefix, title: selectedTitle });
+			});
 		const btnOverview = document.getElementById('btnOverview');
 		if (btnOverview)
 			btnOverview.addEventListener('click', function () {

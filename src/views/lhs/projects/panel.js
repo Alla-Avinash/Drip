@@ -204,6 +204,13 @@ class DripProjectViewPanel {
 					case 'openFeatureOverview':
 						await this.openFeatureOverview(message);
 						break;
+					case 'openProjectSettings':
+						await vscode.commands.executeCommand('drip.openDripSettingsView', {
+							panel: 'project-types',
+							projectKey: String(message.folderPrefix || this._selectedPrefix || ''),
+							projectTitle: String(message.title || '')
+						});
+						break;
 					case 'requestProjectTags':
 						await this.sendProjectTags(String(message.folderPrefix || this._selectedPrefix || ''));
 						break;
@@ -381,7 +388,7 @@ class DripProjectViewPanel {
 		const text = doc.getText();
 		const lines = text.replace(/\r\n/g, '\n').split('\n');
 		for (let i = 0; i < lines.length; i++) {
-			const m = lines[i].match(/^#{1,6}\s+(.*)$/);
+			const m = lines[i].match(/^#\d*\s+(.*)$/);
 			if (!m) continue;
 			const title = String(m[1] || '')
 				.replace(/^\.([A-Za-z][A-Za-z0-9_-]*)\s+/, '')

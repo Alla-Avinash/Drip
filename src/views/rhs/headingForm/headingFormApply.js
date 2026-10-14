@@ -99,7 +99,7 @@ async function applyHeadingFormModel(editor, model) {
 		lines,
 		zone,
 		{
-			level: model.level || zone.level,
+			level: model.level ?? zone.level,
 			tabDepth: model.tabDepth ?? zone.tabDepth,
 			typeId,
 			typePrefix,

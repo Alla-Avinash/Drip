@@ -7,7 +7,8 @@
  * `openDripProjectsDb`), never on `index.drip`.
  * - `projects` rows keyed by folder_prefix (e.g. `sample/kjh.p/`)
  * - `headings.project_id` set for every heading under a `.p` folder
- * - `issues` rows keyed by (project_id, issue_key) with parent_issue_key hierarchy
+ * - `issue_metadata` rows keyed by (file_id, heading_id) with a per-project
+ *   unique issue_key and parent_issue_key hierarchy
  */
 
 const path = require('path');
@@ -321,14 +322,19 @@ function issueKeyFromHeadingTitle(title) {
 }
 
 /**
- * Upsert one issues row (canonical Project View store).
+ * Upsert one issue row in `issue_metadata` (the single canonical issue store).
+ * Keyed by location (file_id, heading_id); sets the per-project entity key so the
+ * Project View and link tables can reference it. The display title lives only in
+ * `headings.title` (joined at read time), so it is not stored here — `row.title` is
+ * used solely to derive the issue key when none is passed explicitly.
  * @param {import('./db/dripSqlite').DripSqliteDatabase} db
  * @param {{
  *   projectId: number,
  *   fileId: number,
  *   headingId: number,
- *   title: string,
+ *   title?: string|null,
  *   issueKey?: string|null,
+ *   featureId?: number|null,
  *   status?: string|null,
  *   category?: string|null,
  *   deadline?: number|null,
@@ -352,30 +358,26 @@ function upsertIssueRow(db, row) {
 		parentKey = normalizeIssueEntityId(row.parentIssueKey);
 	}
 
-	const title = String(row.title || '').trim() || issueKey;
-
-	// One heading → one issue: clear stale key for this heading, then upsert by key.
-	db.run(`DELETE FROM issues WHERE file_id = ? AND heading_id = ?`, [fileId, headingId]);
 	db.run(
-		`INSERT INTO issues (
-			project_id, issue_key, file_id, heading_id, title,
+		`INSERT INTO issue_metadata (
+			file_id, heading_id, issue_key, project_id, feature_id,
 			parent_issue_key, status, category, deadline, priority
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(project_id, issue_key) DO UPDATE SET
-			file_id = excluded.file_id,
-			heading_id = excluded.heading_id,
-			title = excluded.title,
+		ON CONFLICT(file_id, heading_id) DO UPDATE SET
+			issue_key = excluded.issue_key,
+			project_id = excluded.project_id,
+			feature_id = excluded.feature_id,
 			parent_issue_key = excluded.parent_issue_key,
 			status = excluded.status,
 			category = excluded.category,
 			deadline = excluded.deadline,
 			priority = excluded.priority`,
 		[
-			projectId,
-			issueKey,
 			fileId,
 			headingId,
-			title,
+			issueKey,
+			projectId,
+			row.featureId != null && Number.isFinite(Number(row.featureId)) ? Number(row.featureId) : null,
 			parentKey,
 			row.status != null ? String(row.status) : null,
 			row.category != null ? String(row.category) : null,

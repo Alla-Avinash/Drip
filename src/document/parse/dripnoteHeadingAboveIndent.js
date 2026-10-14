@@ -1,92 +1,20 @@
 'use strict';
 
 /**
- * Heading outline indent (Problems panel only).
+ * Heading outline depth checks (Problems panel only).
  *
- * (1) **Non-heading line above:** walk upward (skip blanks/`---`). If the first non-empty line R is
- * not a heading and is **strictly shallower** than this heading’s indent before `#`, report (body too
- * flat for this nested heading). If R is a heading, skip — no check here.
- *
- * (2) **Consecutive headings in file order:** if the next heading is **deeper** than the previous,
- * the increase must be **at most one** indent step. Decreasing (jumping back to a shallower heading)
- * may be by any amount.
+ * With the `#` / `#1` / `#2` marker format, heading depth is the marker number, so there is
+ * no indentation-based hierarchy to validate. The one check that still applies is: consecutive
+ * headings may only deepen by one level at a time (`#1` → `#2` is fine, `#1` → `#3` is not).
+ * Jumping back to a shallower heading may skip any number of levels.
  *
  * Depends on `parseHeadingForValidation` from `dripnoteHeadingParse`.
  */
 
 const { parseHeadingForValidation } = require('./dripnoteHeadingParse');
 
-/** Same leading-whitespace width as heading tabDepth (tabs, spaces, NBSP… per parseHeadingForValidation). */
-function leadingWhitespaceIndentWidth(line) {
-	const m = String(line || '').match(/^(\s*)/);
-	if (!m) return 0;
-	const ind = m[1] || '';
-	if (ind.length > 0 && /[^\t\s]/.test(ind)) return 0;
-	return ind.length;
-}
-
 /**
- * First non-empty line strictly above `headingLineIndex`, scanning up to line `minLine` (use 0 for whole file).
- * Blank lines, standalone `---`, and heading identity lines (`@fN:hM`, incl. in-progress `@…` slots) are
- * skipped — everything else (metadata, headings, tabbed text) counts as the reference line. Identity lines
- * are structural companions of the heading, not content, so they must not gate its indent.
- * @returns {number} line index or -1
- */
-function findFirstNonEmptyLineAbove(lines, headingLineIndex, minLine) {
-	let j = headingLineIndex - 1;
-	while (j >= minLine) {
-		const t = String(lines[j] || '').trim();
-		if (!t || t === '---') {
-			j--;
-			continue;
-		}
-		if (/^@+/.test(t)) {
-			j--;
-			continue;
-		}
-		return j;
-	}
-	return -1;
-}
-
-/**
- * @param {string[]} lines
- * @returns {{ lineIndex: number, message: string }[]}
- */
-function collectHeadingVersusAboveLineIndentErrors(lines) {
-	/** @type {{ lineIndex: number, message: string }[]} */
-	const out = [];
-
-	for (let i = 0; i < lines.length; i++) {
-		const ph = parseHeadingForValidation(lines[i]);
-		if (!ph) continue;
-
-		const refIdx = findFirstNonEmptyLineAbove(lines, i, 0);
-		if (refIdx < 0) continue;
-
-		const refRaw = lines[refIdx];
-		if (parseHeadingForValidation(refRaw)) continue;
-
-		const aboveIndent = leadingWhitespaceIndentWidth(refRaw);
-		if (aboveIndent < ph.tabDepth) {
-			out.push({
-				lineIndex: i,
-				message:
-					'This heading is indented deeper than the non-heading line above it. Indent that line, or reduce indent before # here.'
-			});
-		}
-	}
-
-	for (const e of collectConsecutiveHeadingDepthJumpErrors(lines)) {
-		out.push(e);
-	}
-
-	out.sort((a, b) => a.lineIndex - b.lineIndex);
-	return out;
-}
-
-/**
- * Successive `#` headings by line order: depth may drop by any amount; if it rises, only +1 per step.
+ * Successive headings by line order: depth may drop by any amount; if it rises, only +1 per step.
  * @param {string[]} lines
  * @returns {{ lineIndex: number, message: string }[]}
  */
@@ -106,16 +34,24 @@ function collectConsecutiveHeadingDepthJumpErrors(lines) {
 			out.push({
 				lineIndex: idxs[k + 1],
 				message:
-					'This heading is more than one indent level deeper than the previous heading; add one tab (or one step of spaces) at a time between consecutive headings. Jumping back to a shallower heading can skip any number of levels.'
+					'This heading is more than one level deeper than the previous heading; add one heading level at a time (`#1` → `#2`). Jumping back to a shallower heading can skip any number of levels.'
 			});
 		}
 	}
 	return out;
 }
 
+/**
+ * Kept for call-site compatibility — returns the marker-depth jump errors (the only
+ * heading-depth diagnostic left in the `#`/`#1`/`#2` format).
+ * @param {string[]} lines
+ * @returns {{ lineIndex: number, message: string }[]}
+ */
+function collectHeadingVersusAboveLineIndentErrors(lines) {
+	return collectConsecutiveHeadingDepthJumpErrors(lines);
+}
+
 module.exports = {
 	collectHeadingVersusAboveLineIndentErrors,
-	collectConsecutiveHeadingDepthJumpErrors,
-	findFirstNonEmptyLineAbove,
-	leadingWhitespaceIndentWidth
+	collectConsecutiveHeadingDepthJumpErrors
 };

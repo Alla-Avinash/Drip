@@ -13,10 +13,7 @@ const { forEachKnowledgeBaseNote } = require('../../document/kbNoteOps');
 const { fileNameMatchesKbNote } = require('../../document/model/noteFileTypes');
 const { collectHeadingSequenceValidated } = require('../../document/parse/dripnoteHeadingParse');
 const { collectHeadingVersusAboveLineIndentErrors } = require('../../document/parse/dripnoteHeadingAboveIndent');
-const {
-	collectHeadingIdentityDiagnostics,
-	parseFileEntityFromLines
-} = require('../dripnoteHeadingIdentity');
+const { collectHeadingIdentityDiagnostics } = require('../dripnoteHeadingIdentity');
 const { reconcileNoteHeadingIdentitiesOnDisk } = require('../dripnoteHeadingIdentityReconcile');
 const { reconcileUpdate } = require('./dripnoteReconcileUpdate');
 
@@ -41,16 +38,14 @@ function collectNoteIndexIssues(text, context) {
 		issues.push({ line: e.lineIndex + 1, message: e.message, severity: 'error' });
 	}
 
-	const file = parseFileEntityFromLines(lines);
-	for (const d of collectHeadingIdentityDiagnostics(normalized, file?.fileNum ?? null)) {
+	for (const d of collectHeadingIdentityDiagnostics(normalized, null)) {
 		if (d.kind === 'duplicate') {
-			continue;
+			issues.push({
+				line: d.lineIndex + 1,
+				message: `Duplicate heading identity @h${d.headingNum}`,
+				severity: 'warning'
+			});
 		}
-		const msg =
-			d.kind === 'duplicate'
-				? `Duplicate heading identity @f${d.fileNum}:h${d.headingNum}`
-				: `Heading identity @f${d.fileNum} does not match fileid in header`;
-		issues.push({ line: d.lineIndex + 1, message: msg, severity: 'error' });
 	}
 
 	const knownTagsLower = collectKnownTagNamesLower(context);

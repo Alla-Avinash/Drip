@@ -2,7 +2,15 @@
 
 const vscode = require('vscode');
 const path = require('path');
-const { isProtectedFolderIndexNotePath } = require('./dripProjectFolder');
+const {
+	isProtectedFolderIndexNotePath,
+	isPathInsideProjectFolder,
+	specialProjectSubfolderTypeIdForPath
+} = require('./dripProjectFolder');
+const {
+	getProjectMetadataOverrides,
+	projectKeyForFsPath
+} = require('./dripnoteProjectMetadata');
 
 const DEFAULT_METADATA_TYPES = [
 	{
@@ -42,12 +50,47 @@ const DEFAULT_METADATA_TYPES = [
 			 * Auto-stamped when nesting under an issue; set manually to override.
 			 */
 			parent: {
-				kind: 'issue_parent',
+				kind: 'ref',
 				default: '',
 				required: false,
 				label: 'Parent issue',
 				placeholder: 'i-N'
+			},
+			/**
+			 * Optional references to a decision (`d-N`) and a concept (`c-N`).
+			 * Sparse links: the many-to-many list lives in the project index
+			 * (issue_concept_links / issue_decision_links), not as columns here.
+			 */
+			decision: {
+				kind: 'ref',
+				default: '',
+				required: false,
+				label: 'Decision',
+				placeholder: 'd-N'
+			},
+			concept: {
+				kind: 'ref',
+				default: '',
+				required: false,
+				label: 'Concept',
+				placeholder: 'c-N'
 			}
+		}
+	},
+	{
+		id: 'decision',
+		marker: '.decision',
+		shortcut: 'd',
+		color: '',
+		attributes: {
+			status: { kind: 'enum', values: ['in-progress', 'to-do', 'completed'], default: '' },
+			category: { kind: 'enum', values: ['architecture', 'techstack', 'design', 'ux'], default: '' },
+			/**
+			 * Decision refs: `superseded-by` points at another decision (d-N),
+			 * `concept` points at a concept (c-N). Resolved by the project view.
+			 */
+			'superseded-by': { kind: 'ref', default: '', required: false, label: 'Superseded by', placeholder: 'd-N' },
+			concept: { kind: 'ref', default: '', required: false, label: 'Concept', placeholder: 'c-N' }
 		}
 	}
 ];
@@ -84,13 +127,20 @@ const SPECIAL_METADATA_TYPE_IDS = FILE_LEVEL_METADATA_TYPE_IDS;
 /** Defaults export alias for settings UI. */
 const DEFAULT_SPECIAL_METADATA_TYPES = DEFAULT_FILE_LEVEL_METADATA_TYPES;
 
+/**
+ * Built-in document heading types. Always present in resolved settings even when a
+ * KB's saved `metadataTypes` predates a type — missing ones are filled from the
+ * default template. Custom user types are never forced in.
+ */
+const BUILTIN_DOCUMENT_TYPE_IDS = new Set(['concept', 'task', 'issue', 'decision']);
+
 const DEFAULT_TAG_RELATIONS = {
 	allowed: ['tags', 'pre-req']
 };
 
 const { DEFAULT_DURATION_UNITS } = require('../parse/dripnoteDuration');
 
-const METADATA_ATTRIBUTE_KINDS = ['enum', 'datetime', 'duration'];
+const METADATA_ATTRIBUTE_KINDS = ['enum', 'datetime', 'duration', 'ref'];
 
 const FIXED_DURATION_UNITS = DEFAULT_DURATION_UNITS.slice();
 
@@ -136,7 +186,7 @@ function formatMetadataShortcutDisplay(shortcut) {
 
 /** Product-fixed issue attribute; re-added even when KB settings omit it. */
 const ISSUE_PARENT_ATTRIBUTE_RULE = Object.freeze({
-	kind: 'issue_parent',
+	kind: 'ref',
 	values: [],
 	default: '',
 	required: false,
@@ -194,11 +244,24 @@ function getMetadataSettings() {
 		if (!t) continue;
 		// Project/feature are special types only — never document heading types.
 		if (SPECIAL_METADATA_TYPE_IDS.has(t.id)) continue;
-		// Product: decision removed — ignore if still present in old settings.
-		if (t.id === 'decision' || t.id === 'implementation') continue;
+		// Custom user-defined types are not supported — the set of document types is
+		// fixed. Anything else in old settings is dropped.
+		if (!BUILTIN_DOCUMENT_TYPE_IDS.has(t.id)) continue;
 		normalized.push(t);
 	}
-	const types = normalized.length ? normalized : deepClone(DEFAULT_METADATA_TYPES);
+	let types = normalized.length ? normalized : deepClone(DEFAULT_METADATA_TYPES);
+	// Built-in types (concept/task/issue/decision) must always exist. A KB whose
+	// saved settings predate a type would otherwise drop it (and the settings UI
+	// would stop showing it). Fill any missing built-in from the default template.
+	{
+		const presentIds = new Set(types.map(t => String(t.id || '').toLowerCase()));
+		for (const def of DEFAULT_METADATA_TYPES) {
+			const id = String(def.id || '').toLowerCase();
+			if (BUILTIN_DOCUMENT_TYPE_IDS.has(id) && !presentIds.has(id)) {
+				types = types.concat(deepClone(def));
+			}
+		}
+	}
 	const mapById = new Map();
 	const mapByMarker = new Map();
 	const mapByShortcut = new Map();
@@ -349,8 +412,69 @@ function lockedSpecialTypeIdForPath(fsPath) {
 }
 
 /**
+ * Built-in document heading types allowed for a note at this path — the single shared
+ * "file check" both `.d.txt` and `.d.md` use to decide which heading types a note may
+ * carry. Index notes allow only their special type; notes inside a project/feature
+ * folder allow `issue`; normal KB notes allow `concept` and `task`. Custom user types
+ * are handled separately (always allowed regardless of location).
+ *
+ * @param {string} [fsPath]
+ * @returns {Set<string>}
+ */
+function allowedHeadingTypeIdsForPath(fsPath) {
+	const locked = lockedSpecialTypeIdForPath(fsPath);
+	if (locked) return new Set([locked]);
+	const subfolder = specialProjectSubfolderTypeIdForPath(fsPath);
+	if (subfolder) return new Set([subfolder]);
+	if (isPathInsideProjectFolder(fsPath)) return new Set(['issue']);
+	return new Set(['concept', 'task']);
+}
+
+/**
+ * Merge per-project overrides onto a set of base types. Only the overridden
+ * attributes change: new keys are added, existing keys are replaced (so enum
+ * values can be redefined). Anything not mentioned in the override keeps the
+ * default template value.
+ *
+ * @param {object[]} baseTypes default template types
+ * @param {Record<string, any> | null} overrideMap { [typeId]: { attributes } }
+ * @param {Set<string>} allowedIds only merge types whose id is in this set
+ * @returns {object[]}
+ */
+function applyProjectOverrideToTypes(baseTypes, overrideMap, allowedIds) {
+	if (!overrideMap) return baseTypes;
+	return (baseTypes || []).map(t => {
+		const id = String((t && t.id) || '').toLowerCase();
+		if (!allowedIds.has(id)) return t;
+		const override = overrideMap[id];
+		const overrideAttrs = override && override.attributes && typeof override.attributes === 'object' ? override.attributes : {};
+		if (!Object.keys(overrideAttrs).length) return t;
+		const mergedAttrs = { ...(t.attributes || {}) };
+		for (const k of Object.keys(overrideAttrs)) {
+			const key = String(k || '').trim().toLowerCase();
+			if (!key) continue;
+			const rule = overrideAttrs[k];
+			if (!rule || typeof rule !== 'object') continue;
+			// Issue's fixed `parent` link is never overridden.
+			if (id === 'issue' && key === 'parent') continue;
+			const normalizedKind = normalizeAttributeKind(rule.kind);
+			const values = normalizedKind === 'enum' ? asStringArray(rule.values).map(x => x.toLowerCase()) : [];
+			mergedAttrs[key] = {
+				kind: normalizedKind,
+				values,
+				default: String(rule.default != null ? rule.default : '').trim(),
+				required: Boolean(rule.required)
+			};
+		}
+		return { ...t, attributes: mergedAttrs };
+	});
+}
+
+/**
  * Metadata settings for parsing/editing headings in a specific note.
  * Index notes (`_*.p.d.txt` / `_*.f.d.txt`): only the matching special type (project/feature).
+ * Notes inside a project pick up that project's per-project overrides for the
+ * project / feature / issue types (layered on top of the default template).
  *
  * @param {string} [fsPath]
  * @returns {ReturnType<typeof getMetadataSettings> & { specialIndex: boolean, lockedTypeId: string | null }}
@@ -358,13 +482,33 @@ function lockedSpecialTypeIdForPath(fsPath) {
 function getMetadataSettingsForNotePath(fsPath) {
 	const docSettings = getMetadataSettings();
 	const lockedTypeId = lockedSpecialTypeIdForPath(fsPath);
+	const projectKey = projectKeyForFsPath(fsPath);
+	const overrides = projectKey ? getProjectMetadataOverrides(projectKey) : null;
+
 	if (!lockedTypeId) {
-		return { ...docSettings, specialIndex: false, lockedTypeId: null };
+		// Regular note: document types are filtered by the shared file check
+		// (allowedHeadingTypeIdsForPath). Per-project overrides then apply to
+		// whichever built-in types remain.
+		const allowed = allowedHeadingTypeIdsForPath(fsPath);
+		const types = (docSettings.types || []).filter(t => allowed.has(String((t && t.id) || '').toLowerCase()));
+		const withOverrides = overrides ? applyProjectOverrideToTypes(types, overrides, allowed) : types;
+		const maps = buildTypeMaps(withOverrides);
+		return {
+			...docSettings,
+			types: withOverrides,
+			typeById: maps.typeById,
+			typeByMarker: maps.typeByMarker,
+			typeByShortcut: maps.typeByShortcut,
+			specialIndex: false,
+			lockedTypeId: null
+		};
 	}
+
 	const special = getSpecialMetadataSettings();
-	const types = (special.types || [])
+	const baseTypes = (special.types || [])
 		.filter(t => String(t.id || '').toLowerCase() === lockedTypeId)
 		.map(withSpecialTypeShortcut);
+	const types = applyProjectOverrideToTypes(baseTypes, overrides, new Set([lockedTypeId]));
 	const maps = buildTypeMaps(types);
 	return {
 		...docSettings,
@@ -458,7 +602,9 @@ function lookupShortcutType(settings, body) {
  */
 function matchHeadingTitleTypePrefix(titleOrHeading, settings) {
 	const raw = String(titleOrHeading || '').trim();
-	const title = raw.replace(/^#{1,6}\s+/, '').trim();
+	// Accept a full heading line from either format: `.d.txt` markers (`#`, `#1`, `#2`) or
+	// `.d.md` markdown (`#`…`######`).
+	const title = raw.replace(/^(?:#{1,6}|#\d+)\s+/, '').trim();
 	const m = title.match(/^(\.([A-Za-z][A-Za-z0-9_-]*))/);
 	if (!m) {
 		return { typeId: '', matchedPrefix: '', form: '', taskId: null, invalid: false };
@@ -649,6 +795,7 @@ module.exports = {
 	DEFAULT_SPECIAL_METADATA_TYPES,
 	FILE_LEVEL_METADATA_TYPE_IDS,
 	SPECIAL_METADATA_TYPE_IDS,
+	BUILTIN_DOCUMENT_TYPE_IDS,
 	DEFAULT_TAG_RELATIONS,
 	DEFAULT_TAGS_RELATIONS: { allowedRelations: DEFAULT_TAG_RELATIONS.allowed.slice(), defaultRelation: 'tags' },
 	METADATA_ATTRIBUTE_KINDS,
@@ -666,6 +813,7 @@ module.exports = {
 	getMetadataSettingsForIndex,
 	getMetadataSettingsForNotePath,
 	lockedSpecialTypeIdForPath,
+	allowedHeadingTypeIdsForPath,
 	migrateFileLevelMetadataTypesIfNeeded,
 	inferTypeFromHeadingLine,
 	inferTypeFromMarkerLine,

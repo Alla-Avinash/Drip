@@ -659,6 +659,61 @@
 									"default": "",
 									"required": false,
 									"values": []
+								},
+								"parent": {
+									"kind": "ref",
+									"default": "",
+									"required": false
+								},
+								"decision": {
+									"kind": "ref",
+									"default": "",
+									"required": false
+								},
+								"concept": {
+									"kind": "ref",
+									"default": "",
+									"required": false
+								}
+							}
+						},
+						{
+							"id": "decision",
+							"marker": ".decision",
+							"shortcut": "d",
+							"color": "",
+							"displayTemplate": true,
+							"attributes": {
+								"status": {
+									"kind": "enum",
+									"default": "",
+									"required": false,
+									"values": [
+										"in-progress",
+										"to-do",
+										"completed"
+									]
+								},
+								"category": {
+									"kind": "enum",
+									"default": "",
+									"required": false,
+									"values": [
+										"architecture",
+										"techstack",
+										"design",
+										"ux"
+									]
+								},
+								"superseded-by": {
+									"kind": "ref",
+									"default": "",
+									"required": false
+								},
+								"concept": {
+									"kind": "ref",
+									"default": "",
+									"required": false
 								}
 							}
 						}

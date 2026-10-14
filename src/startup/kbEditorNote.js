@@ -6,7 +6,6 @@ const { KB_EDITOR_NOTE_FILENAME } = require('../shared/constants');
 const { buildNewNoteFile } = require('../document/kbNoteOps');
 const { writeTextFile } = require('../indexing/kbFilesystem');
 const { allocateNextEntityNumber, indexNewNoteImmediately } = require('../indexing/dripnoteIndex');
-const { normalizeNoteIdentityFile } = require('../indexing/dripnoteFileIdentity');
 
 const LEGACY_KB_EDITOR_NOTE_FILENAME = '.editor.d.txt';
 
@@ -63,7 +62,6 @@ async function ensureKbEditorNote(kbRootUri, context) {
 		{ metadataFilename: '.Editor', fileEntityNumber: n }
 	);
 	await writeTextFile(uri, text);
-	await normalizeNoteIdentityFile(uri, { context });
 	try {
 		await indexNewNoteImmediately(kbRootUri, uri, context, text);
 	} catch (err) {

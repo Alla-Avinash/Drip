@@ -14,6 +14,8 @@ Work is organized into **projects**, and each project is broken into **features*
 - A **project** is a folder with a project index note (`.project` file-level type). It carries status, priority, and deadline.
 - A **feature** is a folder (or file) with a feature index note (`.feature` file-level type). It carries a `category` (enum).
 - Both projects and features get stable entity IDs (`f-N` for features; the folder acts as the project container).
+- **Concepts** and **decisions** are project-scoped entities tracked alongside features. Concepts live in the project's `_concepts` folder and get a `c-N` number; decisions live in `_decisions` and get a `d-N` number. A concept carries `status` and `domain`; a decision carries `status`, `category`, a `superseded-by` link to another decision, and a `concept` link. Issues can link to many concepts and many decisions, and a decision can link to many concepts — stored as list links, like tags.
+- Creating a project also creates its two special subfolders — `_concepts` and `_decisions` — so they are always present and empty, ready for concept/decision notes.
 
 ## The Project View panel
 
@@ -35,7 +37,7 @@ The **projects list** has a toolbar (search + Filter / Display / Sort menus) and
 
 Inside an open project, the panel has two view modes, switched with a **Features / Issues** toggle that sits right beside the **New issue** button.
 
-In the detail header, **Overview** and **Tags** buttons sit to the left of the Features/Issues toggle. **Overview** opens the project's index note `_<Name>.p.d.txt`, creating it first if missing. **Tags** opens a popover listing the project's own tags (see "Per-project tags"): each tag can be renamed, given a description, or deleted with inline controls, and new tags can be added there.
+In the detail header, a **Settings** (gear) icon sits to the left of **Overview** and **Tags**, which sit to the left of the Features/Issues toggle. The gear opens DRIP Settings focused on the **Project Metadata** section with that project pre-selected in the project dropdown. **Overview** opens the project's index note `_<Name>.p.d.txt`, creating it first if missing. **Tags** opens a popover listing the project's own tags (see "Per-project tags"): each tag can be renamed, given a description, or deleted with inline controls, and new tags can be added there.
 
 Each feature row also has an **Overview** button on its right, which opens that feature's index note — `_<Name>.f.d.txt` for a `.f` folder (created if missing), or the feature file itself for a standalone `Name.f.d.txt`. Both folder features and standalone `.f.d.txt` feature files appear in the Features section with their issues, so file-format features are listed and grouped exactly like folder features.
 

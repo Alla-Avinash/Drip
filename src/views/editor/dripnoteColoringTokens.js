@@ -22,7 +22,7 @@
 
 const { getMetadataSettingsForIndex, matchHeadingTitleTypePrefix, HEADING_SPECIAL_KEYS } = require('../../document/model/dripnoteMetadataTemplates');
 
-const HEADING_RE = /^\s*#{1,6}\s+/;
+const HEADING_RE = /^\s*#\d*\s+/;
 const SHORTHAND_TAGS_RE = /^\s*\[([^\]]*)\]\s*$/;
 const FILE_IDENTITY_RE = /^\s*(filename|created|random|fileid|headings)\s*:\s*(.+)$/i;
 const COMMENT_RE = /^\s*\/\//;
@@ -93,7 +93,7 @@ function isHeadingTypeLine(line, typeSet) {
 	if (!HEADING_RE.test(trimmed)) return false;
 	for (const t of typeSet) {
 		const esc = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-		const re = new RegExp(`^\\s*#{1,6}\\s+(?:\\.${esc}\\b|${esc}\\.)`);
+		const re = new RegExp(`^\\s*#\\d*\\s+(?:\\.${esc}\\b|${esc}\\.)`);
 		if (re.test(line)) return true;
 	}
 	return false;
@@ -104,7 +104,7 @@ function isHeadingTypeLine(line, typeSet) {
  * They do not create a typed metadata context or make the heading persistent.
  */
 function matchPlainHeadingShortcut(line, settings) {
-	const heading = String(line || '').match(/^\s*#{1,6}\s+([A-Za-z][A-Za-z0-9_-]*)(?=\s|$)/);
+	const heading = String(line || '').match(/^\s*#\d*\s+([A-Za-z][A-Za-z0-9_-]*)(?=\s|$)/);
 	if (!heading) return '';
 	const token = String(heading[1] || '');
 	const shortcuts = [...(settings.typeByShortcut?.keys() || [])]
@@ -145,7 +145,7 @@ function emitHeading(tokens, lineNo, line, settings) {
 				markerLen = plainShortcut.length;
 			}
 		} else {
-			const headingMarker = line.match(/^\s*#{1,6}\s+(\.[a-zA-Z][a-zA-Z0-9_-]*)\b/);
+			const headingMarker = line.match(/^\s*#\d*\s+(\.[a-zA-Z][a-zA-Z0-9_-]*)\b/);
 			if (headingMarker) {
 				const marker = String(headingMarker[1] || '');
 				const idx = line.indexOf(marker);

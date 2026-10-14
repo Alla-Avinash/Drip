@@ -1,42 +1,241 @@
-drip application what to work on next :
-	build proper skills for the workflows for the tasks that has to be done in drip when you have certain specific tasks that you are asking to be done in drip
+-------------------------------
 
-	ship it properly and put it in github and push it as marketplace to ask dk about how the application is working
+Issues 
+-------------------------------
 
 
-BROKEN DOWN — work ONE at a time
---------------------------------
-
-later to do only when asked by the user  
-
-   - right click on the editor will get you options.. just like in obsidian..
+outside drip application:
    
-   - outside llm - like chatgpt ask to get the best note format to store.. i want the note to be in plain text or in markdown format.. 
+   	- outside llm - like chatgpt ask to get the best note format to store.. 
+      	i want the note to be in plain text or in markdown format.. 
+
+   	- build proper skills for the workflows for the tasks in cursor 
+		try to fix a set of tasks that you are frequently doing and try to follow a pattern mostly while developing an application 
+		you can follow this pattern always when you are trying to develop new things 
+
+
+
+Drip application development: 
+
+   	Phase - 1
+ 
+		- in the drip settings i want to have the default file type preference to be either .d.txt or .d.md, 
+			this has to be in the knowledgebase section of the drip settings
+
+		- in the index and update logic 
+			- i also want to incude the project specific sections LIKE A DROPDOWN of current projects,
+			 so that it only updates the specific project again and not the whole kb or only current section.. 
+		
+		- make a coloring logic for the .d.md files
+			- need a coloring logic of the live editor .d.md files
+			- and put them in the drip settings just make another section for the .d.md files
+
+		- changelog as a seperate ui component for a project, 
+			- where to keep the completed issues at.. should they go to an archive folder? what should the archive folder format be like?? 
+			- keep track of the recently completed issues after the previous update log.. 
+			? decide the standard markdown template structure of the changelog. 
+			? where to store the changelog and what file format/ db should it be stored in?? 
+				- store the details in a db/folder, but tell me how do you render it? by just clicking on that file with that .d.db specific extension? 
+			- you can have a component in the project view UI for this changelog, like a button called 'Update log' present to the right of the Overview button in the project view of an individual project
+			- you will also have a file in the knboweldge base inside the project folder, once you cick this, then it will open up the rendered changelog. 
+				- you will have a paginated result of this changelog and not the entire changelog of the whole project from day one... as this can be a really soo huge file to render... all at once. 
+
+		- include feature and the feature category - action, component while sorting or filtering the issues??
+		- add a label search for the issues present in the project view, so that it becomes easier to search? 
+		- sorting the project view using tags, what should be the best ux to be deployed here??	
+		- should we hve the same ui/ux as linear where they literally show up the tags beside the component in the display? 
+		
+		
+		? research topic: only tasks should go in this daily notes; but you can have dairy note as a peristant heading but has a seperate db??  how to search and query them?? what will be the best ux? 
+
+		- feature mark the product area, be it a component or a feature like action or a workflow to be described.. 
+			- features can have sub-features present.. if there is a component it can have sub-components 
+			- if it is a component it can have features 
+			- if it is a feature/component it can have workflows present.. 
+			- as these are all nested.. you can have a simple button called show sub-features 
+				- to break the features and list out the sub-features in that particular feature in the project view
+
+		- here you have the implementation as.. 
+		 	- where you have the feature as the product area.. and you can also have an issue which is not associated with a product area and be directly listed in the project issues too.. 
+			- you have the issue type as the category so that you can list out the type of issue that is either a bug, improvement, feature, refactor etc 
+			- you have the tags in the issues which can say more about that issue whether it is a ui, performance thing, security, infrastructure, etc.. 
+
+		- have a particular thing in the drip settings to import / export to another location... 
+			- while exporting you will have copy or cut options.. 
+
+
+		- ship it properly and put it in github and push it as marketplace to ask other people about how the application is working
+
+
+		Important Research 
+
+			- know if this .d.md editor supports the natural llm tab finish of vscode or not.. also we need to get the grammer checks with the red underlines where is this? 
+			- only tasks should go in this daily notes; but you can have dairy note as a peristant heading but has a seperate db??  how to search and query them?? what will be the best ux? 
+			
+			- give the application clear context on,
+				- how to keep the metadata for the .p and .f are they even necessary or can we remove them or develop the ux a bit better?
+				- we only have the .p and .f only when those particular files are created and we don't use them for regular files..
+				- regular files only get the persistant headings and not the concept or the task headings .. 
+
+			- for the modular seperation of the .d.txt and .d.md logic, 
+				first learn what all functionality is common for these and what all funcitonality is used/required/ should be provided by these components 
+
+
+		BUG Fixes: 
+			
+			- can't draw mermaid diagrams or get the code blocks using the ``` so please be careful.. 
+			
+			- in the normal .d.md files I am not able to 
+
+			- in the .d.txt files i am getting duplicates in the headings like h0 
+
+
+
+		Actual work which matter
+
+			- if we want to have the mcp tool to create a feature and it's related components, sub-components and have some workflows/implementations for those how should the ui look like?
 
 
 
 
---------------------------------
-
-Important to do now 
---------------------------------
 
 
 
-- need a coloring logic of the live editor and try to implement to edit them in the drip settings.. 
 
 
-- give the application clear context on,
-   - we only have the .p and .f only when those particular files are created and we don't use them for regular files..
-   - regular files only get the persistant headings and not the concept or the task headings .. 
+		Future work
 
-- i need modular refactoring of code where the logic uses the results or parsed results form the .d.txt or the .d.md files 
-- and also make a list of the core logic functionlaity which is already present and where it is used so to keep the logical structuring modular  
-- seperate the logic when we are dealing with the .d.txt and with the .d.md files 
-   - but i want the core logic of the other components to be more modular and not be rooted in the same thing as one onother 
+			- do research on the linear changelog 
+			- this helps in keeping in update the project progress and can help students to showcase their work in a better manner like the linear change log which keeps track of the changes to the application 
+			- with a particular date.. gets the changes made like the issues fixed from the previous publication date/previous git push/ from previous log/
+			- Why people need this? 
+				- to let them showcase their github project 
+				- or to let them keep track of their progress or work which they have done.. in an organization.
+			- each log has a standard structure 
+				- it talks about the new main features developed or improved 
+				- standard sections  
+					- Fixes
+					- Improvements 
+					- API 
+					- MCP or keyboardshortcuts ==> for helpign the user see what the change is and they can see it physically 
+				- each of these sections can have bullet points of the actual actions done 
+				- they also have the labels on then saying which component/feature/functionality/action(payments, search, filters,diffs, editor, ) they belong to.. 
+			- The three concepts
+				- Change type — what happened?
+					New features, Improvements, Fixes, API
+					These describe the nature of the update. For example, adding semantic search is a new feature; correcting duplicate task creation is a fix.
+				- Product area — where did it change?
+					Editor, Issues, MCP, Diffs, Agents
+					These identify the part of the product affected by the change. They are not necessarily UI components: MCP is an integration/protocol area, while Editor is a product area.
+				- Source issue — what work was done? 
+					An issue ID (I-23), title, description, and completion status.
+					This connects the published update to the actual development work, providing traceability.
 
 
-- you will try to integrate the .d.md files also into this logic placement so that it helps you.. 
 
 
-- have a particular thing in the drip settings to import / export to another location... while exporting you will have copy or cut options.. 
+
+
+
+
+
+	Phase - 2
+
+		- right click on the editor will get you a dropdown of options.. just like in obsidian.
+		
+		- implement code sharing with possibility of cursor placement 
+		- different people maintaing their profiles with github or with another guest link or something like that.. 
+		- how to send invites to other people? admin of that project.. onboard or remove someone..
+		- 
+		- 
+		- 
+		- you can have multiple teams in phase 3, but only focus on differnet people collaboration in phase 2
+		- implementing the team logic just like in linear and assigning the issues to teams and team lead and other people 
+		- implemnting the messaging logic  
+		- 
+
+		- each project has various teams and every issue always has a team assigned to it but not every issue has a feature assigned to it.. 
+		- an issue is always assigned to a team but it's sub-issues might be assigned to other teams..  
+
+		- maybe you can have a project graph view for an individual project 
+			- where you will have the project components, features(like actions like payments etc) 
+			- here components can belong to one or more features 
+			- components can also have sub-components which belong to multiple components 
+			- this entire project graph is maintained by the project graph view which is similar to how we have the tags graph where we can form connections and etc.. 
+			- the components are always connected as it shows a complete application here 
+			- here when we click on a component it will hilight it's parents in one color and it's child components in another color 
+			- here we can have the featuers as seperate nodes without any connections, where we can just click on these feature nodes and the related components get's hilighted in color 
+			- here in this we can have features as a single folder itself in the project but no nested feature files/folders are allowed
+
+
+		Important Research 
+			
+			- look into the liveshare code sharing applications online where you have a peer to peer sharing of the files etc.. 
+			- understand how this works and try to integrate that into your application 
+			- where to store the chat when you have integrated this application to work with multiple people.. 
+			- think of a ux for the chat inbox or chat in threads or dm's just like in linear but it is integrated here.. 
+			- you will only store a max of 20 messages like a groupchat and once every message is seen it will be deleted automatically after a while.. 
+			- you can have notes to store the important things to keep in mind or just add them in the issue which you are talking about.. 
+			- notifications for the messages sent.. 
+
+
+-----------------------------------------------------------------------------------------
+work to be done now
+-----------------------------------------------------------------------------------------
+
+Refactor: modular split for the app (separate .d.txt vs .d.md parsing/ingest, shared core)
+
+	Format front-ends (kept separate on purpose)
+		- DripNote (the .d.txt side)
+			- DripNote Parser      -> turns .d.txt text into a structured note (header, headings, tags, relations, metadata)
+			- DripNote Identity    -> owns the .d.txt-style identity (@fN:hM lines + hashes) and its reconcile
+			- DripNote Editor Services -> coloring, completion, diagnostics, document symbols for .d.txt only
+			- DripNote Ingest      -> the .d.txt sync driver (open / save / close / delete)
+		- MarkdownNote (the .d.md side)
+			- MarkdownNote Parser  -> turns .d.md text into the SAME structured shape, reading its two hidden comment blocks
+			- MarkdownNote Identity -> owns the .d.md-style identity (hidden <!-- drip-file --> / <!-- drip hN --> comments) + reconcile
+			- MarkdownNote Editor  -> the WYSIWYG webview (chips, pickers, dropdowns) - its own editing UI
+			- MarkdownNote Ingest  -> the .d.md sync driver (single-writer, reconcile-on-save rules)
+
+	The bridge (the reuse point)
+		- Note Normalizer
+			- the single shared intermediate format both parsers output to, so nothing downstream cares which file it came from
+			- owns the rule of what a "note" is (file identity + headings + tags + relations + metadata)
+
+	Shared core (format-agnostic)
+		- Note Index         -> SQLite write/read layer (headings, tags, relations, metadata rows, schema, id allocator); only reads the normalized shape
+		- Metadata Schema    -> single source of truth for metadata types + relations (enum/datetime/duration); both formats read it
+		- Tag Graph          -> tag storage + the rule for which graph is authoritative per note path (project vs KB)
+		- Embeddings         -> vector encoding + search (works purely off index rows)
+		- Search & Query     -> index readers: heading search, retriever queries, project/feature/issue views
+		- Shared Utilities   -> file-type matching, slugging, edit guards, tiny stateless helpers
+
+	Features (consumers - read the index, never raw file text)
+		- Projects & Issues  -> projects -> features -> issues, inbox/mailbox, issue moves, sub-issue parent links
+		- References & Links -> cross-note links, backlinks, link rewrite on file-id change
+		- Capture            -> quick-capture + deciding where a captured note lands
+		- Navigation         -> sidebar (KB tree, recents, daily notes, drafts)
+		- Retriever          -> search/browse UI on top of Search & Query
+		- Settings           -> metadata config, colors, file extensions, import/export
+		- AI Integrations    -> LLM chat, memory, local MCP server
+
+	Wiring (one place only)
+		- Extension Activation -> only connects commands/providers/webviews; no behavior lives here
+
+	The rule that keeps it clean
+		- parsing + identity = per-format (the only thing that's different)
+		- normalizing = one bridge module
+		- indexing, tags, metadata, embeddings, search = shared, format-blind
+		- features = read the index, never the raw file
+
+-----------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+

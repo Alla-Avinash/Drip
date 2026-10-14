@@ -7,6 +7,9 @@ const {
 	buildNoteFileName
 } = require('./model/noteFileTypes');
 const { formatFileEntityId } = require('../indexing/dripnoteEntityIds');
+const { parseHeadingForValidation } = require('./parse/dripnoteHeadingParse');
+const { formatHeadingComment } = require('./model/dripMdNoteComment');
+const { formatFileHeaderComment } = require('./model/dripMdNoteFileHeader');
 const {
 	forEachKnowledgeBaseNotePath,
 	getKnowledgeBaseTreeChildren,
@@ -334,25 +337,13 @@ function parseType1HeadingRecords(body) {
 	const stack = [];
 
 	for (let i = 0; i < lines.length; i++) {
-		const line = lines[i];
-		const m = line.match(/^([\t ]*)(#{1,6})\s+(.+)$/);
-		if (!m) {
+		const ph = parseHeadingForValidation(lines[i]);
+		if (!ph) {
 			continue;
 		}
 
-		let tabCount = 0;
-		let spaceCount = 0;
-		for (const ch of m[1]) {
-			if (ch === '\t') {
-				tabCount++;
-			} else if (ch === ' ') {
-				spaceCount++;
-			}
-		}
-		const indentLevel = tabCount + Math.floor(spaceCount / 4);
-		const hashLen = m[2].length;
-		const title = m[3].trim();
-		const level = indentLevel + (hashLen - 1);
+		const level = ph.level;
+		const title = ph.title;
 
 		while (stack.length > 0 && stack[stack.length - 1].level >= level) {
 			stack.pop();
@@ -652,7 +643,7 @@ function isMarkdownKbPathForHeadings(fileFsPath) {
 }
 
 /**
- * A heading's `@fN:hM` identity line sits directly above it; anything inserted "before" that
+ * A heading's `@hN` identity line sits directly above it; anything inserted "before" that
  * heading must go above the identity line, or the new text would take over the heading's id.
  * @param {string[]} lines
  * @param {number} headingLine
@@ -824,7 +815,13 @@ function stripLeadingEmptyLinesFromDraft(text) {
 	return lines.slice(i).join('\n');
 }
 
-function buildUnderHeadingChunkLines(body, headingPath, title, draftContentRaw, useDripType1Indent = true) {
+/** `#` for level 0, `#1`/`#2`/… for deeper marker levels. */
+function headingMarker(level) {
+	const n = Math.max(0, Math.floor(Number(level) || 0));
+	return n === 0 ? '#' : `#${n}`;
+}
+
+function buildUnderHeadingChunkLines(body, headingPath, title, draftContentRaw, useDripType1Indent = true, emitDripComment = false) {
 	const { headings } = parseHeadingRecordsForIngest(body, useDripType1Indent);
 	const h = headings.find(x => x.path === headingPath);
 	const noteTitle = String(title || '').trim();
@@ -837,24 +834,29 @@ function buildUnderHeadingChunkLines(body, headingPath, title, draftContentRaw, 
 			return ['', ...rawLines.map(line => (line.trim() ? line : ''))];
 		}
 		if (!h) {
-			return ['', `# ${noteTitle}`, ...rawLines.map(line => (line.trim() ? line : ''))];
+			const lead = emitDripComment ? ['# ' + noteTitle, formatHeadingComment(0, 'persistent', [])] : ['# ' + noteTitle];
+			return ['', ...lead, ...rawLines.map(line => (line.trim() ? line : ''))];
 		}
 		const childLevel = Math.min(6, h.level + 1);
-		return ['', `${'#'.repeat(childLevel)} ${noteTitle}`, ...rawLines.map(line => (line.trim() ? line : ''))];
+		const lead = emitDripComment
+			? ['#'.repeat(childLevel) + ' ' + noteTitle, formatHeadingComment(0, 'persistent', [])]
+			: ['#'.repeat(childLevel) + ' ' + noteTitle];
+		return ['', ...lead, ...rawLines.map(line => (line.trim() ? line : ''))];
 	}
 
 	if (!h) {
 		return ['', `# ${noteTitle}`, ...rawLines.map(line => `\t${line}`)];
 	}
 
-	const tabForHeading = '\t'.repeat(h.level + 1);
 	if (!noteTitle) {
+		const tabForHeading = '\t'.repeat(h.level + 1);
 		return ['', ...rawLines.map(line => (line.trim() ? tabForHeading + line : ''))];
 	}
+	const childLevel = Math.min(6, h.level + 1);
 	const tabForContent = '\t'.repeat(h.level + 2);
 	return [
 		'',
-		`${tabForHeading}# ${noteTitle}`,
+		`${headingMarker(childLevel)} ${noteTitle}`,
 		...rawLines.map(line => (line.trim() ? tabForContent + line : ''))
 	];
 }
@@ -862,7 +864,7 @@ function buildUnderHeadingChunkLines(body, headingPath, title, draftContentRaw, 
 /**
  * New note as a sibling of refPath: same `#` line shape (tabs/spaces + hashes) as the reference heading.
  */
-function buildSiblingChunkLinesAtRef(body, refPath, title, draftContentRaw, useDripType1Indent = true) {
+function buildSiblingChunkLinesAtRef(body, refPath, title, draftContentRaw, useDripType1Indent = true, emitDripComment = false) {
 	const { lines, headings } = parseHeadingRecordsForIngest(body, useDripType1Indent);
 	const h = headings.find(x => x.path === refPath);
 	const noteTitle = String(title || '').trim() || 'Untitled';
@@ -872,21 +874,21 @@ function buildSiblingChunkLinesAtRef(body, refPath, title, draftContentRaw, useD
 
 	if (!useDripType1Indent) {
 		if (!h || h.line < 0 || h.line >= lines.length) {
-			return [`# ${noteTitle}`, ...rawLines.map(line => (line.trim() ? line : ''))];
+			const lead = emitDripComment ? [`# ${noteTitle}`, formatHeadingComment(0, 'persistent', [])] : [`# ${noteTitle}`];
+			return [...lead, ...rawLines.map(line => (line.trim() ? line : ''))];
 		}
 		const headingLine = `${'#'.repeat(h.level)} ${noteTitle}`;
-		return [headingLine, ...rawLines.map(line => (line.trim() ? line : ''))];
+		const lead = emitDripComment ? [headingLine, formatHeadingComment(0, 'persistent', [])] : [headingLine];
+		return [...lead, ...rawLines.map(line => (line.trim() ? line : ''))];
 	}
 
 	if (!h || h.line < 0 || h.line >= lines.length) {
 		return [`# ${noteTitle}`, ...rawLines.map(line => (line.trim() ? `\t${line}` : ''))];
 	}
 
-	const refLine = lines[h.line];
-	const m = refLine.match(/^([\t ]*)(#{1,6})(\s+)(.+)$/);
-	const linePrefix = m ? m[1] + m[2] + m[3] : '\t# ';
-	const headingLine = linePrefix + noteTitle;
-	const contentLead = m ? m[1] + '\t' : '\t';
+	const siblingLevel = h.level;
+	const headingLine = `${headingMarker(siblingLevel)} ${noteTitle}`;
+	const contentLead = '\t'.repeat(siblingLevel + 1);
 	return [headingLine, ...rawLines.map(line => (line.trim() ? contentLead + line : ''))];
 }
 
@@ -959,11 +961,13 @@ function indentWholeContent(text) {
 }
 
 function buildNewNoteFile(draft, options = {}) {
+	if (options.format === 'drip-md') {
+		return buildNewDripMdNoteFile(draft, options);
+	}
 	const metaLabel = (options.metadataFilename || draft.metadataFilename || draft.title || 'Untitled').trim();
 	const body = indentWholeContent(stripLeadingEmptyLinesFromDraft(draft.content || ''));
 	const n = Number.isFinite(options.fileEntityNumber) ? Math.max(0, Math.floor(options.fileEntityNumber)) : 0;
 	const fid = formatFileEntityId(n);
-	const rootHeadingId = `${fid}:h0`;
 	// Optional typed h0 (e.g. project index: `# .p Title`). Default remains bare `# . Title`.
 	const typeMarkerRaw = String(options.h0TypeMarker || '').trim();
 	const typeMarker = typeMarkerRaw
@@ -973,18 +977,32 @@ function buildNewNoteFile(draft, options = {}) {
 		: '.';
 	const h0Title = typeMarker === '.' ? `# . ${metaLabel}` : `# ${typeMarker} ${metaLabel}`;
 
-	// File metadata + h0 live in the same pre-`---` block; `---` separates them from other headings.
+	// File keys sit above `---`; the h0 heading sits below it (one empty line after `---`).
 	return (
 		`filename: ${metaLabel}\n` +
 		`fileid: ${fid}\n` +
 		`headings: 0\n` +
+		`---\n` +
 		`\n` +
-		`${rootHeadingId}\n` +
+		`@h0\n` +
 		`${h0Title}\n` +
 		`${body}` +
-		(body.trim() ? '' : '\n') +
-		`---\n`
+		(body.trim() ? '' : '\n')
 	);
+}
+
+/**
+ * A brand-new `.d.md` note: the hidden `<!-- drip-file -->` header, the h0 title, then the
+ * body as flush-left markdown. `fileid` is `@f0` when no number was allocated yet — the
+ * `.d.md` sync resolves the real id on the next open/save.
+ */
+function buildNewDripMdNoteFile(draft, options = {}) {
+	const metaLabel = (options.metadataFilename || draft.metadataFilename || draft.title || 'Untitled').trim();
+	const n = Number.isFinite(options.fileEntityNumber) ? Math.max(0, Math.floor(options.fileEntityNumber)) : 0;
+	const fileid = formatFileEntityId(n);
+	const body = String(draft.content || '').replace(/\r\n/g, '\n').replace(/^\s+/, '').replace(/\s+$/, '');
+	const header = formatFileHeaderComment({ filename: metaLabel, fileid, headings: 0 });
+	return `${header}\n# ${metaLabel}\n\n${body}${body ? '\n' : ''}`;
 }
 
 function buildAppendedNote(existingContent, draft, headingPath, options = {}) {
@@ -993,8 +1011,11 @@ function buildAppendedNote(existingContent, draft, headingPath, options = {}) {
 	const draftLines = String(draft.content || '').replace(/\r\n/g, '\n');
 	let { headerMeta, body, hasFileMeta } = splitFileHeaderAndBody(existingContent);
 
+	/** `.d.md` uses flush-left markdown and tags the new heading with a hidden
+	 *  `<!-- drip h0 | persistent -->` comment so it is indexed as a persistent heading. */
+	const isDripMd = options.format === 'drip-md';
 	/** `.d.txt` and similar use tab-nested type-1 sections; `.md` / README uses flush-left body lines. */
-	const useDripType1Indent = options.useDripType1Indent !== false;
+	const useDripType1Indent = !isDripMd && options.useDripType1Indent !== false;
 
 	const dropRef = String(options.ingestDropRefPath || '').trim();
 	const dropPos = options.ingestPosition || '';
@@ -1030,11 +1051,11 @@ function buildAppendedNote(existingContent, draft, headingPath, options = {}) {
 			if (dropPos === 'childFirst') {
 				/* First child slot: immediately under the heading line (before any existing subsection). */
 				insertBefore = findInsertLineAfterHeadingLine(body, dropRef, useDripType1Indent);
-				chunkLines = buildUnderHeadingChunkLines(body, dropRef, title, draftLines, useDripType1Indent);
+				chunkLines = buildUnderHeadingChunkLines(body, dropRef, title, draftLines, useDripType1Indent, isDripMd);
 			} else if (dropPos === 'sectionEnd') {
 				/* Default when the anchor has no sub-headings: append at end of that section’s body. */
 				insertBefore = findInsertLineBeforeBody(body, dropRef, useDripType1Indent);
-				chunkLines = buildUnderHeadingChunkLines(body, dropRef, title, draftLines, useDripType1Indent);
+				chunkLines = buildUnderHeadingChunkLines(body, dropRef, title, draftLines, useDripType1Indent, isDripMd);
 			} else {
 				insertBefore =
 					dropPos === 'before'
@@ -1043,7 +1064,7 @@ function buildAppendedNote(existingContent, draft, headingPath, options = {}) {
 								const next = headings.slice(idx + 1).find(x => x.level <= hr.level);
 								return next ? insertIndexAboveHeading(lines, next.line) : lines.length;
 							})();
-				chunkLines = buildSiblingChunkLinesAtRef(body, dropRef, title, draftLines, useDripType1Indent);
+				chunkLines = buildSiblingChunkLinesAtRef(body, dropRef, title, draftLines, useDripType1Indent, isDripMd);
 			}
 			if (insertBefore != null) {
 				const at = advanceInsertPastBlankLines(lines, insertBefore);
@@ -1059,7 +1080,7 @@ function buildAppendedNote(existingContent, draft, headingPath, options = {}) {
 		if (insertBefore != null) {
 			insertBefore = advanceInsertPastBlankLines(lines, insertBefore);
 			const chunkLines = finishIngestChunk(
-				buildUnderHeadingChunkLines(body, path, title, draftLines, useDripType1Indent)
+				buildUnderHeadingChunkLines(body, path, title, draftLines, useDripType1Indent, isDripMd)
 			);
 			newBody = insertLinesAtLineIndex(body, insertBefore, chunkLines);
 		}
@@ -1070,8 +1091,9 @@ function buildAppendedNote(existingContent, draft, headingPath, options = {}) {
 		const bodyStr = String(body || '').replace(/\r\n/g, '\n').trimEnd();
 		const lines = bodyStr === '' ? [] : bodyStr.split('\n');
 		let insertBefore = advanceInsertPastBlankLines(lines, lines.length);
+		const lead = isDripMd ? [`# ${title}`, formatHeadingComment(0, 'persistent', [])] : [`# ${title}`];
 		const chunkLines = finishIngestChunk([
-			`# ${title}`,
+			...lead,
 			...trimmedDraft.split('\n').map(line => (useDripType1Indent ? `\t${line}` : line))
 		]);
 		newBody = insertLinesAtLineIndex(bodyStr, insertBefore, chunkLines);

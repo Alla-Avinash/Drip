@@ -1068,7 +1068,7 @@ function normalizeRetrieverHeadingTitle(s) {
 }
 
 /**
- * Find 1-based line of a heading in an open document by identity (`@fN:hM`) then title.
+ * Find 1-based line of a heading in an open document by identity (`@hN`) then title.
  * @param {import('vscode').TextDocument} doc
  * @param {{ title?: string, headingId?: number }} opts
  * @returns {number} 1-based line, or 0 if not found
@@ -1079,13 +1079,13 @@ function findRetrieverHeadingLine(doc, opts) {
 	const lineCount = doc.lineCount;
 
 	if (headingId > 0) {
-		const idRe = new RegExp(`^\\s*@+\\s*f\\d+\\s*:\\s*h${headingId}\\b`, 'i');
+		const idRe = new RegExp(`^\\s*@+\\s*h${headingId}\\b`, 'i');
 		for (let i = 0; i < lineCount; i++) {
 			const text = doc.lineAt(i).text;
 			if (!idRe.test(text)) continue;
-			// Prefer the `#` heading that this identity owns (usually next few lines).
+			// Prefer the `#`/`#N` heading that this identity owns (usually next few lines).
 			for (let j = i; j < Math.min(i + 6, lineCount); j++) {
-				if (/^\s*#{1,6}\s+\S/.test(doc.lineAt(j).text)) return j + 1;
+				if (/^\s*#\d*\s+\S/.test(doc.lineAt(j).text)) return j + 1;
 			}
 			return i + 1;
 		}
@@ -1094,7 +1094,7 @@ function findRetrieverHeadingLine(doc, opts) {
 	if (wantTitle) {
 		let softMatch = 0;
 		for (let i = 0; i < lineCount; i++) {
-			const m = /^(\s*)(#{1,6})\s+(.*)$/.exec(doc.lineAt(i).text);
+			const m = /^(\s*)(#\d*)\s+(.*)$/.exec(doc.lineAt(i).text);
 			if (!m) continue;
 			const got = normalizeRetrieverHeadingTitle(m[3]);
 			if (!got) continue;

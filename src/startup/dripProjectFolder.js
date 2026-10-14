@@ -11,12 +11,13 @@ const vscode = require('vscode');
 const {
 	isDripProjectFolderName,
 	projectDisplayNameFromFolderName,
-	projectIndexFileName
+	projectIndexFileName,
+	CONCEPTS_SUBFOLDER_NAME,
+	DECISIONS_SUBFOLDER_NAME
 } = require('../document/model/dripProjectFolder');
 const { canPlaceProjectFolder } = require('../document/model/dripKbFolderRules');
 const { buildNewNoteFile, writeTextFile } = require('../document/kbNoteOps');
 const { allocateNextEntityNumber, indexNewNoteImmediately } = require('../indexing/dripnoteIndex');
-const { normalizeNoteIdentityFile } = require('../indexing/dripnoteFileIdentity');
 
 /** Prevent recursive create → watch → create loops. */
 const ensuringKeys = new Set();
@@ -31,6 +32,25 @@ async function isDirectoryUri(folderUri) {
 		return (st.type & vscode.FileType.Directory) !== 0;
 	} catch {
 		return false;
+	}
+}
+
+/**
+ * Create the two project-scoped subfolders (`_concepts`, `_decisions`) if missing.
+ * These are the only places concept (c-N) and decision (d-N) notes may live in a project.
+ *
+ * @param {import('vscode').Uri} folderUri
+ * @returns {Promise<void>}
+ */
+async function ensureProjectSpecialFolders(folderUri) {
+	if (!folderUri) return;
+	for (const name of [CONCEPTS_SUBFOLDER_NAME, DECISIONS_SUBFOLDER_NAME]) {
+		const subUri = vscode.Uri.joinPath(folderUri, name);
+		try {
+			await vscode.workspace.fs.stat(subUri);
+		} catch {
+			await vscode.workspace.fs.createDirectory(subUri);
+		}
 	}
 }
 
@@ -58,6 +78,8 @@ async function ensureProjectIndexFile(folderUri, options = {}) {
 
 	try {
 		if (!(await isDirectoryUri(folderUri))) return undefined;
+
+		await ensureProjectSpecialFolders(folderUri);
 
 		const displayName = projectDisplayNameFromFolderName(folderName);
 		const noteName = projectIndexFileName(folderName);
@@ -99,14 +121,6 @@ async function ensureProjectIndexFile(folderUri, options = {}) {
 		await writeTextFile(noteUri, text);
 
 		if (kbRoot) {
-			try {
-				await normalizeNoteIdentityFile(noteUri, {
-					context: options.context,
-					kbRoot
-				});
-			} catch (err) {
-				console.error('[DRIP] normalize project index identity', err);
-			}
 			try {
 				await indexNewNoteImmediately(kbRoot, noteUri, options.context);
 			} catch (err) {
@@ -200,6 +214,7 @@ function registerDripProjectFolderWatch(context, state) {
 }
 
 module.exports = {
+	ensureProjectSpecialFolders,
 	ensureProjectIndexFile,
 	handleProjectFolderRename,
 	registerDripProjectFolderWatch

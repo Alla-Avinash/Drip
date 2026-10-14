@@ -14,7 +14,7 @@
  */
 
 const vscode = require('vscode');
-const { parseHeadingForValidation } = require('../parse/dripnoteHeadingParse');
+const { parseMarkdownHeading } = require('../parse/dripnoteHeadingParse');
 const { isHeadingComment, validateHeadingComment } = require('../model/dripMdNoteComment');
 const { knownTagsLowerForNote } = require('../../graph/noteTagScope');
 
@@ -35,7 +35,7 @@ function isDripMdNoteDocument(document) {
 /** True when a heading line appears anywhere before `idx`. */
 function hasHeadingBefore(lines, idx) {
 	for (let j = 0; j < idx; j++) {
-		if (parseHeadingForValidation(lines[j])) return true;
+		if (parseMarkdownHeading(lines[j])) return true;
 	}
 	return false;
 }
@@ -61,7 +61,7 @@ async function validateDocumentOnce(document, context) {
 		const trimmed = String(lines[i] || '').trim();
 		if (!DRIP_COMMENT_RE.test(trimmed)) continue;
 		if (FILE_HEADER_COMMENT_RE.test(trimmed) && !hasHeadingBefore(lines, i)) continue;
-		if (i > 0 && parseHeadingForValidation(lines[i - 1])) continue;
+		if (i > 0 && parseMarkdownHeading(lines[i - 1])) continue;
 		orphanLines.push(i);
 	}
 	const orphanSet = new Set(orphanLines);
@@ -71,14 +71,14 @@ async function validateDocumentOnce(document, context) {
 	/** @type {{ line: number, text: string }[]} */
 	const edits = [];
 	for (let i = 0; i < lines.length; i++) {
-		if (!parseHeadingForValidation(lines[i])) continue;
+		if (!parseMarkdownHeading(lines[i])) continue;
 		// The comment sits immediately below its heading line.
 		const commentLine = i + 1;
 		if (commentLine >= lines.length) continue;
 		if (orphanSet.has(commentLine)) continue;
 		if (!isHeadingComment(lines[commentLine])) continue;
 
-		const result = validateHeadingComment(lines[commentLine], lines[i], knownTagsLower);
+		const result = validateHeadingComment(lines[commentLine], knownTagsLower);
 		if (result.text == null || !result.changed) continue;
 		edits.push({ line: commentLine, text: result.text });
 	}

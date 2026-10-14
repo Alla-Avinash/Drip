@@ -8,10 +8,10 @@
  *
  * Flow:
  * 1) Resolve `@fN` ownership against `files` in index.drip
- * 2) Fix file header (fileid, filename, headings) and ensure h0 sits above `---`
- * 3) Rewrite heading identity lines (`@fN:hM #hash`)
+ * 2) Fix file header (fileid, filename, headings) and keep h0 below `---`
+ * 3) Rewrite heading identity lines (`@hN`)
  *    - reset (new id / reclaim / first insert): fresh 1..N below h0
- *    - existing: keep hM, fill missing, recompute hashes
+ *    - existing: keep hM, fill missing
  * 4) Persist to index.drip immediately
  */
 
@@ -29,16 +29,15 @@ const {
 	replaceParsedNoteAtFileId,
 	syncFileHeadingAllocatorFromUsedIds
 } = require('../dripIndexDb');
-const { parseNoteForIndex, computeHeadingHash } = require('../dripIndexParse');
+const { parseNoteForIndex } = require('../dripIndexParse');
 const { formatFileEntityId } = require('../dripnoteEntityIds');
 const {
 	findHeadingIdentityForNode,
 	findOwnedIdentityLineIndex,
-	findSeparatorLineIndex,
+	findH0HeadingLine,
 	formatHeadingIdentityLine,
 	headingLineIndent,
 	isH0HeadingNode,
-	metaLinesForHash,
 	parseFileEntityFromLines,
 	rebuildCanonicalFileLevelBlock
 } = require('../dripnoteHeadingIdentity');
@@ -98,34 +97,26 @@ function writeHeadingsCountLine(lines, count) {
 
 /**
  * @param {string[]} lines
- * @returns {{ firstRootBeforeSep: number, sepIdx: number, nodes: object[] }}
+ * @returns {{ h0LineIndex: number, nodes: object[] }}
  */
 function headingWalk(lines) {
-	const sepIdx = findSeparatorLineIndex(lines);
 	const { nodes } = collectHeadingSequenceValidated(lines, 0);
-	let firstRootBeforeSep = -1;
-	for (const node of nodes) {
-		if (node.tabDepth !== 0) continue;
-		if (sepIdx >= 0 && node.lineIndex >= sepIdx) continue;
-		firstRootBeforeSep = node.lineIndex;
-		break;
-	}
-	return { firstRootBeforeSep, sepIdx, nodes };
+	return { h0LineIndex: findH0HeadingLine(lines), nodes };
 }
 
 /**
- * Rewrite `@fN:hM #hash` lines. h0 stays h0. Fresh numbering is 1..N in file order for
+ * Rewrite `@hN` lines. h0 stays h0. Fresh numbering is 1..N in file order for
  * persistent headings below `---`. Existing mode keeps hM and fills gaps.
  *
  * @param {string[]} lines
- * @param {string} fileEntityId
+ * @param {string} fileEntityId unused (heading identity carries no file id)
  * @param {{ freshNumbers: boolean }} options
  * @returns {{ lines: string[], nonH0Count: number, usedNonH0Ids: number[] }}
  */
 function rewriteHeadingIdentities(lines, fileEntityId, options) {
 	const next = [...(lines || [])];
 	const settings = getMetadataSettings();
-	const { firstRootBeforeSep, sepIdx, nodes } = headingWalk(next);
+	const { h0LineIndex, nodes } = headingWalk(next);
 	const titled = (nodes || []).filter(node => /\S/.test(String(node.title || '').trim()));
 	const freshNumbers = options && options.freshNumbers === true;
 
@@ -140,7 +131,7 @@ function rewriteHeadingIdentities(lines, fileEntityId, options) {
 	if (!freshNumbers) {
 		let max = 0;
 		for (const node of titled) {
-			if (isH0HeadingNode(node, sepIdx, firstRootBeforeSep)) continue;
+			if (isH0HeadingNode(node, h0LineIndex)) continue;
 			const attached = findHeadingIdentityForNode(next, node);
 			const num = attached ? attached.parsed.headingNum : 0;
 			if (num > max) max = num;
@@ -149,7 +140,7 @@ function rewriteHeadingIdentities(lines, fileEntityId, options) {
 	}
 
 	for (const node of titled) {
-		const isH0 = isH0HeadingNode(node, sepIdx, firstRootBeforeSep);
+		const isH0 = isH0HeadingNode(node, h0LineIndex);
 		const classification = classifyPersistentHeadingTitle(node.title, settings);
 		if (!isH0 && !classification.persistent) {
 			if (findHeadingIdentityForNode(next, node)) {
@@ -176,15 +167,10 @@ function rewriteHeadingIdentities(lines, fileEntityId, options) {
 			usedNonH0Ids.push(headingNum);
 		}
 
-		const hash = computeHeadingHash(
-			node.title,
-			classification.metadataType || '',
-			metaLinesForHash(node.metaLines || [])
-		);
 		const indent = headingLineIndent(next, node.lineIndex);
 		wantLineByIndex.set(
 			node.lineIndex,
-			`${indent}${formatHeadingIdentityLine(fileEntityId, headingNum, hash)}`
+			`${indent}${formatHeadingIdentityLine(headingNum)}`
 		);
 	}
 
@@ -368,7 +354,8 @@ async function reconcileUpdate(kbRootUri, noteUri, options = {}) {
 
 	lines = rebuildCanonicalFileLevelBlock(lines, {
 		fileEntityId: ownership.fileEntityId,
-		filename: filenameStem
+		filename: filenameStem,
+		noteFsPath: noteUri.fsPath
 	});
 	const identities = rewriteHeadingIdentities(lines, ownership.fileEntityId, {
 		freshNumbers: reset

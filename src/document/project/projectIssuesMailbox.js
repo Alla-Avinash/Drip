@@ -25,7 +25,6 @@ async function writeTextFile(uri, content) {
 	await writeTextFileRaw(uri, content);
 }
 const { allocateNextEntityNumber, indexNewNoteImmediately } = require('../../indexing/dripnoteIndex');
-const { normalizeNoteIdentityFile } = require('../../indexing/dripnoteFileIdentity');
 const { isHeadingIdentityLine } = require('../../indexing/dripnoteHeadingIdentity');
 const {
 	PROJECT_ISSUES_FILE_NAME,
@@ -44,6 +43,7 @@ const {
 const { isDripFeatureFolderName } = require('../model/dripFeature');
 const {
 	findIssueHeadingBlock,
+	relevelBlock,
 	appendIssueToInbox,
 	appendSubIssueUnderParent,
 	insertSiblingBeforeIssue,
@@ -98,11 +98,6 @@ async function ensureProjectIssuesFile(projectFolderUri, options = {}) {
 	await writeTextFile(noteUri, text);
 
 	if (kbRoot) {
-		try {
-			await normalizeNoteIdentityFile(noteUri, { context: options.context, kbRoot });
-		} catch (err) {
-			console.error('[DRIP] normalize _issues identity', err);
-		}
 		try {
 			await indexNewNoteImmediately(kbRoot, noteUri, options.context);
 		} catch (err) {
@@ -292,13 +287,7 @@ async function moveIssueToFeatureMailbox(kbRootUri, projectFolderUri, featureUri
 			? found.start - 1
 			: found.start;
 	const blockLines = found.lines.slice(blockStart, found.end);
-	const startIndentMatch = found.lines[found.start].match(/^(\t*)/);
-	const tabStrip = startIndentMatch ? startIndentMatch[1].length : 0;
-	const dedentedLines = blockLines.map(ln => {
-		let out = ln;
-		for (let t = 0; t < tabStrip && out.startsWith('\t'); t++) out = out.slice(1);
-		return out;
-	});
+	const dedentedLines = relevelBlock(blockLines, -found.indent);
 
 	const before = found.lines.slice(0, blockStart);
 	const after = found.lines.slice(found.end);
@@ -505,13 +494,7 @@ async function moveIssueBlock(kbRootUri, sourceUri, projectFolderUri, target, is
 			? found.start - 1
 			: found.start;
 	const blockLines = found.lines.slice(blockStart, found.end);
-	const startIndentMatch = found.lines[found.start].match(/^(\t*)/);
-	const tabStrip = startIndentMatch ? startIndentMatch[1].length : 0;
-	const dedentedLines = blockLines.map(ln => {
-		let out = ln;
-		for (let t = 0; t < tabStrip && out.startsWith('\t'); t++) out = out.slice(1);
-		return out;
-	});
+	const dedentedLines = relevelBlock(blockLines, -found.indent);
 	// Detach: drop the `parent:` line so the issue can sit under any heading/issue.
 	const finalLines = removeParent ? stripIssueParentLine(dedentedLines) : dedentedLines;
 

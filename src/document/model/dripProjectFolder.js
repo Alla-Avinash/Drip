@@ -9,6 +9,10 @@ const path = require('path');
 
 const PROJECT_FOLDER_EXT = '.p';
 
+/** Project-scoped subfolders: concepts (c-N) and decisions (d-N) live here. */
+const CONCEPTS_SUBFOLDER_NAME = '_concepts';
+const DECISIONS_SUBFOLDER_NAME = '_decisions';
+
 /**
  * @param {string} folderBasename
  * @returns {boolean}
@@ -108,13 +112,38 @@ function isPathInsideProjectFolder(fsPath) {
 	return false;
 }
 
+/**
+ * Special subfolder type for a note path: `_concepts` → `concept`, `_decisions` → `decision`.
+ * Only counts when that subfolder sits inside a project (`.p`) / feature (`.f`) folder —
+ * a stray `_concepts` folder outside a project means nothing. Returns null otherwise.
+ * @param {string} fsPath
+ * @returns {'concept' | 'decision' | null}
+ */
+function specialProjectSubfolderTypeIdForPath(fsPath) {
+	const file = String(fsPath || '');
+	if (!file) return null;
+	let dir = path.dirname(file);
+	while (dir && dir !== path.dirname(dir)) {
+		const base = String(path.basename(dir) || '').trim().toLowerCase();
+		if (base === CONCEPTS_SUBFOLDER_NAME) return 'concept';
+		if (base === DECISIONS_SUBFOLDER_NAME) return 'decision';
+		// Stop at the project/feature boundary — subfolders only count inside one.
+		if (base.endsWith('.p') || base.endsWith('.f')) return null;
+		dir = path.dirname(dir);
+	}
+	return null;
+}
+
 module.exports = {
 	PROJECT_FOLDER_EXT,
+	CONCEPTS_SUBFOLDER_NAME,
+	DECISIONS_SUBFOLDER_NAME,
 	isDripProjectFolderName,
 	projectDisplayNameFromFolderName,
 	projectIndexFileName,
 	isProjectIndexFileName,
 	isProtectedFolderIndexNotePath,
 	isPathInsideProjectFolder,
+	specialProjectSubfolderTypeIdForPath,
 	sanitizeProjectIndexStem
 };

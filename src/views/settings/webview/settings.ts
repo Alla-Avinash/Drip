@@ -12,7 +12,8 @@ interface Window {
 			kb: document.getElementById('panel-kb'),
 			editor: document.getElementById('panel-editor'),
 			update: document.getElementById('panel-update'),
-			types: document.getElementById('panel-types'),
+			'kb-types': document.getElementById('panel-kb-types'),
+			'project-types': document.getElementById('panel-project-types'),
 			relations: document.getElementById('panel-relations'),
 			metadata: document.getElementById('panel-metadata'),
 			doccoloring: document.getElementById('panel-doccoloring'),
@@ -34,6 +35,9 @@ interface Window {
 		const kbDefaultExt = document.getElementById('kb-default-ext');
 		const metadataTypesListEl = document.getElementById('metadata-types-list');
 		const fileLevelTypesListEl = document.getElementById('file-level-types-list');
+		const projectSelectEl = document.getElementById('project-select');
+		const projectMetadataHintEl = document.getElementById('project-metadata-hint');
+		const projectMetadataHeadingEl = document.getElementById('project-metadata-heading');
 		const optTemplateEnabled = document.getElementById('opt-template-enabled');
 		const optTemplateAuto = document.getElementById('opt-template-auto');
 		const optTemplateStrict = document.getElementById('opt-template-strict');
@@ -51,6 +55,12 @@ interface Window {
 		var preservedOtherExts = [];
 		var metadataTypesState = [];
 		var fileLevelTypesState = [];
+		/** @type {{ folderPrefix: string, title: string }[]} */
+		var projectsList = [];
+		var projectOverrides = {};
+		var selectedProjectKey = String(window.__dripSettingsInit.initialProject || '');
+		var selectedProjectTitle = String(window.__dripSettingsInit.initialProjectTitle || '');
+		var projectOverrideState = [];
 		var relationsState = [];
 		var metadataMarksState = [];
 		var docColorsState = { color1: '', color2: '', color3: '', color4: '', color5: '', color6: '', color7: '', color8: '', color9: '' };
@@ -97,13 +107,14 @@ interface Window {
 		function normalizeAttributeKind(kind) {
 			var k = String(kind || 'enum').trim().toLowerCase();
 			if (k === 'free' || k === 'range') return 'enum';
-			if (k === 'enum' || k === 'datetime' || k === 'duration') return k;
-			if (k === 'parent' || k === 'issue_parent') return 'issue_parent';
+			if (k === 'enum' || k === 'datetime' || k === 'duration' || k === 'ref') return k;
+			// Legacy issue-parent kind folds into the generic reference kind.
+			if (k === 'parent' || k === 'issue_parent') return 'ref';
 			return 'enum';
 		}
 
-		// Fixed kind for the issue parent key — a special link, not an enum/datetime/duration.
-		var SPECIAL_PARENT_KIND = 'issue_parent';
+		// Reference kind for entity links (parent i-N, decision d-N, concept c-N).
+		var SPECIAL_PARENT_KIND = 'ref';
 
 		var FIXED_DURATION_UNITS_LABEL = 'minute, hour, day, week, month, year';
 		var FIXED_DATETIME_FORMAT_LABEL = 'datetime (YYYY-MM-DD HH:mm)';
@@ -212,7 +223,7 @@ interface Window {
 				return '<input type="text" data-role="attr-values" disabled value="' + escapeHtml(FIXED_DURATION_UNITS_LABEL) + '" title="Fixed duration units in DRIP">';
 			}
 			if (kind === SPECIAL_PARENT_KIND) {
-				return '<input type="text" data-role="attr-values" disabled value="parent issue (i-N)" title="Fixed special key">';
+				return '<input type="text" data-role="attr-values" disabled value="reference (x-N)" title="Fixed special key">';
 			}
 			return '<input type="text" data-role="attr-values" value="' + escapeHtml((a.values || []).join(', ')) + '" placeholder="comma values (enum)">';
 		}
@@ -221,23 +232,24 @@ interface Window {
 			var kind = normalizeAttributeKind(a.kind);
 			var disabled = builtIn ? ' disabled' : '';
 			if (kind === SPECIAL_PARENT_KIND) {
-				return '<select data-role="attr-kind" disabled title="Fixed special key"><option value="issue_parent" selected>parent</option></select>';
+				return '<select data-role="attr-kind" disabled title="Fixed special key"><option value="ref" selected>ref</option></select>';
 			}
 			return '<select data-role="attr-kind"' + disabled + '>' +
 				'<option value="enum"' + (kind === 'enum' ? ' selected' : '') + '>enum</option>' +
 				'<option value="datetime"' + (kind === 'datetime' ? ' selected' : '') + '>datetime</option>' +
 				'<option value="duration"' + (kind === 'duration' ? ' selected' : '') + '>duration</option>' +
+				'<option value="ref"' + (kind === 'ref' ? ' selected' : '') + '>ref</option>' +
 			'</select>';
 		}
 
-		var LOCKED_METADATA_TYPE_IDS = { concept: true, task: true, issue: true };
 		var LOCKED_FILE_LEVEL_TYPE_IDS = { project: true, feature: true };
 
 		// Built-in template keys per type: fixed by the product, editable but never deletable.
 		var BUILTIN_ATTRIBUTE_KEYS = {
 			concept: ['domain', 'status'],
 			task: ['status', 'priority', 'deadline', 'category'],
-			issue: ['status', 'priority', 'deadline', 'category', 'parent'],
+			issue: ['status', 'priority', 'deadline', 'category', 'parent', 'decision', 'concept'],
+			decision: ['status', 'category', 'superseded-by', 'concept'],
 			project: ['status', 'priority', 'deadline'],
 			feature: ['category']
 		};
@@ -245,16 +257,6 @@ interface Window {
 		function isBuiltInAttributeKey(typeId, key) {
 			var list = BUILTIN_ATTRIBUTE_KEYS[String(typeId || '').trim().toLowerCase()];
 			return !!list && list.indexOf(String(key || '').trim().toLowerCase()) >= 0;
-		}
-
-		function isLockedMetadataType(t) {
-			var id = String((t && t.id) || '').trim().toLowerCase();
-			return !!LOCKED_METADATA_TYPE_IDS[id];
-		}
-
-		function isLockedFileLevelType(t) {
-			var id = String((t && t.id) || '').trim().toLowerCase();
-			return !!LOCKED_FILE_LEVEL_TYPE_IDS[id];
 		}
 
 		function findDocumentTypeIndex(id) {
@@ -282,23 +284,13 @@ interface Window {
 			}
 		}
 
-		function addNewType() {
-			metadataTypesState.push({
-				id: 'new-type',
-				marker: '.new-type',
-				shortcut: '',
-				displayTemplate: true,
-				attributes: []
-			});
-			renderMetadataTypes();
-		}
-
 		function renderMetadataTypes() {
 			var html = '';
 			for (var i = 0; i < metadataTypesState.length; i++) {
 				var t = metadataTypesState[i] || {};
-				// Issue is shown in the Projects card, not the document list.
-				if (String(t.id || '').trim().toLowerCase() === 'issue') continue;
+				// Issue and decision are shown in the Projects card, not the document list.
+				var docTypeId = String(t.id || '').trim().toLowerCase();
+				if (docTypeId === 'issue' || docTypeId === 'decision') continue;
 				var attrs = Array.isArray(t.attributes) ? t.attributes : [];
 				var rows = '';
 				for (var j = 0; j < attrs.length; j++) {
@@ -312,15 +304,11 @@ interface Window {
 						'<td>' + (builtIn ? '<span class="meta">built-in</span>' : '<button class="iconBtn deleteIcon" data-role="remove-attr" title="Delete Attribute">🗑</button>') + '</td>' +
 					'</tr>';
 				}
-				var locked = isLockedMetadataType(t);
-				var deleteTypeBtn = locked
-					? ''
-					: '<button class="iconBtn deleteIcon" data-role="remove-type" title="Delete Metadata Type">🗑</button>';
 				html +=
 					'<details class="typeDetails" data-type-index="' + i + '" open>' +
 						'<summary class="typeSummary">' +
 							'<span>' + escapeHtml(t.marker || '.type') + ' (' + escapeHtml(t.id || 'type') + ')</span>' +
-							'<span class="summaryRight">' + deleteTypeBtn + '<span class="chev">⌃</span></span>' +
+							'<span class="summaryRight"><span class="chev">⌃</span></span>' +
 						'</summary>' +
 						'<div class="typeBody" data-type-index="' + i + '">' +
 							'<div class="typeGrid">' +
@@ -383,39 +371,44 @@ interface Window {
 					'</details>';
 			}
 
-			// Issue is a document/heading type (stored in metadataTypes) but belongs to
-			// Projects, so it is rendered here. Mark the block so edits route back to
-			// metadataTypesState instead of fileLevelTypesState.
-			var issueIndex = findDocumentTypeIndex('issue');
-			if (issueIndex >= 0) {
-				var it = metadataTypesState[issueIndex] || {};
-				var iAttrs = Array.isArray(it.attributes) ? it.attributes : [];
-				var iRows = '';
-				for (var j = 0; j < iAttrs.length; j++) {
-					var ia = iAttrs[j] || {};
-					var builtIn = isBuiltInAttributeKey('issue', ia.key);
-					iRows += '<tr data-attr-index="' + j + '">' +
-						'<td><input type="text" data-role="attr-key" value="' + escapeHtml(ia.key) + '" placeholder="key"' + (builtIn ? ' disabled' : '') + '></td>' +
-						'<td>' + renderAttrKindCell(ia, builtIn) + '</td>' +
-						'<td>' + renderAttrValuesCell(ia) + '</td>' +
-						'<td><label class="row" style="margin:0;"><input type="checkbox" data-role="attr-required"' + (ia.required ? ' checked' : '') + '><span>required</span></label></td>' +
+			// Concept / issue / decision are document/heading types (stored in
+			// metadataTypes) but belong to Projects, so they are rendered here too.
+			// Mark each block so edits route back to metadataTypesState instead of
+			// fileLevelTypesState.
+			var projectHeadingTypeIds = ['issue', 'concept', 'decision'];
+			for (var pi = 0; pi < projectHeadingTypeIds.length; pi++) {
+				var ptypeId = projectHeadingTypeIds[pi];
+				var pidx = findDocumentTypeIndex(ptypeId);
+				if (pidx < 0) continue;
+				var pt = metadataTypesState[pidx] || {};
+				var pAttrs = Array.isArray(pt.attributes) ? pt.attributes : [];
+				var pRows = '';
+				for (var j = 0; j < pAttrs.length; j++) {
+					var pa = pAttrs[j] || {};
+					var builtIn = isBuiltInAttributeKey(ptypeId, pa.key);
+					pRows += '<tr data-attr-index="' + j + '">' +
+						'<td><input type="text" data-role="attr-key" value="' + escapeHtml(pa.key) + '" placeholder="key"' + (builtIn ? ' disabled' : '') + '></td>' +
+						'<td>' + renderAttrKindCell(pa, builtIn) + '</td>' +
+						'<td>' + renderAttrValuesCell(pa) + '</td>' +
+						'<td><label class="row" style="margin:0;"><input type="checkbox" data-role="attr-required"' + (pa.required ? ' checked' : '') + '><span>required</span></label></td>' +
 						'<td>' + (builtIn ? '<span class="meta">built-in</span>' : '<button class="iconBtn deleteIcon" data-role="remove-attr" title="Delete Attribute">🗑</button>') + '</td>' +
 					'</tr>';
 				}
+				var pshortcut = ptypeId === 'issue' ? 'i' : ptypeId === 'concept' ? 'c' : ptypeId === 'decision' ? 'd' : '';
 				html +=
-					'<details class="typeDetails" data-type-index="' + issueIndex + '" data-source="document" open>' +
+					'<details class="typeDetails" data-type-index="' + pidx + '" data-source="document" open>' +
 						'<summary class="typeSummary">' +
-							'<span>' + escapeHtml(it.marker || '.issue') + ' (issue)</span>' +
+							'<span>' + escapeHtml(pt.marker || ('.' + ptypeId)) + ' (' + escapeHtml(ptypeId) + ')</span>' +
 							'<span class="summaryRight"><span class="chev">⌃</span></span>' +
 						'</summary>' +
-						'<div class="typeBody" data-type-index="' + issueIndex + '" data-source="document">' +
+						'<div class="typeBody" data-type-index="' + pidx + '" data-source="document">' +
 							'<div class="typeGrid">' +
-								'<label class="row" style="display:block;margin:0;"><span>Type Id</span><input type="text" data-role="type-id" value="issue" disabled></label>' +
-								'<label class="row" style="display:block;margin:0;"><span>Shortcut</span><input type="text" value="i" disabled></label>' +
+								'<label class="row" style="display:block;margin:0;"><span>Type Id</span><input type="text" data-role="type-id" value="' + escapeHtml(ptypeId) + '" disabled></label>' +
+								'<label class="row" style="display:block;margin:0;"><span>Shortcut</span><input type="text" value="' + escapeHtml(pshortcut) + '" disabled></label>' +
 							'</div>' +
 							'<table class="attrTable">' +
 								'<thead><tr><th>Key</th><th>Kind</th><th>Values</th><th>Required</th><th>Action</th></tr></thead>' +
-								'<tbody>' + iRows + '</tbody>' +
+								'<tbody>' + pRows + '</tbody>' +
 							'</table>' +
 							'<div class="inlineActions">' +
 								'<button class="iconBtn" data-role="add-attr" title="Add Attribute">+</button>' +
@@ -425,6 +418,210 @@ interface Window {
 			}
 
 			fileLevelTypesListEl.innerHTML = html;
+		}
+
+		function defaultTypeForId(typeId) {
+			var inFileLevel = typeId === 'project' || typeId === 'feature';
+			var src = inFileLevel ? defaultFileLevelMetadataTypes : defaultMetadataTypes;
+			for (var i = 0; i < src.length; i++) {
+				if (String((src[i] || {}).id || '').toLowerCase() === typeId) return src[i];
+			}
+			return null;
+		}
+
+		function defaultAttrMapForType(typeId) {
+			var base = defaultTypeForId(typeId);
+			var attrs = base ? normalizeAttributes(base.attributes) : [];
+			var map = {};
+			for (var i = 0; i < attrs.length; i++) {
+				map[String(attrs[i].key || '').toLowerCase()] = attrs[i];
+			}
+			return map;
+		}
+
+		function attributeDiffersFromDefault(typeId, key, attr) {
+			var def = defaultAttrMapForType(typeId)[String(key || '').toLowerCase()];
+			if (!def) return true; // new key added by this project
+			var kind = normalizeAttributeKind(attr.kind);
+			var defKind = normalizeAttributeKind(def.kind);
+			if (kind !== defKind) return true;
+			if (kind === 'enum') {
+				var aVals = (Array.isArray(attr.values) ? attr.values : [])
+					.map(function (x) { return String(x || '').trim().toLowerCase(); }).filter(Boolean);
+				var dVals = (Array.isArray(def.values) ? def.values : [])
+					.map(function (x) { return String(x || '').trim().toLowerCase(); }).filter(Boolean);
+				if (aVals.join('|') !== dVals.join('|')) return true;
+				if (String(attr.default || '').trim().toLowerCase() !== String(def.default || '').trim().toLowerCase()) return true;
+			}
+			if (!!attr.required !== !!def.required) return true;
+			return false;
+		}
+
+		// Build the editable type list for a selected project: default template for
+		// project/feature/issue, with that project's stored overrides layered on top.
+		function buildProjectOverrideState(projectKey) {
+			var ovr = (projectOverrides && projectOverrides[projectKey]) || {};
+			var typeIds = ['project', 'feature', 'issue', 'concept', 'decision'];
+			var out = [];
+			for (var i = 0; i < typeIds.length; i++) {
+				var typeId = typeIds[i];
+				var base = defaultTypeForId(typeId);
+				if (!base) continue;
+				var normalized = normalizeTypesFromSettings([base]);
+				var t = normalized[0] || { id: typeId, marker: '.' + typeId, shortcut: '', attributes: [] };
+				var typeOvr = ovr[typeId];
+				var extraAttrs = (typeOvr && typeOvr.attributes && typeof typeOvr.attributes === 'object')
+					? normalizeAttributes(typeOvr.attributes)
+					: [];
+				if (extraAttrs.length) {
+					var merged = Array.isArray(t.attributes) ? t.attributes.slice() : [];
+					for (var m = 0; m < extraAttrs.length; m++) {
+						var ev = extraAttrs[m];
+						var idx = -1;
+						for (var a = 0; a < merged.length; a++) {
+							if (String((merged[a] || {}).key || '').toLowerCase() === String(ev.key || '').toLowerCase()) { idx = a; break; }
+						}
+						if (idx >= 0) merged[idx] = ev;
+						else merged.push(ev);
+					}
+					t.attributes = merged;
+				}
+				out.push(t);
+			}
+			return out;
+		}
+
+		function renderProjectOverrideTypes() {
+			var html = '';
+			for (var i = 0; i < projectOverrideState.length; i++) {
+				var t = projectOverrideState[i] || {};
+				var typeId = String(t.id || '').trim().toLowerCase();
+				var attrs = Array.isArray(t.attributes) ? t.attributes : [];
+				var rows = '';
+				for (var j = 0; j < attrs.length; j++) {
+					var a = attrs[j] || {};
+					var builtIn = isBuiltInAttributeKey(typeId, a.key);
+					rows += '<tr data-type-index="' + i + '" data-attr-index="' + j + '">' +
+						'<td><input type="text" data-role="attr-key" value="' + escapeHtml(a.key) + '" placeholder="key"' + (builtIn ? ' disabled' : '') + '></td>' +
+						'<td>' + renderAttrKindCell(a, builtIn) + '</td>' +
+						'<td>' + renderAttrValuesCell(a) + '</td>' +
+						'<td><label class="row" style="margin:0;"><input type="checkbox" data-role="attr-required"' + (a.required ? ' checked' : '') + '><span>required</span></label></td>' +
+						'<td>' + (builtIn ? '<span class="meta">built-in</span>' : '<button class="iconBtn deleteIcon" data-role="remove-attr" title="Delete Attribute">🗑</button>') + '</td>' +
+					'</tr>';
+				}
+				var shortcutLabel = typeId === 'project' ? '.p' : typeId === 'feature' ? '.f' : typeId === 'issue' ? 'i' : typeId === 'concept' ? 'c' : typeId === 'decision' ? 'd' : '';
+				html +=
+					'<details class="typeDetails" data-type-index="' + i + '" open>' +
+						'<summary class="typeSummary">' +
+							'<span>' + escapeHtml(typeId) + ' (special)</span>' +
+							'<span class="summaryRight"><span class="chev">⌃</span></span>' +
+						'</summary>' +
+						'<div class="typeBody" data-type-index="' + i + '">' +
+							'<div class="typeGrid">' +
+								'<label class="row" style="display:block;margin:0;"><span>Type Id</span><input type="text" data-role="type-id" value="' + escapeHtml(typeId) + '" disabled></label>' +
+								'<label class="row" style="display:block;margin:0;"><span>Shortcut</span><input type="text" value="' + escapeHtml(shortcutLabel) + '" disabled></label>' +
+							'</div>' +
+							'<table class="attrTable">' +
+								'<thead><tr><th>Key</th><th>Kind</th><th>Values</th><th>Required</th><th>Action</th></tr></thead>' +
+								'<tbody>' + rows + '</tbody>' +
+							'</table>' +
+							'<div class="inlineActions">' +
+								'<button class="iconBtn" data-role="add-attr" title="Add Attribute">+</button>' +
+							'</div>' +
+						'</div>' +
+					'</details>';
+			}
+			fileLevelTypesListEl.innerHTML = html;
+		}
+
+		function reRenderProjectTypeList() {
+			if (selectedProjectKey) renderProjectOverrideTypes();
+			else renderFileLevelTypes();
+		}
+
+		function selectedProjectOptionTitle(value) {
+			for (var i = 0; i < projectsList.length; i++) {
+				if (String((projectsList[i] || {}).folderPrefix || '') === value) {
+					return String((projectsList[i] || {}).title || '');
+				}
+			}
+			return '';
+		}
+
+		function renderProjectMetadataPanel() {
+			if (selectedProjectKey) {
+				projectOverrideState = buildProjectOverrideState(selectedProjectKey);
+				renderProjectOverrideTypes();
+				var title = selectedProjectTitle || selectedProjectOptionTitle(selectedProjectKey) || selectedProjectKey;
+				if (projectMetadataHeadingEl) projectMetadataHeadingEl.textContent = 'Project metadata — ' + title;
+				if (projectMetadataHintEl) projectMetadataHintEl.textContent = 'Editing overrides for this project. Only changed or added keys are saved; everything else inherits the default template.';
+			} else {
+				renderFileLevelTypes();
+				if (projectMetadataHeadingEl) projectMetadataHeadingEl.textContent = 'Default project template';
+				if (projectMetadataHintEl) projectMetadataHintEl.textContent = 'The standard template shared by all projects. Select a project above to override it.';
+			}
+		}
+
+		function rebuildProjectSelect() {
+			if (!projectSelectEl) return;
+			projectSelectEl.innerHTML = '';
+			var optDefault = document.createElement('option');
+			optDefault.value = '';
+			optDefault.textContent = 'standard template';
+			projectSelectEl.appendChild(optDefault);
+			for (var i = 0; i < projectsList.length; i++) {
+				var p = projectsList[i] || {};
+				var o = document.createElement('option');
+				o.value = String(p.folderPrefix || '');
+				o.textContent = String(p.title || p.folderPrefix || '');
+				projectSelectEl.appendChild(o);
+			}
+			var want = selectedProjectKey || '';
+			var found = false;
+			for (var j = 0; j < projectSelectEl.options.length; j++) {
+				if (projectSelectEl.options[j].value === want) {
+					projectSelectEl.selectedIndex = j;
+					found = true;
+					break;
+				}
+			}
+			if (!found) {
+				selectedProjectKey = '';
+				selectedProjectTitle = '';
+				projectSelectEl.selectedIndex = 0;
+			}
+			renderProjectMetadataPanel();
+		}
+
+		function collectProjectOverrideForSave() {
+			var override = {};
+			for (var i = 0; i < projectOverrideState.length; i++) {
+				var t = projectOverrideState[i] || {};
+				var typeId = String(t.id || '').trim().toLowerCase();
+				if (typeId !== 'project' && typeId !== 'feature' && typeId !== 'issue' && typeId !== 'concept' && typeId !== 'decision') continue;
+				var attrs = Array.isArray(t.attributes) ? t.attributes : [];
+				var attrsObj = {};
+				for (var j = 0; j < attrs.length; j++) {
+					var a = attrs[j] || {};
+					var k = String(a.key || '').trim().toLowerCase();
+					if (!k) continue;
+					if (typeId === 'issue' && k === 'parent') continue; // fixed parent link is never overridden
+					if (!attributeDiffersFromDefault(typeId, k, a)) continue;
+					var kind = normalizeAttributeKind(a.kind);
+					var values = kind === 'enum' && Array.isArray(a.values)
+						? a.values.map(function (x) { return String(x || '').trim().toLowerCase(); }).filter(Boolean)
+						: [];
+					var entry = {
+						kind: kind,
+						default: kind === 'enum' ? String(a.default != null ? a.default : '').trim() : '',
+						required: !!a.required
+					};
+					if (kind === 'enum') entry.values = values;
+					attrsObj[k] = entry;
+				}
+				if (Object.keys(attrsObj).length) override[typeId] = { attributes: attrsObj };
+			}
+			return override;
 		}
 
 		function collectFileLevelTypesForSave() {
@@ -756,7 +953,11 @@ interface Window {
 					? message.fileLevelMetadataTypes
 					: defaultFileLevelMetadataTypes
 			);
-			renderFileLevelTypes();
+			projectsList = Array.isArray(message.projects) ? message.projects : [];
+			projectOverrides = message.projectMetadataOverrides && typeof message.projectMetadataOverrides === 'object'
+				? message.projectMetadataOverrides
+				: {};
+			rebuildProjectSelect();
 			var tr = message.tagsRelationsConfig || {};
 			relationsState = Array.isArray(tr.relations) && tr.relations.length ? tr.relations : [
 				{ name: 'tags', description: 'Special default relation for tags.', locked: true },
@@ -795,6 +996,11 @@ interface Window {
 			} else if (message.type === 'mcpStatus') {
 				applyMcpStatus(message.status || null);
 			} else if (message.type === 'showPanel' && panels[message.panel]) {
+				if (message.projectKey != null) {
+					selectedProjectKey = String(message.projectKey || '');
+					selectedProjectTitle = String(message.projectTitle || '');
+					if (projectsList.length) rebuildProjectSelect();
+				}
 				showPanel(message.panel);
 			} else if (message.type === 'docThemeColors') {
 				docThemeColors = message.colors || null;
@@ -922,9 +1128,6 @@ interface Window {
 		function parseJsonArea(el, fallback) {
 			try { return JSON.parse(String(el.value || '')); } catch { return fallback; }
 		}
-		document.getElementById('btn-add-type').addEventListener('click', function () {
-			addNewType();
-		});
 		metadataTypesListEl.addEventListener('input', function (ev) {
 			var target = ev.target;
 			if (!target) return;
@@ -1001,14 +1204,6 @@ interface Window {
 			if (!scope) return;
 			var typeIndex = Number(scope.getAttribute('data-type-index'));
 			if (!Number.isFinite(typeIndex) || !metadataTypesState[typeIndex]) return;
-			if (role === 'remove-type') {
-				if (isLockedMetadataType(metadataTypesState[typeIndex])) return;
-				ev.preventDefault();
-				ev.stopPropagation();
-				metadataTypesState.splice(typeIndex, 1);
-				renderMetadataTypes();
-				return;
-			}
 			if (role === 'add-attr') {
 				ev.preventDefault();
 				ev.stopPropagation();
@@ -1036,7 +1231,9 @@ interface Window {
 			var body = target.closest('[data-type-index]');
 			if (!body) return;
 			var typeIndex = Number(body.getAttribute('data-type-index'));
-			var stateArr = body.getAttribute('data-source') === 'document' ? metadataTypesState : fileLevelTypesState;
+			var stateArr = selectedProjectKey
+				? projectOverrideState
+				: body.getAttribute('data-source') === 'document' ? metadataTypesState : fileLevelTypesState;
 			if (!Number.isFinite(typeIndex) || !stateArr[typeIndex]) return;
 			var role = target.getAttribute('data-role');
 			var typeRef = stateArr[typeIndex];
@@ -1049,7 +1246,7 @@ interface Window {
 					if (role === 'attr-kind') {
 						attr.kind = normalizeAttributeKind(target.value);
 						normalizeAttrByKind(attr);
-						renderFileLevelTypes();
+						reRenderProjectTypeList();
 						return;
 					}
 					if (role === 'attr-values') {
@@ -1072,14 +1269,16 @@ interface Window {
 			var scope = target.closest('[data-type-index]');
 			if (!scope) return;
 			var typeIndex = Number(scope.getAttribute('data-type-index'));
-			var stateArr = scope.getAttribute('data-source') === 'document' ? metadataTypesState : fileLevelTypesState;
+			var stateArr = selectedProjectKey
+				? projectOverrideState
+				: scope.getAttribute('data-source') === 'document' ? metadataTypesState : fileLevelTypesState;
 			if (!Number.isFinite(typeIndex) || !stateArr[typeIndex]) return;
 			if (role === 'add-attr') {
 				ev.preventDefault();
 				ev.stopPropagation();
 				if (!Array.isArray(stateArr[typeIndex].attributes)) stateArr[typeIndex].attributes = [];
 				stateArr[typeIndex].attributes.push({ key: '', kind: 'enum', values: [], default: '', required: false });
-				renderFileLevelTypes();
+				reRenderProjectTypeList();
 				return;
 			}
 			if (role === 'remove-attr') {
@@ -1092,7 +1291,7 @@ interface Window {
 				var attrKey = stateArr[typeIndex].attributes[attrIndex] && stateArr[typeIndex].attributes[attrIndex].key;
 				if (isBuiltInAttributeKey(stateArr[typeIndex].id, attrKey)) return;
 				stateArr[typeIndex].attributes.splice(attrIndex, 1);
-				renderFileLevelTypes();
+				reRenderProjectTypeList();
 			}
 		});
 		document.getElementById('btn-save-types').addEventListener('click', function () {
@@ -1105,27 +1304,40 @@ interface Window {
 			renderFileLevelTypes();
 			vscode.postMessage({ type: 'updateSetting', key: 'metadataTypes', value: defaultMetadataTypes });
 		});
-		document.getElementById('btn-save-file-types').addEventListener('click', function () {
-			// The Projects card edits issue too, and issue lives in metadataTypes — save both.
-			var types = collectTypesForSave();
-			vscode.postMessage({
-				type: 'updateSetting',
-				key: 'fileLevelMetadataTypes',
-				value: collectFileLevelTypesForSave()
-			});
-			vscode.postMessage({ type: 'updateSetting', key: 'metadataTypes', value: types.length ? types : defaultMetadataTypes });
+		document.getElementById('btn-save-project-metadata').addEventListener('click', function () {
+			if (selectedProjectKey) {
+				vscode.postMessage({
+					type: 'saveProjectMetadata',
+					projectKey: selectedProjectKey,
+					overrides: collectProjectOverrideForSave()
+				});
+			} else {
+				// The default template edits project/feature (file-level) plus issue (document).
+				var types = collectTypesForSave();
+				vscode.postMessage({
+					type: 'updateSetting',
+					key: 'fileLevelMetadataTypes',
+					value: collectFileLevelTypesForSave()
+				});
+				vscode.postMessage({ type: 'updateSetting', key: 'metadataTypes', value: types.length ? types : defaultMetadataTypes });
+			}
 		});
-		document.getElementById('btn-reset-file-types').addEventListener('click', function () {
-			fileLevelTypesState = normalizeTypesFromSettings(defaultFileLevelMetadataTypes);
-			resetIssueType();
-			renderFileLevelTypes();
-			vscode.postMessage({
-				type: 'updateSetting',
-				key: 'fileLevelMetadataTypes',
-				value: defaultFileLevelMetadataTypes
-			});
-			var types = collectTypesForSave();
-			vscode.postMessage({ type: 'updateSetting', key: 'metadataTypes', value: types.length ? types : defaultMetadataTypes });
+		document.getElementById('btn-reset-project-metadata').addEventListener('click', function () {
+			if (selectedProjectKey) {
+				projectOverrideState = buildProjectOverrideState(selectedProjectKey);
+				renderProjectOverrideTypes();
+			} else {
+				fileLevelTypesState = normalizeTypesFromSettings(defaultFileLevelMetadataTypes);
+				resetIssueType();
+				renderFileLevelTypes();
+				vscode.postMessage({
+					type: 'updateSetting',
+					key: 'fileLevelMetadataTypes',
+					value: defaultFileLevelMetadataTypes
+				});
+				var types = collectTypesForSave();
+				vscode.postMessage({ type: 'updateSetting', key: 'metadataTypes', value: types.length ? types : defaultMetadataTypes });
+			}
 		});
 		document.getElementById('btn-save-metadata-panel').addEventListener('click', function () {
 			postBool(optTemplateEnabled, 'metadataTemplatesEnabled');
@@ -1136,12 +1348,14 @@ interface Window {
 			postBool(optHeadingHierarchyIndent, 'showHeadingHierarchyIndentErrors');
 			var types = collectTypesForSave();
 			vscode.postMessage({ type: 'updateSetting', key: 'metadataTypes', value: types.length ? types : defaultMetadataTypes });
-			vscode.postMessage({
-				type: 'updateSetting',
-				key: 'fileLevelMetadataTypes',
-				value: collectFileLevelTypesForSave()
-			});
 		});
+		if (projectSelectEl) {
+			projectSelectEl.addEventListener('change', function () {
+				selectedProjectKey = String(projectSelectEl.value || '');
+				selectedProjectTitle = selectedProjectOptionTitle(selectedProjectKey);
+				renderProjectMetadataPanel();
+			});
+		}
 		document.getElementById('btn-add-relation').addEventListener('click', function () {
 			relationsState.push({ name: 'new-relation', description: '', locked: false });
 			renderRelations();
