@@ -4,6 +4,10 @@
 # VS Code's Electron ABI (not system Node) on each platform, otherwise it fails
 # to load at runtime with a NODE_MODULE_VERSION mismatch.
 #
+# max-parallel: 1 serializes the publishes — the Marketplace rejects concurrent
+# publishes of the same version. fail-fast: false keeps one platform's failure
+# from cancelling the others.
+#
 # Trigger: run manually from the Actions tab, or push a `v*` tag.
 
 name: Publish to Marketplace
@@ -20,20 +24,21 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         include:
-          # Electron 43.7.7 = VS Code 1.140–1.142 (Node 24.21.0).
-          # Bump ELECTRON_VERSION when VS Code ships a new Electron major.
           - target: win32-x64
             os: windows-latest
           - target: darwin-x64
-            os: macos-13          # Intel Macs
+            os: macos-13
           - target: darwin-arm64
-            os: macos-14          # Apple Silicon
+            os: macos-14
           - target: linux-x64
             os: ubuntu-latest
 
     env:
+      # Electron 43.7.7 = VS Code 1.140–1.142 (Node 24.21.0). Bump when VS Code
+      # ships a new Electron major.
       ELECTRON_VERSION: 43.7.7
 
     steps:
@@ -47,7 +52,7 @@ jobs:
         run: npm ci
 
       - name: Rebuild better-sqlite3 for VS Code Electron
-        run: npx @electron/rebuild -v ${{ env.ELECTRON_VERSION }} -m better-sqlite3
+        run: npx @electron/rebuild -v ${{ env.ELECTRON_VERSION }} -w better-sqlite3
 
       - name: Drop stale Node-ABI prebuild
         shell: bash
@@ -57,6 +62,6 @@ jobs:
         run: npm prune --omit=dev
 
       - name: Publish to Marketplace
-        run: npx @vscode/vsce publish --target ${{ matrix.target }} --no-dependencies
+        run: npx @vscode/vsce publish --target ${{ matrix.target }} --no-dependencies --skip-duplicate
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}

@@ -33,6 +33,16 @@ Drip application development:
 		- make the changes in the metadata section in teh composer as we have different styles present for the .d.txt and for the .d.md file formats 
 			so make the metadata as chips as it would be good looking and easy rather than being some text written in the textbox
 
+		- add an 'About' section on the best use of the DRIP application in the DRIP settings 
+			- here you will tell a brief about the formats which are followed 
+			- you will have the basic flow as setting up which is the most used file types .d.txt or .d.md 
+				- the user will first try to add notes in the editor and they can ingest the note from there to anyhwere in the KB 
+				- you will also have a button called "Product Tour" where it will show you a trail of the main compoentns and how to use them 
+				- product tour, interactive walkthrough, or guided tour.
+				- the user can click this button to get a knowledge on the application and how to use this application according to how the user intended 
+				- the user can click this button any time and he get steps on different sections of the application, he can repeat to click this butotn if he didn't get the whole picture on one go.. 
+
+
 		- changelog as a seperate ui component for a project, 
 			- where to keep the completed issues at.. should they go to an archive folder? what should the archive folder format be like?? 
 			- keep track of the recently completed issues after the previous update log.. 

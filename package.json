@@ -1,8 +1,8 @@
 {
 	"name": "drip",
 	"displayName": "DRIP",
-	"description": "Prototype DRIP note ingestion UI",
-	"version": "0.0.1",
+	"description": "DRIP - A note ingestion and retireval platform",
+	"version": "1.0.0",
 	"publisher": "AvinashAlla",
 	"license": "UNLICENSED",
 	"engines": {
