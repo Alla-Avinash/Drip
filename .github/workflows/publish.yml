@@ -48,15 +48,6 @@ jobs:
         with:
           node-version: 24
 
-      # node-gyp on Windows must be told which Visual Studio toolchain to use,
-      # otherwise it fails with "Could not find any Visual Studio installation".
-      - name: Configure MSVC for node-gyp (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          echo "GYP_MSVS_VERSION=2022" >> "$GITHUB_ENV"
-          echo "npm_config_msvs_version=2022" >> "$GITHUB_ENV"
-
       - name: Install dependencies
         run: npm ci
 
