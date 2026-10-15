@@ -105,6 +105,20 @@ Drip application development:
 			- initializing a KB by renaming a folder fails with EBUSY (resource busy/locked) on Windows
 				when the folder is open in VS Code or under OneDrive — switch to a marker-file approach or someohter approach which works best.. 
 
+			- when i create a new .d.txt file in the knowledgebase i am getting 
+				"   
+					filename: kv-cache
+					fileid: @f1
+					headings: 1
+					---
+
+					@h0
+					# . kv-cache
+					@h1
+					#1 . kv cache
+				"
+				getting 2 headings, one with heading id h0 and the other with h1
+
 		
 		Questions or Checks to do: 
 
@@ -113,6 +127,10 @@ Drip application development:
 
 			- does the current extension only work on windows or does it also work in mac and linux? 
 
+			- when we move one folder to another folder in the KB, 
+				will the logic, reindex it's path or what all operations are done here??
+				tell me what will the db will also be updated with the new filepath?
+				will it's path be sent to a batch embedding or to an async embed function?  to get the changed embedding?  
 
 
 		Actual work which matter
