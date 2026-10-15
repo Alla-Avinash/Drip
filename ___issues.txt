@@ -30,6 +30,9 @@ Drip application development:
 			- need a coloring logic of the live editor .d.md files
 			- and put them in the drip settings just make another section for the .d.md files
 
+		- make the changes in the metadata section in teh composer as we have different styles present for the .d.txt and for the .d.md file formats 
+			so make the metadata as chips as it would be good looking and easy rather than being some text written in the textbox
+
 		- changelog as a seperate ui component for a project, 
 			- where to keep the completed issues at.. should they go to an archive folder? what should the archive folder format be like?? 
 			- keep track of the recently completed issues after the previous update log.. 
@@ -89,15 +92,27 @@ Drip application development:
 
 			- in the .d.txt files i am getting duplicates in the headings like h0 
 
+			- initializing a KB by renaming a folder fails with EBUSY (resource busy/locked) on Windows
+				when the folder is open in VS Code or under OneDrive — switch to a marker-file approach or someohter approach which works best.. 
+
+		
+		Questions or Checks to do: 
+
+			- does the ingestion logic work on the .d.md files also? 	
+				does the extraction logic work on the .d.md files also.. how does it extract the metadata? 
+
+			- does the current extension only work on windows or does it also work in mac and linux? 
+
 
 
 		Actual work which matter
 
-			- if we want to have the mcp tool to create a feature and it's related components, sub-components and have some workflows/implementations for those how should the ui look like?
+			- architecture graph 
+				if we want to have the mcp tool to create a feature and it's related components, sub-components and have some workflows/implementations for those how should the ui look like?
 
-
-
-
+			- refactoring the files/ headings when a new folder or a file are created or moved to a different location in the KB
+				making the 
+				
 
 
 
