@@ -30,7 +30,7 @@ There is no 32-bit build (VS Code dropped 32-bit support). Windows-ARM and Linux
 4. `better-sqlite3` is rebuilt against VS Code's Electron, using the version in `.electron-version` (the single source of truth).
 5. The package's own prebuilt binary is deleted, forcing it to use the freshly rebuilt one.
 6. Dev-only dependencies are pruned so the package stays small.
-7. The platform package is published to the Marketplace.
+7. The platform package is published to the Marketplace. The publish must **not** use `--no-dependencies`: production dependencies (including the rebuilt `better-sqlite3`) ship inside the `.vsix` from `node_modules`, so skipping dependency detection drops them and the extension fails to load at runtime with `Cannot find module 'better-sqlite3'`.
 
 ## Rebuilding for a new VS Code release
 

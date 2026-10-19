@@ -35,7 +35,7 @@ Drip application development:
 
 		- make an extension icon for the drip extension in vscode and update it..
 
-		- add an 'About' section on the best use of the DRIP application in the DRIP settings 
+		[x] add an 'About' section on the best use of the DRIP application in the DRIP settings 
 			- here you will tell a brief about the formats which are followed 
 			- you will have the basic flow as setting up which is the most used file types .d.txt or .d.md 
 				- the user will first try to add notes in the editor and they can ingest the note from there to anyhwere in the KB 
@@ -43,6 +43,16 @@ Drip application development:
 				- product tour, interactive walkthrough, or guided tour.
 				- the user can click this button to get a knowledge on the application and how to use this application according to how the user intended 
 				- the user can click this button any time and he get steps on different sections of the application, he can repeat to click this butotn if he didn't get the whole picture on one go.. 
+		- change this about section into an interactive tour of the compoenents rather than making it a one view in the settings  
+			- i want the user to go see the different things present in the drip components 
+			- rather than reading this product tour 
+			- i want to see the different components having the info steps on going to the next and etc.. 
+			Run the tour from the extension host (not the Settings webview).
+			At each step, show a small showInformationMessage box with Next / Back / Quit buttons — this box can float over the workbench (VS Code places it for you).
+			Before showing each step, run the matching command so the real surface appears: reveal the sidebar + Knowledge Base view, open Settings, open the Composer, open the Project View, open the Tags Graph, etc.
+			So instead of "now go find the composer," it would be: "This is the Composer" → the composer actually opens → the user reads the explanation → clicks Next → the next surface opens.
+
+
 
 
 		- changelog as a seperate ui component for a project, 

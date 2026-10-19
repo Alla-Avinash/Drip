@@ -2,7 +2,7 @@
 	"name": "drip",
 	"displayName": "DRIP — Personal Knowledge Base & Note Capture",
 	"description": "Capture, organize and search a personal knowledge base of plain-text or markdown notes — with concepts, projects, issues, tags and an optional LLM that files quick captures.",
-	"version": "1.1.0",
+	"version": "1.1.1",
 	"publisher": "AvinashAlla",
 	"license": "UNLICENSED",
 	"engines": {
