@@ -83,7 +83,7 @@ class DripChatWebviewProvider {
 	 * @param {import('vscode').Webview} w
 	 */
 	async postConfig(w) {
-		const cfg = getLlmConfig();
+		const cfg = getLlmConfig(this.context);
 		const hasKey = !!(await getLlmApiKey(this.context));
 		await w.postMessage({
 			type: 'config',

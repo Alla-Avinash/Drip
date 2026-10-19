@@ -36,11 +36,6 @@ jobs:
           - target: linux-x64
             os: ubuntu-latest
 
-    env:
-      # Electron 43.7.7 = VS Code 1.140–1.142 (Node 24.21.0). Bump when VS Code
-      # ships a new Electron major.
-      ELECTRON_VERSION: 43.7.7
-
     steps:
       - uses: actions/checkout@v4
 
@@ -48,11 +43,19 @@ jobs:
         with:
           node-version: 24
 
+      - name: Read Electron version
+        id: electron
+        shell: bash
+        run: echo "version=$(cat .electron-version)" >> "$GITHUB_OUTPUT"
+
       - name: Install dependencies
         run: npm ci
 
+      - name: Build webview assets
+        run: npm run build:webview
+
       - name: Rebuild better-sqlite3 for VS Code Electron
-        run: npx @electron/rebuild -v ${{ env.ELECTRON_VERSION }} -w better-sqlite3
+        run: npx @electron/rebuild -v ${{ steps.electron.outputs.version }} -w better-sqlite3
 
       - name: Drop stale Node-ABI prebuild
         shell: bash

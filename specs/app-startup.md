@@ -16,8 +16,12 @@ There are no automated tests — the user verifies behavior manually in the Exte
 ## Entry point
 
 - `package.json` declares `"main": "./extension.js"`.
-- The root `extension.js` simply re-exports the real entry in `src/extension/extension.js`, which re-exports `activate()` from `src/extension/activate.js`.
+- The root `extension.js` loads the real entry in `src/extension/extension.js`, which re-exports `activate()` from `src/extension/activate.js`.
 - `activate(context)` is the only wiring point: it registers commands, providers, and webviews. All real behavior lives in the domain modules under `src/`.
+
+### Failed-load guard
+
+The root `extension.js` wraps the entry-point require in a try/catch. If loading throws — most commonly because the native `better-sqlite3` module was compiled for a different VS Code/Electron ABI after VS Code auto-updated — it activates a degraded mode instead of letting VS Code show a cryptic "no data provider" message. Degraded mode registers empty sidebar views and shows a clear, actionable error ("update the DRIP extension") with the underlying error as the detail and a **Show Logs** action.
 
 ## When DRIP loads
 

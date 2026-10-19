@@ -75,3 +75,21 @@ body { font-family: var(--vscode-font-family); margin: 0; color: var(--vscode-fo
 		.shortcut-table input.sc-record:focus { outline: 1px solid var(--vscode-focusBorder); }
 		kbd { font-family: var(--vscode-editor-font-family); font-size: 11px; padding: 1px 5px; border-radius: 4px; border: 1px solid var(--vscode-panel-border); background: var(--vscode-textCodeBlock-background); margin-right: 4px; }
 		.sc-conflict { color: var(--vscode-editorWarning-foreground); font-size: 11px; margin-top: 3px; }
+		.about-steps { margin: 8px 0 0; padding-left: 20px; }
+		.about-steps li { margin: 8px 0; line-height: 1.5; }
+		.tour-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+		.tour-overlay[hidden] { display: none; }
+		.tour-modal { background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-panel-border); border-radius: 10px; padding: 20px; max-width: 560px; width: calc(100% - 48px); box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+		.tour-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+		.tour-step-count { color: var(--vscode-descriptionForeground); font-size: 12px; }
+		.tour-head button { margin-top: 0; padding: 4px 10px; }
+		.tour-title { font-size: 1.15em; margin: 4px 0 6px; }
+		.tour-where { color: var(--vscode-descriptionForeground); font-size: 12px; margin: 0 0 10px; }
+		.tour-where strong { color: var(--vscode-foreground); }
+		.tour-body { font-size: 13px; line-height: 1.55; margin: 0 0 16px; white-space: pre-wrap; }
+		.tour-actions { display: flex; gap: 8px; align-items: center; }
+		.tour-actions button { margin-top: 0; }
+		#tour-skip { margin-left: auto; }
+		.tour-dots { display: flex; gap: 6px; justify-content: center; margin-top: 16px; }
+		.tour-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--vscode-panel-border); }
+		.tour-dot.active { background: var(--vscode-focusBorder); }

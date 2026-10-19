@@ -9,6 +9,7 @@ interface Window {
 		const vscode = acquireVsCodeApi();
 		const navButtons = Array.prototype.slice.call(document.querySelectorAll('.navBtn'));
 		const panels = {
+			about: document.getElementById('panel-about'),
 			kb: document.getElementById('panel-kb'),
 			editor: document.getElementById('panel-editor'),
 			update: document.getElementById('panel-update'),
@@ -26,9 +27,8 @@ interface Window {
 		};
 		const optEditHeadingsRhs = document.getElementById('opt-edit-headings-rhs');
 		const optEditHeadingsFile = document.getElementById('opt-edit-headings-file');
-		const llmEnabledEl = document.getElementById('llm-enabled');
-		const llmBaseUrlEl = document.getElementById('llm-base-url');
-		const llmModelEl = document.getElementById('llm-model');
+		const llmProfilesEl = document.getElementById('llm-profiles');
+		const btnLlmAddProfile = document.getElementById('btn-llm-add-profile');
 		const autoOpenEl = document.getElementById('opt-auto-open');
 		const kbExtDtxt = document.getElementById('kb-ext-dtxt');
 		const kbExtMd = document.getElementById('kb-ext-md');
@@ -85,6 +85,132 @@ interface Window {
 				.replace(/>/g, '&gt;')
 				.replace(/"/g, '&quot;')
 				.replace(/'/g, '&#39;');
+		}
+
+		// Product tour: a self-contained guided walkthrough of DRIP's main areas.
+		// Each step: title, a "where to find it" line, and a short plain-English body.
+		var TOUR_STEPS = [
+			{
+				title: 'Welcome to DRIP',
+				where: 'This tour — DRIP Settings → About',
+				body: 'DRIP is a plain-text knowledge base plus a project tracker. Your notes stay as ordinary files on disk; DRIP indexes them so you can search, sort, and browse. Work is grouped into projects → features → issues.'
+			},
+			{
+				title: 'Pick a note format',
+				where: 'DRIP Settings → Knowledge Base',
+				body: 'DRIP reads two formats: .d.txt (its native plain-text format) and .d.md (Markdown with a rich editor). Choose the default new-note type and which extensions appear in the knowledge base tree.'
+			},
+			{
+				title: 'Knowledge Base tree',
+				where: 'Left activity bar → DRIP → Knowledge Base',
+				body: 'This sidebar shows your .driplock folder as a tree. Right-click a file or folder to create, rename, or delete notes. Changes save to disk and reindex automatically.'
+			},
+			{
+				title: 'Note Composer (capture)',
+				where: 'Command: Open Composer, or Ctrl+Shift+U to capture a selection',
+				body: 'The Composer is a draft note. Type or paste text, or capture the current editor selection. From here you file the note into the knowledge base — merge into a matching heading, append, or start a new heading.'
+			},
+			{
+				title: 'Chat inbox',
+				where: 'Right sidebar → Chat',
+				body: 'A quick capture inbox that talks to your LLM. Type a note and DRIP decides where it belongs, or asks you. It keeps short-term session context and long-term memory per knowledge base.'
+			},
+			{
+				title: 'Storage and Heading Form',
+				where: 'Right sidebar → Storage / Heading',
+				body: 'Storage browses the knowledge base and its headings. Heading Form edits a persistent heading\u2019s metadata, tags, and relations in a form instead of typing them by hand.'
+			},
+			{
+				title: 'Retriever (search)',
+				where: 'Command: Open Retriever, or Ctrl+Shift+Alt+R',
+				body: 'Search your notes by meaning (embeddings) or by keywords. Filter by tags, relations, and metadata, then jump straight to the matching heading.'
+			},
+			{
+				title: 'Project View',
+				where: 'Command: Open Project View',
+				body: 'A board of projects, features, and issues. Browse what is done and what still needs work, and drill into any issue\u2019s details.'
+			},
+			{
+				title: 'Tags Graph',
+				where: 'Command: Open Tags Graph',
+				body: 'A visual graph of your tags and how they connect. Tags are the source of truth for what is valid in a note; unknown tags get flagged in the editor.'
+			},
+			{
+				title: 'Lightweight LLM',
+				where: 'DRIP Settings → Lightweight LLM',
+				body: 'DRIP runs its own small LLM (separate from Copilot) to decide where a captured note belongs. Add provider profiles, set an API key, and use "Test connection" to verify each one.'
+			},
+			{
+				title: 'MCP connection',
+				where: 'DRIP Settings → MCP connection',
+				body: 'Let AI apps (Cursor, Claude, Copilot, …) read and manage your projects and issues through a local MCP server. Turn it on, copy the URL, and connect your AI app.'
+			},
+			{
+				title: 'GitHub backup',
+				where: 'DRIP Settings → GitHub backup',
+				body: 'One-click push and pull of your whole knowledge base to a GitHub remote, so your notes are safe and versioned.'
+			},
+			{
+				title: "You're ready",
+				where: 'Come back to this tour any time',
+				body: 'Start by picking a knowledge base folder, then capture a note and file it. You can re-run this tour from About & Product Tour whenever you want a refresher.'
+			}
+		];
+		var tourIndex = 0;
+		var tourOverlay = document.getElementById('tour-overlay');
+		var tourTitleEl = document.getElementById('tour-title');
+		var tourWhereEl = document.getElementById('tour-where');
+		var tourBodyEl = document.getElementById('tour-body');
+		var tourCountEl = document.getElementById('tour-step-count');
+		var tourDotsEl = document.getElementById('tour-dots');
+
+		function renderTour() {
+			var step = TOUR_STEPS[tourIndex];
+			if (!step) return;
+			if (tourTitleEl) tourTitleEl.textContent = step.title;
+			if (tourWhereEl) tourWhereEl.innerHTML = '<strong>Where:</strong> ' + escapeHtml(step.where);
+			if (tourBodyEl) tourBodyEl.textContent = step.body;
+			if (tourCountEl) tourCountEl.textContent = 'Step ' + (tourIndex + 1) + ' of ' + TOUR_STEPS.length;
+			var last = tourIndex === TOUR_STEPS.length - 1;
+			var backBtn = document.getElementById('tour-back');
+			var nextBtn = document.getElementById('tour-next');
+			var skipBtn = document.getElementById('tour-skip');
+			if (backBtn) backBtn.disabled = tourIndex === 0;
+			if (nextBtn) nextBtn.textContent = last ? 'Finish' : 'Next';
+			if (skipBtn) skipBtn.textContent = last ? '' : 'Skip tour';
+			if (tourDotsEl) {
+				var dots = '';
+				for (var i = 0; i < TOUR_STEPS.length; i++) {
+					dots += '<span class="tour-dot' + (i === tourIndex ? ' active' : '') + '"></span>';
+				}
+				tourDotsEl.innerHTML = dots;
+			}
+		}
+
+		function startTour() {
+			tourIndex = 0;
+			renderTour();
+			if (tourOverlay) tourOverlay.hidden = false;
+		}
+
+		function closeTour() {
+			if (tourOverlay) tourOverlay.hidden = true;
+		}
+
+		function tourNext() {
+			if (tourIndex < TOUR_STEPS.length - 1) {
+				tourIndex++;
+				renderTour();
+			} else {
+				closeTour();
+			}
+		}
+
+		function tourBack() {
+			if (tourIndex > 0) {
+				tourIndex--;
+				renderTour();
+			}
 		}
 
 		function normalizeHexColor(v) {
@@ -995,6 +1121,14 @@ interface Window {
 				applyGithubBackupStatus(message.status || null);
 			} else if (message.type === 'mcpStatus') {
 				applyMcpStatus(message.status || null);
+			} else if (message.type === 'llmStatus') {
+				applyLlmStatus(message.status || null);
+			} else if (message.type === 'llmTestResult') {
+				var card = llmProfilesEl && llmProfilesEl.querySelector('[data-profile-id="' + message.profileId + '"]');
+				var statusEl = card && card.querySelector('[data-llm="status"]');
+				if (statusEl) {
+					statusEl.textContent = (message.ok ? '✓ ' : '✗ ') + (message.message || '');
+				}
 			} else if (message.type === 'showPanel' && panels[message.panel]) {
 				if (message.projectKey != null) {
 					selectedProjectKey = String(message.projectKey || '');
@@ -1041,12 +1175,44 @@ interface Window {
 			setText('mcp-stdio-config', st.stdioConfigPreview);
 		}
 
+		function llmProfileCard(p, active) {
+			var activeTag = active
+				? '<span class="meta" style="margin-left:6px;">Active</span>'
+				: '<button class="secondary" type="button" data-llm="set-active">Set active</button>';
+			return '<div class="card llm-profile" data-profile-id="' + escapeHtml(p.id) + '">' +
+				'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">' +
+					'<span style="font-weight:600;">' + escapeHtml(p.name || 'Provider') + '</span>' +
+					activeTag +
+				'</div>' +
+				'<label class="row" style="display:block;margin-top:8px;"><span>Name</span><input type="text" data-llm="name" value="' + escapeHtml(p.name || '') + '" autocomplete="off" spellcheck="false" /></label>' +
+				'<label class="row" style="display:block;margin-top:8px;"><span>Base URL (OpenAI-compatible)</span><input type="text" data-llm="base-url" value="' + escapeHtml(p.baseUrl || '') + '" placeholder="https://api.openai.com/v1" autocomplete="off" spellcheck="false" /></label>' +
+				'<label class="row" style="display:block;margin-top:8px;"><span>Model</span><input type="text" data-llm="model" value="' + escapeHtml(p.model || '') + '" placeholder="gpt-4o-mini" autocomplete="off" spellcheck="false" /></label>' +
+				'<label class="row" style="margin-top:8px;"><input type="checkbox" data-llm="enabled"' + (p.enabled ? ' checked' : '') + '><span>Enabled for Quick Capture</span></label>' +
+				'<p class="meta" style="margin:8px 0 0 0;">API key: ' + (p.hasKey ? 'saved (Secret Storage)' : 'not set') + '</p>' +
+				'<p class="meta llm-test-status" data-llm="status" style="margin:4px 0 0 0;"></p>' +
+				'<label class="row" style="display:block;margin-top:8px;"><span>API key</span><input type="password" data-llm="api-key" placeholder="sk-…" autocomplete="off" spellcheck="false" /></label>' +
+				'<div class="actions">' +
+					'<button type="button" data-llm="save">Save</button>' +
+					'<button type="button" data-llm="test">Test connection</button>' +
+					'<button type="button" data-llm="set-key">Save API key</button>' +
+					'<button class="secondary" type="button" data-llm="clear-key">Clear API key</button>' +
+					'<button class="secondary" type="button" data-llm="delete">Delete</button>' +
+				'</div>' +
+			'</div>';
+		}
+
 		function applyLlmStatus(st) {
-			if (!st) return;
-			if (llmEnabledEl) llmEnabledEl.checked = !!st.enabled;
-			if (llmBaseUrlEl && document.activeElement !== llmBaseUrlEl) llmBaseUrlEl.value = String(st.baseUrl || '');
-			if (llmModelEl && document.activeElement !== llmModelEl) llmModelEl.value = String(st.model || '');
-			setText('llm-key-status', st.hasKey ? 'API key: saved (Secret Storage)' : 'API key: not set');
+			if (!st || !llmProfilesEl) return;
+			var profiles = Array.isArray(st.profiles) ? st.profiles : [];
+			var activeId = String(st.activeProfileId || '');
+			var html = '';
+			for (var i = 0; i < profiles.length; i++) {
+				html += llmProfileCard(profiles[i], profiles[i].id === activeId);
+			}
+			if (!profiles.length) {
+				html = '<p class="meta">No providers yet — add one below.</p>';
+			}
+			llmProfilesEl.innerHTML = html;
 		}
 
 		function fmtTime(iso) {
@@ -1719,30 +1885,64 @@ interface Window {
 				vscode.postMessage({ type: 'mcpCopy', kind: btn.getAttribute('data-mcp-copy') });
 			});
 		});
-		var btnLlmSave = document.getElementById('btn-llm-save');
-		if (btnLlmSave) {
-			btnLlmSave.addEventListener('click', function () {
-				vscode.postMessage({ type: 'updateSetting', key: 'llm.enabled', value: !!llmEnabledEl.checked });
-				vscode.postMessage({ type: 'updateSetting', key: 'llm.baseUrl', value: String((llmBaseUrlEl && llmBaseUrlEl.value) || '').trim() });
-				vscode.postMessage({ type: 'updateSetting', key: 'llm.model', value: String((llmModelEl && llmModelEl.value) || '').trim() });
+		if (btnLlmAddProfile) {
+			btnLlmAddProfile.addEventListener('click', function () {
+				vscode.postMessage({ type: 'llmAddProfile', profile: { name: 'Provider', enabled: false } });
 			});
 		}
-		var btnLlmSetKey = document.getElementById('btn-llm-set-key');
-		if (btnLlmSetKey) {
-			btnLlmSetKey.addEventListener('click', function () {
-				var keyEl = document.getElementById('llm-api-key');
-				var key = keyEl ? String(keyEl.value || '').trim() : '';
-				if (!key) return;
-				vscode.postMessage({ type: 'llmSetApiKey', value: key });
-				if (keyEl) keyEl.value = '';
+		if (llmProfilesEl) {
+			llmProfilesEl.addEventListener('click', function (ev) {
+				var target = ev.target;
+				if (!target || !target.getAttribute) return;
+				var action = target.getAttribute('data-llm');
+				var card = target.closest ? target.closest('[data-profile-id]') : null;
+				if (!action || !card) return;
+				var id = card.getAttribute('data-profile-id');
+				ev.preventDefault();
+				if (action === 'save') {
+					vscode.postMessage({
+						type: 'llmUpdateProfile',
+						profileId: id,
+						patch: {
+							name: String((card.querySelector('[data-llm="name"]') || {}).value || '').trim(),
+							baseUrl: String((card.querySelector('[data-llm="base-url"]') || {}).value || '').trim(),
+							model: String((card.querySelector('[data-llm="model"]') || {}).value || '').trim(),
+							enabled: !!(card.querySelector('[data-llm="enabled"]') && card.querySelector('[data-llm="enabled"]').checked)
+						}
+					});
+				} else if (action === 'set-key') {
+					var key = String((card.querySelector('[data-llm="api-key"]') || {}).value || '').trim();
+					if (key) vscode.postMessage({ type: 'llmSetApiKey', profileId: id, value: key });
+					var keyInput = card.querySelector('[data-llm="api-key"]');
+					if (keyInput) keyInput.value = '';
+				} else if (action === 'clear-key') {
+					vscode.postMessage({ type: 'llmClearApiKey', profileId: id });
+				} else if (action === 'delete') {
+					vscode.postMessage({ type: 'llmDeleteProfile', profileId: id });
+				} else if (action === 'set-active') {
+					vscode.postMessage({ type: 'llmSetActiveProfile', profileId: id });
+				} else if (action === 'test') {
+					var statusEl = card.querySelector('[data-llm="status"]');
+					if (statusEl) statusEl.textContent = 'Testing…';
+					vscode.postMessage({ type: 'llmTestConnection', profileId: id });
+				}
 			});
 		}
-		var btnLlmClearKey = document.getElementById('btn-llm-clear-key');
-		if (btnLlmClearKey) {
-			btnLlmClearKey.addEventListener('click', function () {
-				vscode.postMessage({ type: 'llmClearApiKey' });
-				var keyEl = document.getElementById('llm-api-key');
-				if (keyEl) keyEl.value = '';
+		var btnStartTour = document.getElementById('btn-start-tour');
+		if (btnStartTour) {
+			btnStartTour.addEventListener('click', startTour);
+		}
+		var btnTourClose = document.getElementById('tour-close');
+		var btnTourNext = document.getElementById('tour-next');
+		var btnTourBack = document.getElementById('tour-back');
+		var btnTourSkip = document.getElementById('tour-skip');
+		if (btnTourClose) btnTourClose.addEventListener('click', closeTour);
+		if (btnTourNext) btnTourNext.addEventListener('click', tourNext);
+		if (btnTourBack) btnTourBack.addEventListener('click', tourBack);
+		if (btnTourSkip) btnTourSkip.addEventListener('click', closeTour);
+		if (tourOverlay) {
+			tourOverlay.addEventListener('click', function (ev) {
+				if (ev.target === tourOverlay) closeTour();
 			});
 		}
 		showPanel(window.__dripSettingsInit.initialPanel);

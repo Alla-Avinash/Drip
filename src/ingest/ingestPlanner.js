@@ -229,7 +229,7 @@ async function planLlmIngest(opts) {
 	const units = splitIntoUnits(opts.note && opts.note.content);
 	if (!units.length && !noteTitle) return { ok: false, message: 'The note is empty.' };
 
-	const cfg = getLlmConfig();
+	const cfg = getLlmConfig(context);
 	if (!cfg.enabled) return { ok: false, message: 'The LLM is off. Turn it on in DRIP Settings → Lightweight LLM.' };
 	const apiKey = await getLlmApiKey(context);
 

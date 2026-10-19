@@ -5,6 +5,7 @@
 				<h2>DRIP Settings</h2>
 			</div>
 			<nav id="nav-group">
+				<button class="navBtn" data-panel="about">About &amp; Product Tour</button>
 				<button class="navBtn active" data-panel="kb">Knowledge Base</button>
 				<button class="navBtn" data-panel="editor">Editor</button>
 				<button class="navBtn" data-panel="update">Update</button>
@@ -22,6 +23,45 @@
 			</nav>
 		</aside>
 		<main class="main">
+			<section id="panel-about" class="panel">
+				<h3>About DRIP</h3>
+				<p>DRIP is a <strong>plain-text personal knowledge base</strong> plus a <strong>project tracker</strong>, built to help you record — in plain English — what you've built, why, and what still needs doing. Your notes stay as ordinary files on disk; DRIP indexes them so they can be searched, sorted, and browsed.</p>
+
+				<div class="card">
+					<h3 style="margin-top:0;">The two note formats</h3>
+					<p class="meta">DRIP reads two kinds of notes. Both live in your knowledge base folder; choose whichever fits how you write.</p>
+					<table>
+						<thead><tr><th></th><th><code>.d.txt</code></th><th><code>.d.md</code></th></tr></thead>
+						<tbody>
+							<tr><td><strong>What it is</strong></td><td>DRIP's native plain-text format — metadata, tags, and headings as text lines.</td><td>Standard Markdown with a rich WYSIWYG editor, DRIP details kept in hidden comments.</td></tr>
+							<tr><td><strong>Best for</strong></td><td>Fast, keyboard-first writing; tight control over the file.</td><td>Longer, prose-heavy notes you want to read and edit like a document.</td></tr>
+							<tr><td><strong>Editing</strong></td><td>In the normal text editor, with coloring and completion.</td><td>In DRIP's visual editor (chips, pickers, headings).</td></tr>
+						</tbody>
+					</table>
+					<p class="meta" style="margin-top:8px;">You set the default new-note type (and which extensions appear in the KB) in <strong>Knowledge Base</strong>.</p>
+				</div>
+
+				<div class="card">
+					<h3 style="margin-top:0;">Getting started, step by step</h3>
+					<ol class="about-steps">
+						<li><strong>Pick your format.</strong> In <strong>Knowledge Base</strong>, choose the default new-note extension (<code>.d.txt</code> or <code>.d.md</code>).</li>
+						<li><strong>Choose a knowledge base folder.</strong> A <code>.driplock</code> folder holds all your notes; DRIP indexes it automatically.</li>
+						<li><strong>Write and capture notes.</strong> Type in the editor, or press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>U</kbd> to capture the current selection into the Composer.</li>
+						<li><strong>File the note.</strong> The Composer (or the Chat) sends the note to the right place in the KB — merge into a matching heading, append, or start a new heading.</li>
+						<li><strong>Track work.</strong> Use <strong>Projects</strong> for projects → features → issues, and the <strong>Project View</strong> to browse them.</li>
+						<li><strong>Search and reuse.</strong> Use the <strong>Retriever</strong> to search by meaning, and the <strong>Tags Graph</strong> to see how tags connect.</li>
+					</ol>
+				</div>
+
+				<div class="card">
+					<h3 style="margin-top:0;">Take the guided tour</h3>
+					<p class="meta">A short walkthrough of every main area — what it does, where it lives, and how to open it. You can run it again any time.</p>
+					<div class="actions">
+						<button id="btn-start-tour" type="button">Start Product Tour</button>
+					</div>
+				</div>
+			</section>
+
 			<section id="panel-kb" class="panel active">
 				<h3>Knowledge Base</h3>
 				<div class="card">
@@ -185,38 +225,12 @@
 
 			<section id="panel-llm" class="panel">
 				<h3>Lightweight LLM</h3>
-				<p class="meta">DRIP runs its own small LLM (separate from VS Code Copilot) to decide where a Quick Capture note belongs: merge into the best matching heading, append as a new section, or start a new heading. Only the note plus a short snippet of the top matching headings is sent, keeping tokens low. The API key lives in VS Code Secret Storage — never in settings.</p>
-				<div class="card">
-					<label class="row">
-						<input type="checkbox" id="llm-enabled">
-						<span>Enable the lightweight LLM for Quick Capture</span>
-					</label>
-					<label class="row" style="display:block;margin-top:10px;">
-						<span>Base URL (OpenAI-compatible)</span>
-						<input type="text" id="llm-base-url" placeholder="https://api.openai.com/v1" autocomplete="off" spellcheck="false" />
-					</label>
-					<label class="row" style="display:block;margin-top:10px;">
-						<span>Model</span>
-						<input type="text" id="llm-model" placeholder="gpt-4o-mini" autocomplete="off" spellcheck="false" style="max-width:18em;" />
-					</label>
-					<div class="actions">
-						<button id="btn-llm-save" type="button">Save</button>
-					</div>
-					<p class="meta" style="margin-top:8px;">Works with any OpenAI-compatible endpoint (OpenAI, Groq, Ollama, LM Studio, …). Examples: <code>https://api.openai.com/v1</code>, <code>https://api.groq.com/openai/v1</code>, <code>http://localhost:11434/v1</code>.</p>
+				<p class="meta">DRIP runs its own small LLM (separate from VS Code Copilot) to decide where a Quick Capture note belongs: merge into the best matching heading, append as a new section, or start a new heading. Only the note plus a short snippet of the top matching headings is sent, keeping tokens low. Each provider profile keeps its own API key in VS Code Secret Storage — never in settings.</p>
+				<div id="llm-profiles"></div>
+				<div class="actions">
+					<button id="btn-llm-add-profile" type="button">+ Add provider</button>
 				</div>
-				<div class="card">
-					<h3 style="margin-top:0;">API key</h3>
-					<p class="meta">Entered below, then stored only in VS Code Secret Storage — never in settings and never shown again. Characters stay masked.</p>
-					<p id="llm-key-status" class="meta">API key: not set</p>
-					<label class="row" style="display:block;margin-top:8px;">
-						<span>API key</span>
-						<input type="password" id="llm-api-key" placeholder="sk-…" autocomplete="off" spellcheck="false" />
-					</label>
-					<div class="actions">
-						<button id="btn-llm-set-key" type="button">Save API key</button>
-						<button id="btn-llm-clear-key" class="secondary" type="button">Clear API key</button>
-					</div>
-				</div>
+				<p class="meta" style="margin-top:8px;">Works with any OpenAI-compatible endpoint (OpenAI, Groq, Ollama, LM Studio, …). Examples: <code>https://api.openai.com/v1</code>, <code>https://api.groq.com/openai/v1</code>, <code>http://localhost:11434/v1</code>.</p>
 			</section>
 
 			<section id="panel-github-backup" class="panel">
@@ -348,6 +362,24 @@
 				</div>
 			</section>
 		</main>
+	</div>
+
+	<div id="tour-overlay" class="tour-overlay" hidden>
+		<div class="tour-modal" role="dialog" aria-modal="true">
+			<div class="tour-head">
+				<span class="tour-step-count" id="tour-step-count"></span>
+				<button id="tour-close" class="secondary" type="button" title="Close tour">✕</button>
+			</div>
+			<h3 id="tour-title" class="tour-title"></h3>
+			<div id="tour-where" class="tour-where"></div>
+			<p id="tour-body" class="tour-body"></p>
+			<div class="tour-actions">
+				<button id="tour-back" class="secondary" type="button">Back</button>
+				<button id="tour-next" type="button">Next</button>
+				<button id="tour-skip" class="secondary" type="button">Skip tour</button>
+			</div>
+			<div class="tour-dots" id="tour-dots"></div>
+		</div>
 	</div>
 
 	

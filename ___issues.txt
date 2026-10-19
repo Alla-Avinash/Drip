@@ -33,6 +33,8 @@ Drip application development:
 		- make the changes in the metadata section in teh composer as we have different styles present for the .d.txt and for the .d.md file formats 
 			so make the metadata as chips as it would be good looking and easy rather than being some text written in the textbox
 
+		- make an extension icon for the drip extension in vscode and update it..
+
 		- add an 'About' section on the best use of the DRIP application in the DRIP settings 
 			- here you will tell a brief about the formats which are followed 
 			- you will have the basic flow as setting up which is the most used file types .d.txt or .d.md 
@@ -135,6 +137,8 @@ Drip application development:
 
 		Actual work which matter
 
+			- __order_refactor.txt 
+
 			- architecture graph 
 				if we want to have the mcp tool to create a feature and it's related components, sub-components and have some workflows/implementations for those how should the ui look like?
 
@@ -176,7 +180,13 @@ Drip application development:
 
 
 
+	RESEARCH MATERIALS 
 
+		- Live share application - official microsoft extension 
+			https://marketplace.visualstudio.com/items?itemName=MS-vsliveshare.vsliveshare
+		- peer to peer live share logic  - opensource where you have a github repo 
+			https://github.com/kermanx/p2p-live-share 
+		- 
 
 
 

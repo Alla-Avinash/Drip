@@ -168,14 +168,7 @@ async function postDripSettingsValuesToWebview(webview, dripState, extensionCont
 	let llmStatus = null;
 	if (extensionContext) {
 		try {
-			const { getLlmConfig, getLlmApiKey } = require('../llm/llmSettings');
-			const llmCfg = getLlmConfig();
-			llmStatus = {
-				enabled: llmCfg.enabled,
-				model: llmCfg.model,
-				baseUrl: llmCfg.baseUrl,
-				hasKey: !!(await getLlmApiKey(extensionContext))
-			};
+			llmStatus = await require('../llm/llmSettings').getLlmStatus(extensionContext);
 		} catch (err) {
 			console.error('[DRIP] llm status failed', err);
 		}
@@ -217,6 +210,9 @@ async function postDripSettingsValuesToWebview(webview, dripState, extensionCont
 async function activate(context) {
 	const { configureEmbeddingModelCache } = require('../retrieval/embeddings');
 	configureEmbeddingModelCache(context.extensionPath);
+
+	// Migrate a legacy single-key LLM install into the profile model once.
+	require('../llm/llmSettings').migrateLegacyLlmSettings(context).catch(() => {});
 
 	const { initRhsStorageContexts } = require('../views/rhs/revealStorageOnly');
 	await initRhsStorageContexts();
@@ -463,6 +459,15 @@ async function activate(context) {
 		}
 	}
 
+	async function postLlmStatusToWebview(webview) {
+		try {
+			const status = await require('../llm/llmSettings').getLlmStatus(context);
+			await webview.postMessage({ type: 'llmStatus', status });
+		} catch (err) {
+			console.error('[DRIP] llm status failed', err);
+		}
+	}
+
 	function wireSettingsWebviewMessageHandler(webview) {
 		webview.onDidReceiveMessage(async message => {
 			try {
@@ -600,19 +605,73 @@ async function activate(context) {
 							vscode.Uri.parse((await require('../integrations/mcp/mcpBridge').getMcpStatus()).healthUrl)
 						);
 						break;
-					case 'llmSetApiKey':
-						{
-							const key = String(message.value || '').trim();
-							if (key) {
-								await require('../llm/llmSettings').setLlmApiKey(context, key);
-							}
-							await postDripSettingsValuesToWebview(webview, state, context);
+				case 'llmAddProfile':
+					{
+						await require('../llm/llmSettings').addLlmProfile(context, message.profile);
+						await postLlmStatusToWebview(webview);
+					}
+					break;
+				case 'llmUpdateProfile':
+					{
+						await require('../llm/llmSettings').updateLlmProfile(context, message.profileId, message.patch);
+						await postLlmStatusToWebview(webview);
+					}
+					break;
+				case 'llmDeleteProfile':
+					{
+						await require('../llm/llmSettings').deleteLlmProfile(context, message.profileId);
+						await postLlmStatusToWebview(webview);
+					}
+					break;
+				case 'llmSetActiveProfile':
+					{
+						await require('../llm/llmSettings').setActiveLlmProfile(context, message.profileId);
+						await postLlmStatusToWebview(webview);
+					}
+					break;
+				case 'llmSetApiKey':
+					{
+						const key = String(message.value || '').trim();
+						if (key) {
+							await require('../llm/llmSettings').setLlmApiKey(context, key, message.profileId);
 						}
-						break;
-					case 'llmClearApiKey':
-						await require('../llm/llmSettings').clearLlmApiKey(context);
-						await postDripSettingsValuesToWebview(webview, state, context);
-						break;
+						await postLlmStatusToWebview(webview);
+					}
+					break;
+				case 'llmClearApiKey':
+					await require('../llm/llmSettings').clearLlmApiKey(context, message.profileId);
+					await postLlmStatusToWebview(webview);
+					break;
+				case 'llmTestConnection':
+					{
+						const profileId = String(message.profileId || '');
+						const cfg = require('../llm/llmSettings').getLlmConfigForProfile(context, profileId);
+						const apiKey = await require('../llm/llmSettings').getLlmApiKey(context, profileId);
+						let result;
+						if (!cfg) {
+							result = { ok: false, message: 'Provider not found.' };
+						} else if (!apiKey) {
+							result = { ok: false, message: 'No API key saved for this provider.' };
+						} else {
+							try {
+								const { chatComplete } = require('../llm/llmClient');
+								await chatComplete({
+									baseUrl: cfg.baseUrl,
+									model: cfg.model,
+									apiKey,
+									maxTokens: 8,
+									temperature: 0,
+									timeoutMs: 20000,
+									messages: [{ role: 'user', content: 'Reply with the single word: ok' }]
+								});
+								result = { ok: true, message: `Connected — ${cfg.model}` };
+							} catch (err) {
+								result = { ok: false, message: err instanceof Error ? err.message : String(err) };
+							}
+						}
+						await webview.postMessage({ type: 'llmTestResult', profileId, ...result });
+					}
+					break;
 					case 'saveProjectMetadata': {
 						const kbRoot = state.getKnowledgeBaseRoot();
 						if (!kbRoot) {

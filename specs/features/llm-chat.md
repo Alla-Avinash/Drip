@@ -19,7 +19,10 @@ A Chat panel in the right sidebar lets the user talk to an AI assistant that is 
 ### LLM client
 
 - Talks to any OpenAI-compatible chat-completions endpoint (OpenAI, Groq, Ollama, etc.).
-- Base URL, model, and API key are configured in settings; the key is stored in VS Code Secret Storage.
+- Settings hold one or more named **provider profiles**, each with its own base URL, model, enable toggle, and API key. The key is stored in VS Code Secret Storage (never in settings) and is never shown again after saving.
+- One profile is **active** at a time — Quick Capture, ingest, and chat all use the active profile.
+- From the LLM settings panel the user can add, edit (name / base URL / model / enabled), delete, and switch profiles, and set or clear each profile's API key independently.
+- Each profile has a **Test connection** button that sends a tiny one-word request to the provider to verify the base URL, model, and saved key work, then shows a success/error line on the card.
 
 ### Long-term memory
 

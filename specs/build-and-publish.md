@@ -26,10 +26,28 @@ There is no 32-bit build (VS Code dropped 32-bit support). Windows-ARM and Linux
 
 1. Each platform runs on its own fresh GitHub machine (a "matrix" job), one after another so the Marketplace never gets two publishes of the same version at once.
 2. Dependencies install.
-3. `better-sqlite3` is rebuilt against VS Code's Electron (currently Electron `43.7.7` = VS Code `1.140`–`1.142`).
-4. The package's own prebuilt binary is deleted, forcing it to use the freshly rebuilt one.
-5. Dev-only dependencies are pruned so the package stays small.
-6. The platform package is published to the Marketplace.
+3. The webview assets (Settings, Tags, `.d.md` editor) are bundled into `dist/`.
+4. `better-sqlite3` is rebuilt against VS Code's Electron, using the version in `.electron-version` (the single source of truth).
+5. The package's own prebuilt binary is deleted, forcing it to use the freshly rebuilt one.
+6. Dev-only dependencies are pruned so the package stays small.
+7. The platform package is published to the Marketplace.
+
+## Rebuilding for a new VS Code release
+
+VS Code auto-updates users to a new Electron every few releases, which changes the ABI of `better-sqlite3` and breaks the published extension. To ship a fixed build:
+
+1. Find the new Electron version — in VS Code, **Help → About** and read the `Electron:` line (e.g. `44.0.0`), or check the VS Code release notes for the Electron it ships.
+2. Update `.electron-version` (repo root) with the new version.
+3. Bump `version` in `package.json` (the Marketplace rejects a republish of the same version).
+4. Re-publish: **Actions → Publish to Marketplace → Run workflow**, or push a `v*` tag.
+
+For local development (F5 / Code OSS), rebuild the native binary against the local VS Code with:
+
+```
+npm run rebuild:native
+```
+
+This reads `.electron-version` by default; pass an explicit version with `npm run rebuild:native -- 44.0.0`. Reload the window afterwards.
 
 ## Secrets
 

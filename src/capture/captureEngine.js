@@ -346,7 +346,7 @@ async function runQuickCapture(opts) {
 	const note = String(noteText || '').trim();
 	if (!note) return { ok: false, message: 'Note is empty.' };
 
-	const cfg = getLlmConfig();
+	const cfg = getLlmConfig(context);
 	if (!cfg.enabled) {
 		return { ok: false, message: 'Quick Capture LLM is off. Turn it on in DRIP Settings → LLM.' };
 	}
