@@ -1,8 +1,9 @@
 # Publishes DRIP to the VS Code Marketplace, one platform at a time.
 #
-# DRIP depends on better-sqlite3, a native module. It must be rebuilt against
-# VS Code's Electron ABI (not system Node) on each platform, otherwise it fails
-# to load at runtime with a NODE_MODULE_VERSION mismatch.
+# DRIP depends on better-sqlite3, a native module. better-sqlite3 v13 is a
+# N-API addon, so its shipped prebuilt binaries (prebuilds/*.node) are
+# ABI-stable and load in VS Code's Electron directly — no rebuild is needed.
+# We ship the prebuilds as-installed and must NOT delete them.
 #
 # max-parallel: 1 serializes the publishes — the Marketplace rejects concurrent
 # publishes of the same version. fail-fast: false keeps one platform's failure
@@ -43,23 +44,11 @@ jobs:
         with:
           node-version: 24
 
-      - name: Read Electron version
-        id: electron
-        shell: bash
-        run: echo "version=$(cat .electron-version)" >> "$GITHUB_OUTPUT"
-
       - name: Install dependencies
         run: npm ci
 
       - name: Build webview assets
         run: npm run build:webview
-
-      - name: Rebuild better-sqlite3 for VS Code Electron
-        run: npx @electron/rebuild -v ${{ steps.electron.outputs.version }} -w better-sqlite3
-
-      - name: Drop stale Node-ABI prebuild
-        shell: bash
-        run: rm -rf node_modules/better-sqlite3/prebuilds
 
       - name: Prune dev dependencies
         run: npm prune --omit=dev

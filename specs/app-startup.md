@@ -21,7 +21,7 @@ There are no automated tests — the user verifies behavior manually in the Exte
 
 ### Failed-load guard
 
-The root `extension.js` wraps the entry-point require in a try/catch. If loading throws — most commonly because the native `better-sqlite3` module was compiled for a different VS Code/Electron ABI after VS Code auto-updated — it activates a degraded mode instead of letting VS Code show a cryptic "no data provider" message. Degraded mode registers empty sidebar views and shows a clear, actionable error ("update the DRIP extension") with the underlying error as the detail and a **Show Logs** action.
+The root `extension.js` wraps the entry-point require in a try/catch. If loading throws, it activates a degraded mode instead of letting VS Code show a cryptic "no data provider" message. Degraded mode registers empty sidebar views and shows a single simple error ("DRIP failed to start.") with the underlying error as the detail and a **Show Logs** action.
 
 ## When DRIP loads
 
