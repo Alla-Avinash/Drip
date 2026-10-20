@@ -118,10 +118,11 @@ The typed headings a note may carry depend on where the note lives — one share
 
 The `h0` heading follows the same rule. It is persistent by default (`# . <filename>`), and the user can retype it as any type the note's location allows — `concept` in a normal KB note, the structural `.p` / `.f` marker on a project/feature index note, and so on.
 
-Reconcile keeps the `h0` heading aligned with the file name:
+Reconcile keeps the `h0` heading aligned with the file name (the `filename:` header — the note's human title — not the slugified disk file name, which may differ, e.g. "kv cache" lives in `kv-cache.d.txt`):
 
-- When the `h0` name matches the file name, its type is kept if it is allowed for the note; otherwise it falls back to the persistent `.` form. Only the type marker changes — the name, body, tags, and relations are untouched.
-- When the `h0` name does **not** match the file name, that heading is demoted to a regular heading (its marker bumps one level, e.g. `#` → `#1`, and its id is renumbered to the next free id), and a fresh `# . <filename>` heading is placed at the top with `@h0`. The demoted heading's content moves down one tab with it.
+- When the `h0` name matches the file name, its type is kept if it is allowed for the note; otherwise it falls back to the note's structural convention — bare `.` for a normal note, `.p` for a project index note, `.f` for a feature index note or a standalone feature file (`Name.f.d.txt`). Only the type marker changes — the name, body, tags, and relations are untouched.
+- When the `h0` name does **not** match the file name, that heading is demoted to a regular heading (its marker bumps one level, e.g. `#` → `#1`, and its id is renumbered to the next free id), and a fresh h0 heading is placed at the top with `@h0` — again using the note's structural convention (`.p`/`.f` for project/feature notes, bare `.` otherwise). The demoted heading's content moves down one tab with it.
+- When the `h0` heading is deleted outright (the `# .p <name>` / `# . <name>` line removed), reconcile restores it with the same structural convention, so a project index note gets its `.p` back and a feature (index note or standalone feature file) gets its `.f` back rather than a bare `# .` heading.
 
 Custom user-defined types are **not supported** — the type set is fixed to the built-in types above. Users can only add or edit keys (attributes) on those existing types, never create a new type. The check narrows the editor's type picker, the heading form, and diagnostics to the allowed set.
 

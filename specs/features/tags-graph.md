@@ -42,4 +42,4 @@ Tags in DRIP are managed as **graphs** — the graph is the source of truth for 
 
 1. User opens the Tags graph panel and edits the set of tags and links.
 2. The graph is saved; the editor's tag completion now suggests those tags.
-3. A note using an unknown tag is underlined as an error rather than silently adding a new tag.
+3. A note using an unknown tag is underlined as an error rather than silently adding a new tag. The error carries a quick fix that creates the tag in the note's own scope — the per-project graph for a note inside a `.p`/`.f` folder (creating that graph if missing), or the KB "individual tags" graph otherwise — and the message names that scope (`Unknown tag "bug". Create this tag in the project graph.` for a project note).

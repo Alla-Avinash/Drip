@@ -6,13 +6,15 @@ const {
 	getMetadataSettings,
 	getMetadataSettingsForIndex,
 	allowedHeadingTypeIdsForPath,
+	lockedSpecialTypeIdForPath,
 	matchHeadingTitleTypePrefix
 } = require('../document/model/dripnoteMetadataTemplates');
 const {
 	classifyPersistentHeadingTitle,
 	stripHeadingTitleTypePrefix
 } = require('../document/model/dripnotePersistentHeading');
-const { stripKbNoteExtension } = require('../document/model/noteFileTypes');
+const { isDripFeatureFileName } = require('../document/model/dripFeature');
+const { stripKbNoteExtension, getKbNoteExtensions } = require('../document/model/noteFileTypes');
 const { parseFileEntityIdNumber, formatFileEntityId } = require('./dripnoteEntityIds');
 const {
 	initEmptyDripIndexFile,
@@ -204,22 +206,43 @@ function resolveFilenameStem(lines, options) {
 	if (options && String(options.filenameStem || '').trim()) {
 		return String(options.filenameStem).trim();
 	}
-	if (options && options.noteUri && options.noteUri.fsPath) {
-		return stripKbNoteExtension(path.basename(options.noteUri.fsPath));
-	}
+	// The `filename:` header is the note's human title and the name the h0 heading must
+	// match. The on-disk file name is a slugified form of it ("kv cache" → "kv-cache.d.txt"),
+	// so preferring the file stem here would rewrite the header to the slug and then
+	// (wrongly) demote the still-matching h0 into a duplicate heading.
 	for (const line of lines || []) {
 		const m = String(line || '').match(/^\s*filename\s*:\s*(.*)$/i);
 		if (m && String(m[1] || '').trim()) return String(m[1]).trim();
 	}
+	if (options && options.noteUri && options.noteUri.fsPath) {
+		return stripKbNoteExtension(path.basename(options.noteUri.fsPath));
+	}
 	return 'Untitled';
+}
+
+/**
+ * The structural h0 type marker a note falls back to when its h0 has no (valid) type yet:
+ * `.p` for project index notes, `.f` for feature index notes, bare `.` everywhere else.
+ * @param {string | null | undefined} noteFsPath
+ * @returns {'.p' | '.f' | '.'}
+ */
+function defaultH0TypeMarkerForPath(noteFsPath) {
+	const locked = lockedSpecialTypeIdForPath(noteFsPath || undefined);
+	if (locked === 'project') return '.p';
+	if (locked === 'feature') return '.f';
+	// A standalone feature file (`Name.f.d.txt`) is a feature in its own right, so its
+	// h0 carries the structural `.f` marker just like a feature folder index note.
+	if (noteFsPath && isDripFeatureFileName(path.basename(noteFsPath), getKbNoteExtensions())) return '.f';
+	return '.';
 }
 
 /**
  * Canonical h0 title for a note: `# . <filename>` (persistent) by default. When the current
  * h0 already carries a metadata type that is acceptable for this file (`.c`/`.t` on a regular
  * note, `.p`/`.f` on an index note), the title is kept exactly as written. Any unacceptable
- * type is dropped to the persistent convention, keeping the existing name part so only the
- * type marker changes. The h0's body, tags, and relations stay untouched either way.
+ * type is dropped to the note's structural convention — bare `.` for a normal note, `.p`/`.f`
+ * for a project/feature index note — keeping the existing name part so only the type marker
+ * changes. The h0's body, tags, and relations stay untouched either way.
  *
  * @param {string} currentTitle existing h0 title without the `#` marker, or ''
  * @param {string} filename
@@ -242,7 +265,8 @@ function resolveCanonicalH0Title(currentTitle, filename, noteFsPath) {
 		stripHeadingTitleTypePrefix(title) ||
 		String(filename || '').trim() ||
 		'Untitled';
-	return `. ${name}`;
+	const marker = defaultH0TypeMarkerForPath(noteFsPath);
+	return marker === '.' ? `. ${name}` : `${marker} ${name}`;
 }
 
 /**
@@ -311,7 +335,7 @@ function rebuildCanonicalFileLevelBlock(lines, opts) {
 	const { nodes } = collectHeadingSequenceValidated(src, 0);
 	const h0Node = nodes.find(node => node.tabDepth === 0);
 
-	let h0Title = `. ${filename}`;
+	let h0Title = resolveCanonicalH0Title('', filename, noteFsPath);
 	/** @type {string[]} */
 	let h0Meta = [];
 	/** @type {string[]} */
@@ -332,13 +356,14 @@ function rebuildCanonicalFileLevelBlock(lines, opts) {
 		if (h0Name && !h0NameMatchesFilename(title, filename, src)) {
 			// The h0 heading is named after something other than the file: demote it to a
 			// regular heading (its `@h0` is dropped here and renumbered by the identity
-			// reconcile), then place a fresh `# . <filename>` h0 at the top.
+			// reconcile), then place a fresh h0 at the top (`.p`/`.f` for index notes,
+			// bare `.` otherwise).
 			promotedBlock = src.slice(h0Node.lineIndex, metaEnd);
 			promotedBlock[0] = demoteHeadingLine(promotedBlock[0]);
 			for (let i = 1; i < promotedBlock.length; i++) {
 				if (String(promotedBlock[i]).trim()) promotedBlock[i] = `\t${promotedBlock[i]}`;
 			}
-			h0Title = `. ${filename}`;
+			h0Title = resolveCanonicalH0Title('', filename, noteFsPath);
 			h0Meta = [];
 		} else {
 			if (title) h0Title = resolveCanonicalH0Title(title, filename, noteFsPath);
@@ -1296,6 +1321,7 @@ module.exports = {
 	writeFileIdIntoTopLines,
 	writeHeadingsCountIntoTopLines,
 	rebuildCanonicalFileLevelBlock,
+	resolveFilenameStem,
 	findIdentityLineAbove,
 	findHeadingIdentityForNode,
 	findOwnedIdentityLineIndex,

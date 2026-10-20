@@ -1891,6 +1891,9 @@ interface Window {
 			});
 		}
 		if (llmProfilesEl) {
+			// The "Enabled for Quick Capture" checkbox carries data-llm="enabled", so a
+			// click on it also lands here. Don't swallow the toggle — only buttons need
+			// preventDefault; the checkbox is persisted by the change listener below.
 			llmProfilesEl.addEventListener('click', function (ev) {
 				var target = ev.target;
 				if (!target || !target.getAttribute) return;
@@ -1898,7 +1901,7 @@ interface Window {
 				var card = target.closest ? target.closest('[data-profile-id]') : null;
 				if (!action || !card) return;
 				var id = card.getAttribute('data-profile-id');
-				ev.preventDefault();
+				if (target.type !== 'checkbox') ev.preventDefault();
 				if (action === 'save') {
 					vscode.postMessage({
 						type: 'llmUpdateProfile',
@@ -1926,6 +1929,20 @@ interface Window {
 					if (statusEl) statusEl.textContent = 'Testing…';
 					vscode.postMessage({ type: 'llmTestConnection', profileId: id });
 				}
+			});
+			// Persist the enabled toggle immediately (the click handler leaves the
+			// checkbox alone; a click alone would otherwise never update the profile).
+			llmProfilesEl.addEventListener('change', function (ev) {
+				var target = ev.target;
+				if (!target || !target.getAttribute) return;
+				if (target.getAttribute('data-llm') !== 'enabled') return;
+				var card = target.closest ? target.closest('[data-profile-id]') : null;
+				if (!card) return;
+				vscode.postMessage({
+					type: 'llmUpdateProfile',
+					profileId: card.getAttribute('data-profile-id'),
+					patch: { enabled: !!target.checked }
+				});
 			});
 		}
 		var btnStartTour = document.getElementById('btn-start-tour');

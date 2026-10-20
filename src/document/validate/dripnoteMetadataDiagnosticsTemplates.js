@@ -2,7 +2,7 @@
 
 const vscode = require('vscode');
 const path = require('path');
-const tagGraphStore = require('../../graph/tagGraphStore');
+const { kbRootFor, projectFolderPrefixForNote, createTagForNote, knownTagsLowerForNote } = require('../../graph/noteTagScope');
 const {
 	getMetadataSettings,
 	getMetadataSettingsForNotePath,
@@ -88,19 +88,30 @@ function parseTagTokenRangesFromLine(line) {
 	return out;
 }
 
-function knownTagsLowerSet(context) {
-	const out = new Set();
-	for (const meta of tagGraphStore.listStoredTagGraphs(context)) {
-		const g = tagGraphStore.loadStoredTagGraphById(context, meta.id);
-		for (const n of g.nodes || []) {
-			const label = String(n.label || '').trim().toLowerCase();
-			if (label) out.add(label);
-		}
-	}
-	return out;
+/**
+ * Which tag scope a note belongs to: the per-project graph when the note sits inside a
+ * project (`.p`) / feature (`.f`) folder, otherwise the KB "individual tags" graph.
+ * @param {import('vscode').ExtensionContext} context
+ * @param {string} noteFsPath
+ * @returns {{ isProject: boolean }}
+ */
+function tagScopeForNote(context, noteFsPath) {
+	const kbRoot = kbRootFor(context);
+	const prefix = kbRoot ? projectFolderPrefixForNote(kbRoot, noteFsPath) : '';
+	return { isProject: Boolean(prefix) };
 }
 
-function collectDiagnosticsForBlock(lines, start, endExclusive, blockTypeId, settings, diagnostics, knownTagsLower, enforceTypedIndent, headingIndent) {
+/**
+ * Diagnostic message for an unknown tag, phrased for the note's tag scope.
+ * @param {string} tagLabel
+ * @param {boolean} isProject
+ */
+function unknownTagMessage(tagLabel, isProject) {
+	if (isProject) return `Unknown tag "${tagLabel}". Create this tag in the project graph.`;
+	return `Unknown tag "${tagLabel}". Create it in "${INDIVIDUAL_TAGS_GRAPH_NAME}" graph.`;
+}
+
+function collectDiagnosticsForBlock(lines, start, endExclusive, blockTypeId, settings, diagnostics, knownTagsLower, enforceTypedIndent, headingIndent, isProject) {
 	const seenKeys = new Set();
 	const seenTemplateKeys = new Set();
 	const allowedCustom = getConfiguredAllowedMetadataKeys();
@@ -154,7 +165,7 @@ function collectDiagnosticsForBlock(lines, start, endExclusive, blockTypeId, set
 			}
 			for (const tok of parseTagTokenRangesFromLine(line)) {
 				if (knownTagsLower.has(tok.label.toLowerCase())) continue;
-				const d = new vscode.Diagnostic(new vscode.Range(i, tok.start, i, tok.end), `Unknown tag "${tok.label}". Create it in "${INDIVIDUAL_TAGS_GRAPH_NAME}" graph.`, vscode.DiagnosticSeverity.Error);
+				const d = new vscode.Diagnostic(new vscode.Range(i, tok.start, i, tok.end), unknownTagMessage(tok.label, isProject), vscode.DiagnosticSeverity.Error);
 				d.code = `${UNKNOWN_TAG_CODE_PREFIX}${tok.label}`;
 				diagnostics.push(d);
 			}
@@ -577,7 +588,7 @@ function registerDripnoteMetadataDiagnostics(context) {
 		}
 	}
 
-	function validateDocument(document) {
+	async function validateDocument(document) {
 		if (!document || document.languageId !== 'dripnote') return;
 		const base = path.basename(document.uri.fsPath || document.uri.path || '').toLowerCase();
 		if (base === '_index.d.txt') return collection.delete(document.uri);
@@ -590,10 +601,11 @@ function registerDripnoteMetadataDiagnostics(context) {
 		pushFileLevelHeadingDiagnostics(lines, diagnostics);
 		pushProjectFeaturePlacementDiagnostics(document, lines, getMetadataSettings(), diagnostics);
 		pushIssueParentLockDiagnostics(lines, settings, diagnostics);
-		const knownTags = knownTagsLowerSet(context);
+		const scope = tagScopeForNote(context, document.uri.fsPath);
+		const knownTags = await knownTagsLowerForNote(context, document.uri.fsPath);
 		const { topEnd } = splitFileTopRegion(lines);
 		const topSettings = { ...settings, strictValidation: false };
-		collectDiagnosticsForBlock(lines, 0, topEnd, '', topSettings, diagnostics, knownTags, false, -1);
+		collectDiagnosticsForBlock(lines, 0, topEnd, '', topSettings, diagnostics, knownTags, false, -1, scope.isProject);
 		for (let i = 0; i < lines.length; i++) {
 			const hLine = String(lines[i] || '');
 			if (!HEADING_RE.test(hLine)) continue;
@@ -680,7 +692,7 @@ function registerDripnoteMetadataDiagnostics(context) {
 					break;
 				}
 			}
-			collectDiagnosticsForBlock(lines, start, end, blockType || '', settings, diagnostics, knownTags, true, headingIndent);
+			collectDiagnosticsForBlock(lines, start, end, blockType || '', settings, diagnostics, knownTags, true, headingIndent, scope.isProject);
 		}
 		collection.set(document.uri, diagnostics);
 	}
@@ -774,8 +786,12 @@ function registerDripnoteMetadataDiagnostics(context) {
 						}
 						if (code.startsWith(UNKNOWN_TAG_CODE_PREFIX)) {
 							const tagLabel = code.slice(UNKNOWN_TAG_CODE_PREFIX.length).trim();
-							const a = new vscode.CodeAction(`Create tag "${tagLabel}" in ${INDIVIDUAL_TAGS_GRAPH_NAME}`, vscode.CodeActionKind.QuickFix);
-							a.command = { title: 'Create tag', command: CREATE_TAG_COMMAND, arguments: [tagLabel] };
+							const scope = tagScopeForNote(context, doc.uri.fsPath);
+							const title = scope.isProject
+								? `Create tag "${tagLabel}" in project graph`
+								: `Create tag "${tagLabel}" in ${INDIVIDUAL_TAGS_GRAPH_NAME}`;
+							const a = new vscode.CodeAction(title, vscode.CodeActionKind.QuickFix);
+							a.command = { title: 'Create tag', command: CREATE_TAG_COMMAND, arguments: [tagLabel, doc.uri.fsPath] };
 							a.diagnostics = [d];
 							actions.push(a);
 							continue;
@@ -850,6 +866,21 @@ function registerDripnoteMetadataDiagnostics(context) {
 			const edit = new vscode.WorkspaceEdit();
 			edit.replace(doc.uri, range, normalized);
 			await vscode.workspace.applyEdit(edit);
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand(CREATE_TAG_COMMAND, async (tagLabel, noteFsPath) => {
+			const label = String(tagLabel || '').trim();
+			const fsPath =
+				String(noteFsPath || '').trim() ||
+				(vscode.window.activeTextEditor ? vscode.window.activeTextEditor.document.uri.fsPath : '');
+			if (!label || !fsPath) return;
+			// Creates the tag in the note's own scope: the per-project graph for project
+			// notes (creating that graph if missing), else the KB "individual tags" graph.
+			await createTagForNote(context, fsPath, label);
+			const doc = vscode.workspace.textDocuments.find(d => d.uri.fsPath === fsPath && d.languageId === 'dripnote');
+			if (doc) await validateDocument(doc);
 		})
 	);
 

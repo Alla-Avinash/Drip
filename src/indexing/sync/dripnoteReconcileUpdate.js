@@ -19,7 +19,6 @@ const path = require('path');
 const vscode = require('vscode');
 const { getMetadataSettings } = require('../../document/model/dripnoteMetadataTemplates');
 const { classifyPersistentHeadingTitle } = require('../../document/model/dripnotePersistentHeading');
-const { stripKbNoteExtension } = require('../../document/model/noteFileTypes');
 const { collectHeadingSequenceValidated } = require('../../document/parse/dripnoteHeadingParse');
 const {
 	allocateNextFileEntityNumber,
@@ -39,7 +38,8 @@ const {
 	headingLineIndent,
 	isH0HeadingNode,
 	parseFileEntityFromLines,
-	rebuildCanonicalFileLevelBlock
+	rebuildCanonicalFileLevelBlock,
+	resolveFilenameStem
 } = require('../dripnoteHeadingIdentity');
 const { applyReconciledTextToOpenNote } = require('../dripnoteHeadingIdentityReconcile');
 const { readTextFile, writeTextFile } = require('../kbFilesystem');
@@ -346,7 +346,9 @@ async function reconcileUpdate(kbRootUri, noteUri, options = {}) {
 		claimed && Number.isFinite(claimed.fileNum) ? claimed.fileNum : null;
 
 	const ownership = await resolveFileIdOwnership(kbRootUri, noteUri, claimedFileId);
-	const filenameStem = stripKbNoteExtension(path.basename(noteUri.fsPath));
+	// Prefer the note's human title (`filename:` header) so the rebuilt header/h0 keep the
+	// user's spelling and casing. The on-disk file name is only a slugified fallback.
+	const filenameStem = resolveFilenameStem(lines, { noteUri });
 	const reset =
 		ownership.mode === MODE_RECLAIM ||
 		ownership.mode === MODE_FIRST_INSERT ||
