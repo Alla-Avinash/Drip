@@ -13,8 +13,8 @@ const { readHeadingBlock, appendToHeading, mergeHeadingBody } = require('./headi
 const { getLlmConfig, getLlmApiKey } = require('../llm/llmSettings');
 const { chatComplete } = require('../llm/llmClient');
 const { readChatMemoryItems, applyChatMemoryOps, formatMemoryForPrompt } = require('../llm/chatMemory');
-const { readTextFile, writeTextFile, buildNewNoteFile } = require('../document/kbNoteOps');
-const { buildNoteFileName } = require('../document/model/noteFileTypes');
+const { readTextFile, writeTextFile, buildNewNoteFile } = require('../document/dripNoteKbOps.js');
+const { buildNoteFileName } = require('../document/model/dripNoteFileTypes.js');
 
 const TOP_N = 5;
 const BODY_CHAR_LIMIT = 600;
@@ -227,7 +227,7 @@ function stripRequests(note, remove) {
  * @param {import('vscode').ExtensionContext} context
  */
 async function reindexNote(kbRoot, uri, context) {
-	const { indexNewNoteImmediately } = require('../indexing/dripnoteIndex');
+	const { indexNewNoteImmediately } = require('../indexing/dripTxt/dripTxtIndex.js');
 	try {
 		await indexNewNoteImmediately(kbRoot, uri, context);
 	} catch (err) {
@@ -243,7 +243,7 @@ async function reindexNote(kbRoot, uri, context) {
  * @returns {Promise<import('vscode').Uri>}
  */
 async function createNewNote(kbRoot, title, noteText, context) {
-	const { allocateNextEntityNumber, indexNewNoteImmediately } = require('../indexing/dripnoteIndex');
+	const { allocateNextEntityNumber, indexNewNoteImmediately } = require('../indexing/dripTxt/dripTxtIndex.js');
 	const safeTitle =
 		(String(title || '').trim() || String(noteText.split('\n')[0] || '').trim() || 'Untitled').slice(0, 80) ||
 		'Untitled';

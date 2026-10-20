@@ -6,9 +6,9 @@
  * directly onto disk content. Reuses the same section rule as `issueInboxLayout.sectionEnd`.
  */
 
-const { parseHeadingIdentityLine } = require('../indexing/dripnoteHeadingIdentity');
+const { parseHeadingIdentityLine } = require('../indexing/dripTxt/dripTxtHeadingIdentity.js');
 const { sectionEnd, headingLevelOf } = require('../document/project/issueInboxLayout');
-const { findMetadataBlockEndExclusive } = require('../document/model/persistentHeadingZones');
+const { findMetadataBlockEndExclusive } = require('../document/model/dripTxt/dripTxtPersistentHeadingZones.js');
 
 const HEADING_LINE_RE = /^\s*#\d*\s+\S/;
 

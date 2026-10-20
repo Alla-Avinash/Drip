@@ -6,7 +6,7 @@
     "autoOpenComposerOnSidebarReveal": true,
     "knowledgeBaseFileExtensions": [
       ".d.txt",
-      ".md"
+      ".d.md"
     ],
     "defaultNewNoteExtension": ".d.txt",
     "editHeadingsInFile": false,

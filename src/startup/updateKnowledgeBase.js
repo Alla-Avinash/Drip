@@ -8,7 +8,7 @@ const {
 	initEmptyDripIndexFile
 } = require('../indexing/dripIndexDb');
 const { initEmptyDripProjectsFile } = require('../indexing/dripProjectDb');
-const { reconcileAllKbNoteHeadingIdentities } = require('../indexing/dripnoteHeadingIdentityReconcile');
+const { reconcileAllKbNoteHeadingIdentities } = require('../indexing/dripTxt/dripTxtHeadingIdentityReconcile.js');
 
 /**
  * User-triggered KB update (update icon) and post-bind initial index build.

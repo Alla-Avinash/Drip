@@ -1,0 +1,43 @@
+----------------------------------------------------------------
+DRIP — tracked work items (one at a time)
+----------------------------------------------------------------
+
+1. [DONE] Settings KB "New note uses" dropdown was blocked/empty.
+   Cause: the settings webview loads the bundled dist/settings.js; the
+   .ts edits were not rebuilt, so the script crashed on the renamed
+   element id before populating the dropdown. Fix: `npm run build:webview`.
+
+2. [DONE] Capture selection from .d.md files. The selection is parsed into
+   a neutral draft shared by both formats (see capture/noteDraft.js).
+
+3. [DONE] Intermediate format for the Composer:
+   - heading title WITHOUT .d.txt shortcuts (.concept / .issue / #1 / .i-5)
+   - metadata type + neutral key/value fields
+   - ingest re-applies the type (.d.txt shortcut / .d.md hidden comment)
+
+4. [DONE] Composer metadata section is now a chip UI (type chips + field
+   chips with enum dropdowns + add-field dropdown) instead of a text box.
+
+5. [DONE] Nested headings round-trip: multiple nested headings in a selection
+   stay nested in the body; on ingest into the other format they are
+   converted to that format's heading type (e.g. `.d.txt` `#1` -> `.d.md`
+   `##`, and vice versa).
+
+6. [DONE] Multiple same-level headings in a selection: the Composer must not
+   collapse them into one heading; show the selection as-is and let it
+   be saved as a draft instead of being force-merged.
+
+7. [DONE] Settings "New note uses" dropdown must list ONLY .d.txt and .d.md
+   (drop .md).
+
+8. [DONE] Feature/project index files (.p/.f) must record their type when created
+   as .d.md (hidden comment), matching the .d.txt `# .p` / `# .f` h0.
+
+9. [DONE] WYSIWYG .d.md editor: capturing a selection via Ctrl+Shift+U does not
+   work (only clipboard fallback works). The webview must report its
+   CodeMirror selection to the host.
+
+10. [DONE] .d.md issue hierarchy parsing: the project/issue subsystem (issue
+    block edit, inbox layout, project view) parses .d.txt marker/indent
+    hierarchy only. It needs a markdown-heading-level equivalent so issues
+    nest correctly in .d.md project/feature notes (no tab indents).

@@ -48,7 +48,7 @@ function projectPathLike(projectFolderPrefix) {
 }
 
 /**
- * @param {import('../db/dripSqlite').DripSqliteDatabase | { native?: import('better-sqlite3').Database, prepare?: Function }} db
+ * @param {import('../../indexing/db/dripSqlite').DripSqliteDatabase | { native?: import('better-sqlite3').Database, prepare?: Function }} db
  * @param {string} key
  * @returns {{ nextIssue: number, nextFeature: number }}
  */
@@ -87,7 +87,7 @@ function readAlloc(db, key) {
 }
 
 /**
- * @param {import('../db/dripSqlite').DripSqliteDatabase} db
+ * @param {import('../../indexing/db/dripSqlite').DripSqliteDatabase} db
  * @param {string} key
  * @param {{ nextIssue: number, nextFeature: number }} alloc
  */
@@ -118,7 +118,7 @@ function issueNumberFromTitle(title) {
 
 /**
  * Live issue numbers under a project (from `issues` table when present, else headings).
- * @param {import('../db/dripSqlite').DripSqliteDatabase} db
+ * @param {import('../../indexing/db/dripSqlite').DripSqliteDatabase} db
  * @param {string} projectFolderPrefix
  * @returns {Set<number>}
  */
@@ -187,7 +187,7 @@ function liveIssueNumbers(db, projectFolderPrefix) {
 }
 
 /**
- * @param {import('../db/dripSqlite').DripSqliteDatabase} db
+ * @param {import('../../indexing/db/dripSqlite').DripSqliteDatabase} db
  * @param {string} projectFolderPrefix
  * @returns {number}
  */

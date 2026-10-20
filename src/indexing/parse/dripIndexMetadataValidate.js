@@ -1,13 +1,13 @@
 'use strict';
 
-const { getMetadataSettingsForIndex } = require('../../document/model/dripnoteMetadataTemplates');
-const { parseFlexibleDateTime } = require('../../document/parse/dripnoteDatetime');
+const { getMetadataSettingsForIndex } = require('../../document/model/dripNoteMetadataTemplates.js');
+const { parseFlexibleDateTime } = require('../../document/parse/dripTxt/dripTxtDatetime.js');
 const {
 	parseDurationValue,
 	isValidDurationValue,
 	resolveDurationUnits,
 	normalizeDurationValue
-} = require('../../document/parse/dripnoteDuration');
+} = require('../../document/parse/dripNoteDuration.js');
 
 const KEY_VALUE_RE = /^\s*([a-z][a-z0-9_-]*)\s*:\s*(.*)$/i;
 

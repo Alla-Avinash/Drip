@@ -8,14 +8,14 @@ const { getNonce } = require('../../../shared/utils');
 const {
 	buildRetrieverCatalogShell,
 	isIndexerNotePath
-} = require('../../../retrieval/dripnoteRetrieverQuery');
+} = require('../../../retrieval/dripTxtRetrieverQuery.js');
 const { readTextFile } = require('../../../indexing/kbFilesystem');
-const { extractFileIdFromHeader } = require('../../../graph/dripnoteReferenceSync');
+const { extractFileIdFromHeader } = require('../../../graph/dripTxtReferenceSync.js');
 const {
 	fileNameMatchesKbNote,
 	getKbNoteExtensions,
 	stripKbNoteExtension
-} = require('../../../document/model/noteFileTypes');
+} = require('../../../document/model/dripNoteFileTypes.js');
 
 /**
  * Same KB root the sidebar tree and Retriever use: pinned folder first, else workspace / note-dir fallback.
@@ -780,8 +780,8 @@ class DripRetrieverPanel {
 				getMetadataColorSettings,
 				getRelationsKeywordColors,
 				getCustomColorMap
-			} = require('../../editor/dripnoteCustomDecorations');
-			const { getMetadataSettings } = require('../../../document/model/dripnoteMetadataTemplates');
+			} = require('../../editor/dripTxt/dripTxtCustomDecorations.js');
+			const { getMetadataSettings } = require('../../../document/model/dripNoteMetadataTemplates.js');
 			const meta = getMetadataColorSettings();
 			const rel = getRelationsKeywordColors();
 			/** @type {Record<string, string>} */
@@ -946,7 +946,7 @@ class DripRetrieverPanel {
 	/** Flush pending index writes, then reload catalog + re-query from index.drip. */
 	async rebuildFromIndexAfterFlush() {
 		try {
-			const { flushPendingDripIndexUpdates } = require('../../../indexing/dripnoteIndexSync');
+			const { flushPendingDripIndexUpdates } = require('../../../indexing/dripTxt/dripTxtIndexSync.js');
 			await flushPendingDripIndexUpdates();
 		} catch (err) {
 			console.warn('[DRIP] Retriever refresh: index flush skipped', err && err.message);

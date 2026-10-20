@@ -26,6 +26,7 @@ const {
 	updateIssueBlockText,
 	appendIssueNoteText
 } = require('../../../document/project/issueBlockEdit');
+const { formatFromPath } = require('../../../document/project/issueInboxLayout');
 const { fieldsPropFor } = require('../responseSchema');
 
 const PROJECT_PROP = {
@@ -44,7 +45,7 @@ function allowedIssueValues(uri, key) {
 	const {
 		getMetadataSettingsForNotePath,
 		getTypeRule
-	} = require('../../../document/model/dripnoteMetadataTemplates');
+	} = require('../../../document/model/dripNoteMetadataTemplates.js');
 	const rule = getTypeRule(getMetadataSettingsForNotePath(uri.fsPath), 'issue', key);
 	return rule && Array.isArray(rule.values) ? rule.values.map(String) : [];
 }
@@ -315,7 +316,7 @@ const ISSUE_TOOLS = [
 			const wantContent = !fields || fields.includes('content');
 			const wantSub = !fields || fields.includes('subIssues');
 			if (wantContent || wantSub) {
-				const read = readIssueContent(await readNoteText(uri), issueId, { fileId: row.fileId, headingId: row.headingId });
+				const read = readIssueContent(await readNoteText(uri), issueId, { fileId: row.fileId, headingId: row.headingId }, formatFromPath(uri.fsPath));
 				if (!read) {
 					throw new ToolError(`${issueId} is indexed in ${row.path} but its heading was not found there. Run reindex_project, then retry.`);
 				}
@@ -377,11 +378,12 @@ const ISSUE_TOOLS = [
 			});
 			const description = String(args.description || '').trim();
 			if (Object.keys(fields).length || description) {
+				const fmt = formatFromPath(res.uri.fsPath);
 				await editNote(ctx, res.uri, text => {
 					let r = Object.keys(fields).length
-						? updateIssueBlockText(text, res.issueId, { attributes: fields })
+						? updateIssueBlockText(text, res.issueId, { attributes: fields }, fmt)
 						: { ok: true, text };
-					if (r.ok && description) r = appendIssueNoteText(r.text, res.issueId, description);
+					if (r.ok && description) r = appendIssueNoteText(r.text, res.issueId, description, fmt);
 					return r;
 				});
 			}
@@ -418,7 +420,7 @@ const ISSUE_TOOLS = [
 			if (!Object.keys(fields).length && title == null) {
 				throw new ToolError('Nothing to update: pass title, status, and/or priority.');
 			}
-			await editNote(ctx, uri, text => updateIssueBlockText(text, issueId, { title, attributes: fields }));
+			await editNote(ctx, uri, text => updateIssueBlockText(text, issueId, { title, attributes: fields }, formatFromPath(uri.fsPath)));
 			return { updated: issueId, file: relOf(kb, uri), changes: { ...(title != null ? { title } : {}), ...fields } };
 		}
 	},
@@ -438,7 +440,7 @@ const ISSUE_TOOLS = [
 			const { issueId, uri } = await loadIssueContext(ctx, args);
 			const allowed = allowedIssueValues(uri, 'status');
 			const done = allowed.includes('completed') ? 'completed' : allowed[allowed.length - 1] || 'completed';
-			await editNote(ctx, uri, text => updateIssueBlockText(text, issueId, { attributes: { status: done } }));
+			await editNote(ctx, uri, text => updateIssueBlockText(text, issueId, { attributes: { status: done } }, formatFromPath(uri.fsPath)));
 			return { closed: issueId, status: done };
 		}
 	},
@@ -460,7 +462,7 @@ const ISSUE_TOOLS = [
 		example: { project: 'Shop.p', issueId: 'i-4', note: 'Root cause: retry loop has no backoff.' },
 		async handler(args, ctx) {
 			const { issueId, uri } = await loadIssueContext(ctx, args);
-			await editNote(ctx, uri, text => appendIssueNoteText(text, issueId, String(args.note || '')));
+			await editNote(ctx, uri, text => appendIssueNoteText(text, issueId, String(args.note || ''), formatFromPath(uri.fsPath)));
 			return { appendedTo: issueId };
 		}
 	},
@@ -508,13 +510,14 @@ const ISSUE_TOOLS = [
 		async handler(args, ctx) {
 			const { issueId, uri, children } = await loadIssueContext(ctx, args);
 			const text = await readNoteText(uri);
-			const block = readIssueBlock(text, issueId);
+			const fmt = formatFromPath(uri.fsPath);
+			const block = readIssueBlock(text, issueId, fmt);
 			if (!block) throw new ToolError(`Issue ${issueId} not found in its file.`);
 			const {
 				findNearestOutlineAncestorIssueId,
 				validateIssueParentChoice
 			} = require('../../../document/project/issueParentLink');
-			const locked = findNearestOutlineAncestorIssueId(text, block.headingLine);
+			const locked = findNearestOutlineAncestorIssueId(text, block.headingLine, fmt);
 			const res = validateIssueParentChoice({
 				selfKey: issueId,
 				candidate: String(args.parent || ''),
@@ -522,7 +525,7 @@ const ISSUE_TOOLS = [
 				projectIssues: children.issues.map(i => ({ issueKey: i.issueKey, parentIssueKey: i.parentIssueKey }))
 			});
 			if (!res.ok) throw new ToolError(res.error || 'Invalid parent.');
-			await editNote(ctx, uri, t => updateIssueBlockText(t, issueId, { attributes: { parent: res.value } }));
+			await editNote(ctx, uri, t => updateIssueBlockText(t, issueId, { attributes: { parent: res.value } }, fmt));
 			if (locked) return { issueId, parent: locked, note: `Parent is implied by indentation (${locked}).` };
 			return { issueId, parent: res.value || null };
 		}

@@ -11,7 +11,7 @@ const {
 	noteFormatForPath,
 	stemFromNotePath,
 	stripKbNoteExtension
-} = require('../document/model/noteFileTypes');
+} = require('../document/model/dripNoteFileTypes.js');
 const {
 	buildAppendedNote,
 	buildHeadingTreeFromBody,
@@ -30,15 +30,15 @@ const {
 	similarityScore,
 	splitFileHeaderAndBody,
 	writeTextFile
-} = require('../document/kbNoteOps');
-const { runGuardedDocumentEdit } = require('../shared/documentEditGuard');
+} = require('../document/dripNoteKbOps.js');
 const {
 	extractFileIdFromHeader,
 	updateRefsOnRename,
 	removeRefsOnDelete
-} = require('../graph/dripnoteReferenceSync');
-const { allocateNextEntityNumber, indexNewNoteImmediately } = require('../indexing/dripnoteIndex');
-const { updateNoteInDripIndex } = require('../indexing/sync/dripnoteIndexUpdate');
+} = require('../graph/dripTxtReferenceSync.js');
+const { allocateNextEntityNumber, indexNewNoteImmediately } = require('../indexing/dripTxt/dripTxtIndex.js');
+const { draftToTxtMetadata } = require('../capture/noteDraft.js');
+const { updateNoteInDripIndex } = require('../indexing/sync/dripTxt/dripTxtIndexUpdate.js');
 const { removeFileFromDripIndex } = require('../indexing/dripIndexDb');
 const { getKbNoteTreeIcon } = require('../views/lhs/knowledgebase/kbTreeIcon');
 const { pickAndBindKnowledgeBase } = require('../startup/selectKnowledgeBase');
@@ -52,8 +52,8 @@ const {
 	demoteH0TypeToBarePersistent,
 	featureIndexFileName,
 	FEATURE_FOLDER_EXT
-} = require('../document/model/dripFeature');
-const { isDripProjectFolderName, PROJECT_FOLDER_EXT, projectIndexFileName, isProtectedFolderIndexNotePath, isProjectIndexFileName } = require('../document/model/dripProjectFolder');
+} = require('../document/model/dripNoteFeature.js');
+const { isDripProjectFolderName, PROJECT_FOLDER_EXT, projectIndexFileName, isProtectedFolderIndexNotePath, isProjectIndexFileName } = require('../document/model/dripNoteProjectFolder.js');
 const {
 	canPlaceProjectFolder,
 	canPlaceFeature,
@@ -62,7 +62,7 @@ const {
 	findNestedProject,
 	canConvertFolderToFeature,
 	noteCreationBlockReason
-} = require('../document/model/dripKbFolderRules');
+} = require('../document/model/dripNoteKbFolderRules.js');
 const {
 	loadDraftsFromDripIndex,
 	saveDraftToDripIndex,
@@ -75,169 +75,9 @@ const {
 } = require('../startup/recentsDrip');
 const { getDraftsDripDirectoryUri } = require('../startup/initializeDripIndex');
 
-/**
- * @param {import('vscode').Uri} kbRoot
- * @param {import('vscode').Uri} folderUri
- * @returns {{ label: string, folderUri: string }[]}
- */
-function kbPathSegments(kbRoot, folderUri) {
-	const relFolder = path.relative(kbRoot.fsPath, folderUri.fsPath).replace(/\\/g, '/');
-	const segments = [{ label: '(root)', folderUri: kbRoot.toString() }];
-	if (!relFolder || relFolder === '.') {
-		return segments;
-	}
-	let cursor = kbRoot;
-	for (const part of relFolder.split('/').filter(Boolean)) {
-		cursor = vscode.Uri.joinPath(cursor, part);
-		segments.push({ label: part, folderUri: cursor.toString() });
-	}
-	return segments;
-}
-
-/**
- * Find an open (non-closed) text document for a file URI.
- * @param {import('vscode').Uri} uri
- * @returns {import('vscode').TextDocument | undefined}
- */
-function findOpenTextDocument(uri) {
-	if (!uri) return undefined;
-	const key = uri.toString();
-	const fsPath = uri.fsPath;
-	return vscode.workspace.textDocuments.find(
-		d => !d.isClosed && (d.uri.toString() === key || d.uri.fsPath === fsPath)
-	);
-}
-
-/**
- * Rewrite an open note buffer (no rename) via WorkspaceEdit + save.
- * Falls back to disk write when the file is not open.
- *
- * @param {import('vscode').Uri} uri
- * @param {(text: string) => string | Promise<string>} transformText
- */
-async function rewriteNotePreferringEditor(uri, transformText) {
-	let doc = findOpenTextDocument(uri);
-	if (!doc) {
-		const text = await readTextFile(uri);
-		const next = await transformText(text);
-		if (next !== text && String(next).replace(/\r\n/g, '\n') !== text.replace(/\r\n/g, '\n')) {
-			await writeTextFile(uri, next);
-		}
-		return;
-	}
-	if (doc.isDirty) {
-		await doc.save();
-	}
-	const before = doc.getText();
-	const after = await transformText(before);
-	const beforeNorm = before.replace(/\r\n/g, '\n');
-	const afterNorm = String(after || '').replace(/\r\n/g, '\n');
-	await runGuardedDocumentEdit(async () => {
-		if (afterNorm !== beforeNorm) {
-			const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length));
-			const we = new vscode.WorkspaceEdit();
-			we.replace(doc.uri, fullRange, String(after ?? ''));
-			await vscode.workspace.applyEdit(we);
-			doc = findOpenTextDocument(uri) || (await vscode.workspace.openTextDocument(uri));
-		}
-		if (doc.isDirty) {
-			await doc.save();
-		}
-	});
-}
-
-/**
- * Close all editor tabs for a file URI without prompting (revert dirty buffers first).
- * Callers must already have captured any buffer text they need.
- * @param {import('vscode').Uri} uri
- */
-async function closeEditorsForFile(uri) {
-	if (!uri) return;
-	const key = uri.toString();
-	const fsPath = uri.fsPath;
-
-	for (;;) {
-		const doc = vscode.workspace.textDocuments.find(
-			d => !d.isClosed && (d.uri.toString() === key || d.uri.fsPath === fsPath)
-		);
-		if (!doc) break;
-		await vscode.window.showTextDocument(doc, { preview: true, preserveFocus: false });
-		if (doc.isDirty) {
-			await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
-		} else {
-			await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
-		}
-		// Safety: if still open after command, force tab close.
-		const still = vscode.workspace.textDocuments.find(
-			d => !d.isClosed && (d.uri.toString() === key || d.uri.fsPath === fsPath)
-		);
-		if (!still) break;
-		const tabs = [];
-		for (const group of vscode.window.tabGroups.all) {
-			for (const tab of group.tabs) {
-				if (
-					tab.input instanceof vscode.TabInputText &&
-					(tab.input.uri.toString() === key || tab.input.uri.fsPath === fsPath)
-				) {
-					tabs.push(tab);
-				}
-			}
-		}
-		if (!tabs.length) break;
-		await vscode.window.tabGroups.close(tabs, true);
-		break;
-	}
-}
-
-/**
- * Rename + rewrite a note with no open editor, then reopen.
- * Avoids “content of the file is newer” races between WorkspaceEdit saves and
- * on-open identity reconcile writeTextFile.
- *
- * @param {import('vscode').Uri} oldUri
- * @param {import('vscode').Uri} newUri
- * @param {(text: string) => string | Promise<string>} transformText
- * @returns {Promise<import('vscode').TextDocument>}
- */
-async function renameAndRewriteOpenNote(oldUri, newUri, transformText) {
-	const openOld = findOpenTextDocument(oldUri);
-	const sourceText = openOld ? openOld.getText() : await readTextFile(oldUri);
-	const next = String((await transformText(sourceText)) ?? '');
-
-	await closeEditorsForFile(oldUri);
-	await closeEditorsForFile(newUri);
-	// Let onDidClose heading-hash flush finish on the old path before rename.
-	await new Promise(resolve => setTimeout(resolve, 150));
-
-	await vscode.workspace.fs.rename(oldUri, newUri, { overwrite: false });
-	await writeTextFile(newUri, next);
-
-	const doc = await vscode.workspace.openTextDocument(newUri);
-	await vscode.window.showTextDocument(doc, { preview: false });
-
-	// Open handlers may writeTextFile (fileid / heading reconcile). Wait briefly, then
-	// revert the buffer to disk so we never leave a “file is newer” conflict.
-	await new Promise(resolve => setTimeout(resolve, 300));
-	const openNow = findOpenTextDocument(newUri);
-	if (openNow && !openNow.isClosed) {
-		try {
-			const disk = await readTextFile(newUri);
-			const buf = openNow.getText().replace(/\r\n/g, '\n');
-			const diskNorm = disk.replace(/\r\n/g, '\n');
-			if (buf !== diskNorm || openNow.isDirty) {
-				await vscode.window.showTextDocument(openNow, { preview: false, preserveFocus: true });
-				await vscode.commands.executeCommand('workbench.action.files.revert');
-			}
-		} catch (err) {
-			console.error('[DRIP] post-convert revert to disk', err);
-		}
-	}
-
-	return findOpenTextDocument(newUri) || doc;
-}
-
-/** Storage "AI" button: how many folder / file / heading suggestions to show. */
-const AI_SUGGESTION_LIMIT = 4;
+const { kbPathSegments, AI_SUGGESTION_LIMIT, rewriteNotePreferringEditor } = require('./documentFileOps');
+const { markExpectedDiskWrite } = require('../shared/documentEditGuard');
+const { tagGraphStateMixin } = require('./tagGraphState');
 
 class DripState {
 	constructor(context) {
@@ -362,14 +202,19 @@ class DripState {
 		const kbRoot = this.getKnowledgeBaseRoot();
 		const drafts = kbRoot ? await loadDraftsFromDripIndex(kbRoot) : this.getDrafts();
 		const now = new Date().toISOString();
+		const typeId = input.typeId != null ? String(input.typeId) : '';
+		const fields = Array.isArray(input.fields) ? input.fields : [];
 		const normalized = {
 			id: input.id || `draft-${Date.now()}`,
 			title: (input.title || 'Untitled Draft').trim(),
 			priority: input.priority || 'Medium',
 			headings: input.headings || '',
-			metadata: input.metadata != null ? String(input.metadata) : '',
+			typeId,
+			fields,
+			metadata: input.metadata != null ? String(input.metadata) : draftToTxtMetadata(typeId, fields),
 			content: input.content || '',
 			metadataFilename: (input.metadataFilename || '').trim(),
+			sourceFormat: input.sourceFormat || '',
 			updatedAt: now,
 			status: input.status || 'draft'
 		};
@@ -933,7 +778,7 @@ class DripState {
 				title: t,
 				content: '',
 				metadataFilename: t
-			}, { fileEntityNumber: n })
+			}, { fileEntityNumber: n, format: noteFormatForPath(fileUri.fsPath) })
 		);
 		try {
 			await indexNewNoteImmediately(kbRoot, fileUri, this.context);
@@ -978,6 +823,8 @@ class DripState {
 		const normalizedNoteInput = {
 			...noteInput,
 			headings: noteInput?.headings || '',
+			typeId: noteInput?.typeId != null ? String(noteInput.typeId) : '',
+			fields: Array.isArray(noteInput?.fields) ? noteInput.fields : [],
 			metadata,
 			content: bodyOnly
 		};
@@ -993,9 +840,11 @@ class DripState {
 		}
 
 		const draft = await this.saveDraft(normalizedNoteInput);
+		// Body-only content; the target serializer builds the metadata block (`.d.txt`)
+		// or hidden comment (`.d.md`) from `typeId` + `fields` for the file's format.
 		const writeDraft = {
 			...draft,
-			content: combineComposerSections(draft.metadata, draft.content)
+			content: draft.content
 		};
 
 		let targetUri;
@@ -1017,6 +866,7 @@ class DripState {
 			if (next == null) {
 				throw new Error('Could not find that heading in the file any more. Run Suggest with LLM again.');
 			}
+			markExpectedDiskWrite(targetUri);
 			await writeTextFile(targetUri, next.endsWith('\n') ? next : `${next}\n`);
 		} else if (selection?.targetType === 'file' && selection.uri) {
 			mode = 'append';
@@ -1026,6 +876,7 @@ class DripState {
 			const existingContent = await readTextFile(targetUri);
 			const fileStem = stemFromNotePath(targetUri.fsPath);
 			const format = noteFormatForPath(targetUri.fsPath);
+			markExpectedDiskWrite(targetUri);
 			await writeTextFile(
 				targetUri,
 				buildAppendedNote(existingContent, writeDraft, headingPathOverride, {
@@ -1063,6 +914,7 @@ class DripState {
 
 			targetUri = vscode.Uri.joinPath(targetFolder, buildNoteFileName(fileName));
 			const n = await allocateNextEntityNumber(kbRoot);
+			markExpectedDiskWrite(targetUri);
 			await writeTextFile(targetUri, buildNewNoteFile(writeDraft, { fileEntityNumber: n, format: noteFormatForPath(targetUri.fsPath) }));
 			try {
 				await indexNewNoteImmediately(kbRoot, targetUri, this.context);
@@ -1090,6 +942,7 @@ class DripState {
 				const headingPath = bestHeadingPathForNote(normalizedNoteInput, paths) || '';
 				const fileStem = stemFromNotePath(targetUri.fsPath);
 				const format = noteFormatForPath(targetUri.fsPath);
+				markExpectedDiskWrite(targetUri);
 				await writeTextFile(
 					targetUri,
 					buildAppendedNote(existingContent, writeDraft, headingPath, {
@@ -1106,6 +959,7 @@ class DripState {
 				}
 				targetUri = vscode.Uri.joinPath(targetFolder, buildNoteFileName(draft.title));
 				const n = await allocateNextEntityNumber(kbRoot);
+				markExpectedDiskWrite(targetUri);
 				await writeTextFile(targetUri, buildNewNoteFile(writeDraft, { fileEntityNumber: n, format: noteFormatForPath(targetUri.fsPath) }));
 				try {
 					await indexNewNoteImmediately(kbRoot, targetUri, this.context);
@@ -1155,7 +1009,7 @@ class DripState {
 				title,
 				content: '',
 				metadataFilename: title
-			}, { fileEntityNumber: n })
+			}, { fileEntityNumber: n, format: noteFormatForPath(fileUri.fsPath) })
 		);
 		try {
 			await indexNewNoteImmediately(kbRoot, fileUri, this.context);
@@ -1180,7 +1034,7 @@ class DripState {
 			return undefined;
 		}
 		const title = await vscode.window.showInputBox({
-			prompt: 'Enter a Markdown file title',
+			prompt: 'Enter a .d.md note title',
 			placeHolder: 'Example: architecture notes'
 		});
 
@@ -1188,11 +1042,21 @@ class DripState {
 			return undefined;
 		}
 
-		const fileUri = vscode.Uri.joinPath(baseUri, buildNoteFileName(title, '.md'));
+		const fileUri = vscode.Uri.joinPath(baseUri, buildNoteFileName(title, '.d.md'));
+		const n = await allocateNextEntityNumber(kbRoot);
 		await writeTextFile(
 			fileUri,
-			`# ${String(title).trim() || 'Untitled'}\n`
+			buildNewNoteFile({
+				title,
+				content: '',
+				metadataFilename: title
+			}, { fileEntityNumber: n, format: 'drip-md' })
 		);
+		try {
+			await indexNewNoteImmediately(kbRoot, fileUri, this.context);
+		} catch (err) {
+			console.error('[DRIP] immediate index after createMarkdownFile', err);
+		}
 
 		await vscode.commands.executeCommand('vscode.open', fileUri);
 		return fileUri;
@@ -2298,136 +2162,6 @@ class DripState {
 		}
 	}
 
-	/** Standalone tag graph (not linked to note files yet). */
-	getTagGraph() {
-		const { loadTagGraph } = require('../graph/tagGraphStore');
-		return loadTagGraph(this.context);
-	}
-
-	async saveTagGraph(graph) {
-		const { saveTagGraph, normalizeGraph } = require('../graph/tagGraphStore');
-		await saveTagGraph(this.context, normalizeGraph(graph));
-	}
-
-	syncTagGraphCheckpointFromStorage() {
-		const tagGraphStore = require('../graph/tagGraphStore');
-		const g = tagGraphStore.normalizeGraph(tagGraphStore.loadTagGraph(this.context));
-		this._tagGraphCheckpoint = JSON.parse(JSON.stringify(g));
-	}
-
-	isTagGraphDirtyVsCheckpoint() {
-		if (!this._tagGraphCheckpoint) {
-			return false;
-		}
-		const tagGraphStore = require('../graph/tagGraphStore');
-		const cur = tagGraphStore.normalizeGraph(tagGraphStore.loadTagGraph(this.context));
-		return JSON.stringify(cur) !== JSON.stringify(this._tagGraphCheckpoint);
-	}
-
-	commitTagGraphCheckpoint() {
-		this.syncTagGraphCheckpointFromStorage();
-	}
-
-	async revertTagGraphToCheckpoint() {
-		if (!this._tagGraphCheckpoint) {
-			return;
-		}
-		await this.saveTagGraph(this._tagGraphCheckpoint);
-	}
-
-	/**
-	 * When switching graphs: if the slot changed since last checkpoint, ask what to do.
-	 * @returns {Promise<'ok'|'cancel'>}
-	 */
-	async promptTagGraphSwitchOrCancel() {
-		if (!this.isTagGraphDirtyVsCheckpoint()) {
-			return 'ok';
-		}
-		const pick = await vscode.window.showWarningMessage(
-			'This tags graph has changes since you last opened it (or last confirmed this slot). Save these edits to this slot and continue, discard them and restore the previous version, or cancel?',
-			{ modal: true },
-			'Save and continue',
-			'Discard without saving',
-			'Cancel'
-		);
-		if (pick === 'Cancel' || pick === undefined) {
-			return 'cancel';
-		}
-		if (pick === 'Discard without saving') {
-			await this.revertTagGraphToCheckpoint();
-			return 'ok';
-		}
-		this.commitTagGraphCheckpoint();
-		return 'ok';
-	}
-
-	clearTagGraphHistory() {
-		this._tagGraphUndo.length = 0;
-		this._tagGraphRedo.length = 0;
-	}
-
-	_clearTagGraphRedo() {
-		this._tagGraphRedo.length = 0;
-	}
-
-	_pushTagGraphUndoSnapshot(graph) {
-		// Graph is plain data; JSON clone is fine here.
-		const snap = JSON.parse(JSON.stringify(graph));
-		this._tagGraphUndo.push(snap);
-		if (this._tagGraphUndo.length > this._tagGraphHistoryMax) {
-			this._tagGraphUndo.splice(0, this._tagGraphUndo.length - this._tagGraphHistoryMax);
-		}
-	}
-
-	_pushTagGraphRedoSnapshot(graph) {
-		const snap = JSON.parse(JSON.stringify(graph));
-		this._tagGraphRedo.push(snap);
-		if (this._tagGraphRedo.length > this._tagGraphHistoryMax) {
-			this._tagGraphRedo.splice(0, this._tagGraphRedo.length - this._tagGraphHistoryMax);
-		}
-	}
-
-	async undoTagGraph() {
-		if (!this._tagGraphUndo.length) {
-			return this.getTagGraph();
-		}
-		const tagGraphStore = require('../graph/tagGraphStore');
-		const current = tagGraphStore.normalizeGraph(tagGraphStore.loadTagGraph(this.context));
-		const prev = this._tagGraphUndo.pop();
-		this._pushTagGraphRedoSnapshot(current);
-		await tagGraphStore.saveTagGraph(this.context, tagGraphStore.normalizeGraph(prev));
-		return tagGraphStore.normalizeGraph(prev);
-	}
-
-	async redoTagGraph() {
-		if (!this._tagGraphRedo.length) {
-			return this.getTagGraph();
-		}
-		const tagGraphStore = require('../graph/tagGraphStore');
-		const current = tagGraphStore.normalizeGraph(tagGraphStore.loadTagGraph(this.context));
-		const next = this._tagGraphRedo.pop();
-		this._pushTagGraphUndoSnapshot(current);
-		await tagGraphStore.saveTagGraph(this.context, tagGraphStore.normalizeGraph(next));
-		return tagGraphStore.normalizeGraph(next);
-	}
-
-	/**
-	 * @param {(g: ReturnType<typeof import('../graph/tagGraphStore').loadTagGraph>) => void} mutator
-	 * @param {{ recordHistory?: boolean }} [opts]
-	 */
-	async mutateTagGraph(mutator, opts) {
-		const tagGraphStore = require('../graph/tagGraphStore');
-		const recordHistory = opts && typeof opts.recordHistory === 'boolean' ? opts.recordHistory : true;
-		const g = tagGraphStore.loadTagGraph(this.context);
-		if (recordHistory) {
-			this._pushTagGraphUndoSnapshot(tagGraphStore.normalizeGraph(g));
-			this._clearTagGraphRedo();
-		}
-		mutator(g);
-		await tagGraphStore.saveTagGraph(this.context, tagGraphStore.normalizeGraph(g));
-		return tagGraphStore.normalizeGraph(g);
-	}
-
 	getRetrieverPersistedUi() {
 		return this.context.workspaceState.get(RETRIEVER_UI_STATE_KEY, undefined);
 	}
@@ -2439,6 +2173,8 @@ class DripState {
 		await this.context.workspaceState.update(RETRIEVER_UI_STATE_KEY, data);
 	}
 }
+
+Object.assign(DripState.prototype, tagGraphStateMixin);
 
 function combineComposerSections(metadata, body) {
 	const meta = String(metadata || '').replace(/\s+$/g, '');
@@ -2455,6 +2191,8 @@ function createEmptyDraft() {
 		title: '',
 		priority: 'Medium',
 		headings: '',
+		typeId: '',
+		fields: [],
 		metadata: '',
 		content: '',
 		metadataFilename: '',

@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const vscode = require('vscode');
 const { getNonce } = require('../shared/utils');
-const { DEFAULT_METADATA_TYPES, DEFAULT_FILE_LEVEL_METADATA_TYPES } = require('../document/model/dripnoteMetadataTemplates');
+const { DEFAULT_METADATA_TYPES, DEFAULT_FILE_LEVEL_METADATA_TYPES } = require('../document/model/dripNoteMetadataTemplates.js');
 
 const SETTINGS_BODY_HTML = fs.readFileSync(path.join(__dirname, 'settings', 'webview', 'settingsBody.html'), 'utf8');
 

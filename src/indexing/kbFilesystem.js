@@ -2,7 +2,7 @@
 
 const path = require('path');
 const vscode = require('vscode');
-const { fileNameMatchesKbNote } = require('../document/model/noteFileTypes');
+const { fileNameMatchesKbNote } = require('../document/model/dripNoteFileTypes.js');
 const { DAILY_NOTES_DIR } = require('../shared/constants');
 
 function isDotImgRasterImage(name) {

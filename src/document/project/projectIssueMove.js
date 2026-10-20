@@ -18,8 +18,8 @@ const { listProjectChildrenFromIndex } = require('../../indexing/projectViewQuer
 const { moveIssueBlock } = require('./projectIssuesMailbox');
 const { collectSelfAndDescendants } = require('./issueParentLink');
 const { normalizeIssueEntityId, parseIssueTitleEntityId, isFeatureInboxFileName } = require('./projectStructureRules');
-const { fileNameMatchesKbNote } = require('../model/noteFileTypes');
-const { buildHeadingTreeFromBody, splitFileHeaderAndBody, readTextFile } = require('../kbNoteOps');
+const { fileNameMatchesKbNote } = require('../model/dripNoteFileTypes.js');
+const { buildHeadingTreeFromBody, splitFileHeaderAndBody, readTextFile } = require('../dripNoteKbOps.js');
 const { openDripIndexDb } = require('../../indexing/dripIndexDb');
 const { encodeHeadingEmbeddingText } = require('../../indexing/embeddings/headingEmbeddingEncode');
 const {
@@ -138,9 +138,9 @@ async function readFeatureDir(folderUri) {
 			folders.push({ name, uri: vscode.Uri.joinPath(folderUri, name).toString() });
 		} else if (type === vscode.FileType.File && fileNameMatchesKbNote(name)) {
 			// Picking the feature directly routes to its `_inbox` mailbox, so the mailbox note
-			// and the folder's `_Name.f.d.txt` index note are redundant here — hide them.
+			// and the folder's `_Name.f.d.txt` / `_Name.f.d.md` index note are redundant here — hide them.
 			if (isFeatureInboxFileName(name)) continue;
-			if (/^_.+\.f\.d\.txt$/i.test(name)) continue;
+			if (/^_.+\.f\.d\.(txt|md)$/i.test(name)) continue;
 			files.push({ name, uri: vscode.Uri.joinPath(folderUri, name).toString() });
 		}
 	}

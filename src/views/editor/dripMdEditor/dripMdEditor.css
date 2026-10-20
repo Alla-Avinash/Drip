@@ -519,7 +519,10 @@ body {
 /* ---- File identity banner (the `<!-- drip-file … -->` header comment) ---- */
 .md-file-header {
 	display: block;
-	margin: 0 0 0.5em;
+	/* No vertical margin: this is a block-widget root, and an unmeasured margin would
+	   shift every fold chevron below it out of alignment with its heading. Spacing comes
+	   from the banner's padding and the blank lines in the document. */
+	margin: 0;
 	padding: 0.5em 0.75em;
 	border: 1px solid var(--vscode-editorWidget-border, #454545);
 	border-left: 3px solid var(--vscode-textLink-foreground, #3794ff);
@@ -696,7 +699,8 @@ body {
 /* Always-visible "+" glyph that promotes a plain heading into a typed heading. Rendered as
  * a block under the heading, so it never pushes the heading text sideways. */
 .md-heading-promote {
-	display: inline-block;
+	display: block;
+	width: max-content;
 	padding: 0 6px;
 	border-radius: 4px;
 	color: var(--vscode-descriptionForeground, #9d9d9d);

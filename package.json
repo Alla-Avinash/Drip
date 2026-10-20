@@ -439,14 +439,14 @@
 					},
 					"default": [
 						".d.txt",
-						".md"
+						".d.md"
 					],
-					"description": "File extensions (with a leading dot) treated as knowledge base notes in the tree, scans, and storage suggestions. Example: [\".d.txt\", \".md\"] includes README.md when \".md\" is listed."
+					"description": "File extensions (with a leading dot) treated as knowledge base notes in the tree, scans, and storage suggestions. DRIP's two note formats are .d.txt (plain text) and .d.md (Markdown with a rich editor)."
 				},
 				"drip.defaultNewNoteExtension": {
 					"type": "string",
 					"default": ".d.txt",
-					"description": "Extension for newly created notes from the KB and Storage flows. Must be one of the values in drip.knowledgeBaseFileExtensions."
+					"description": "Extension for newly created notes (New Note and KB/Storage flows). Choose .d.txt (default) or .d.md. Must be one of the values in drip.knowledgeBaseFileExtensions."
 				},
 				"drip.editHeadingsInFile": {
 					"type": "boolean",
@@ -1103,7 +1103,7 @@
 			{
 				"language": "dripnote",
 				"scopeName": "source.dripnote",
-				"path": "./src/document/syntaxes/dripnote.tmLanguage.json"
+				"path": "./src/document/syntaxes/dripTxt.tmLanguage.json"
 			}
 		],
 		"semanticTokenTypes": [

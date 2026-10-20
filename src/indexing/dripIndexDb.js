@@ -31,9 +31,9 @@ const {
 	planHeadingEmbeddingRewrite,
 	collectAllHeadingEmbeddingTargets
 } = require('./embeddings/headingEmbeddingSync');
-const { forEachKnowledgeBaseNote } = require('../document/kbNoteOps');
+const { forEachKnowledgeBaseNote } = require('../document/dripNoteKbOps.js');
 const { parseNoteForIndex, splitHeaderAndBody, parseFileIdFromHeader } = require('./dripIndexParse');
-const { formatFileEntityId } = require('./dripnoteEntityIds');
+const { formatFileEntityId } = require('./dripTxt/dripTxtEntityIds.js');
 const { normalizeMetadataTypeForIndex } = require('./parse/dripIndexMetadataType');
 const tagGraphStore = require('../graph/tagGraphStore');
 

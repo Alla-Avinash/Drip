@@ -11,12 +11,14 @@
 
 		<section class="box">
 			<label for="heading-title">Heading title</label>
-			<input id="heading-title" type="text" placeholder="# Topic or # .c Concept" autocomplete="off" />
+			<input id="heading-title" type="text" placeholder="Topic" autocomplete="off" />
 		</section>
 
 		<section class="box">
 			<label for="metadata">Metadata</label>
-			<textarea id="metadata" spellcheck="false" placeholder=".concept&#10;&#9;difficulty: hard&#10;tags: [example]"></textarea>
+			<div id="metadata" class="metadata-chips">
+				<div id="chips"></div>
+			</div>
 		</section>
 
 		<section class="box box-body">
@@ -33,3 +35,4 @@
 		<div id="status" class="status"></div>
 		<div id="error" class="error"></div>
 	</div>
+</body>

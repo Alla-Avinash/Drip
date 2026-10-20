@@ -3,7 +3,7 @@
 const vscode = require('vscode');
 
 /**
- * Explorer-style "New…" menu (folder / project / feature / .md / .d.txt note).
+ * Explorer-style "New…" menu (folder / project / feature / .d.md / .d.txt note).
  * @param {import('vscode').Uri | undefined} targetUri Optional folder from tree selection.
  */
 async function showKbNewMenu(targetUri) {
@@ -35,13 +35,13 @@ async function showKbNewMenu(targetUri) {
 			},
 			{
 				label: 'New File',
-				description: 'Create a new .md file',
+				description: 'Create a new .d.md file',
 				command: 'drip.createMarkdownFile',
 				iconPath: new vscode.ThemeIcon('file-add')
 			},
 			{
 				label: 'New Note',
-				description: 'Create a new .d.txt note',
+				description: 'Create a new note (default format)',
 				command: 'drip.createNoteFile',
 				iconPath: new vscode.ThemeIcon('notebook')
 			}

@@ -6,11 +6,11 @@ const {
 	isProtectedFolderIndexNotePath,
 	isPathInsideProjectFolder,
 	specialProjectSubfolderTypeIdForPath
-} = require('./dripProjectFolder');
+} = require('./dripNoteProjectFolder.js');
 const {
 	getProjectMetadataOverrides,
 	projectKeyForFsPath
-} = require('./dripnoteProjectMetadata');
+} = require('./dripTxt/dripTxtProjectMetadata.js');
 
 const DEFAULT_METADATA_TYPES = [
 	{
@@ -138,7 +138,7 @@ const DEFAULT_TAG_RELATIONS = {
 	allowed: ['tags', 'pre-req']
 };
 
-const { DEFAULT_DURATION_UNITS } = require('../parse/dripnoteDuration');
+const { DEFAULT_DURATION_UNITS } = require('../parse/dripNoteDuration.js');
 
 const METADATA_ATTRIBUTE_KINDS = ['enum', 'datetime', 'duration', 'ref'];
 
@@ -406,8 +406,8 @@ function getMetadataSettingsForIndex() {
 function lockedSpecialTypeIdForPath(fsPath) {
 	if (!isProtectedFolderIndexNotePath(fsPath)) return null;
 	const base = path.basename(String(fsPath || '')).toLowerCase();
-	if (/\.p\.d\.txt$/i.test(base)) return 'project';
-	if (/\.f\.d\.txt$/i.test(base)) return 'feature';
+	if (/\.p\.d\.(txt|md)$/i.test(base)) return 'project';
+	if (/\.f\.d\.(txt|md)$/i.test(base)) return 'feature';
 	return null;
 }
 

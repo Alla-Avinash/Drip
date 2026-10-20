@@ -1,7 +1,7 @@
 'use strict';
 
 const vscode = require('vscode');
-const { buildRetrieverIndex, sortRetrieverRows } = require('./dripnoteRetrieverQuery');
+const { buildRetrieverIndex, sortRetrieverRows } = require('./dripTxtRetrieverQuery.js');
 const { openRetrieverHeading } = require('../views/lhs/retriever/panel');
 
 const QUICK_PICK_CAP = 12_000;

@@ -15,7 +15,7 @@ const {
 	formatIssueEntityId
 } = require('./projectStructureRules');
 const { allocateNextIssueEntityId } = require('./projectEntityIds');
-const { isDripProjectFolderName } = require('../model/dripProjectFolder');
+const { isDripProjectFolderName } = require('../model/dripNoteProjectFolder.js');
 
 /**
  * Project folder prefix for a note under the KB, e.g. `App.p/`.

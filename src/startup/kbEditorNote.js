@@ -3,9 +3,9 @@
 const path = require('path');
 const vscode = require('vscode');
 const { KB_EDITOR_NOTE_FILENAME } = require('../shared/constants');
-const { buildNewNoteFile } = require('../document/kbNoteOps');
+const { buildNewNoteFile } = require('../document/dripNoteKbOps.js');
 const { writeTextFile } = require('../indexing/kbFilesystem');
-const { allocateNextEntityNumber, indexNewNoteImmediately } = require('../indexing/dripnoteIndex');
+const { allocateNextEntityNumber, indexNewNoteImmediately } = require('../indexing/dripTxt/dripTxtIndex.js');
 
 const LEGACY_KB_EDITOR_NOTE_FILENAME = '.editor.d.txt';
 

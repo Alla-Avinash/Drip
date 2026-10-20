@@ -55,7 +55,7 @@ const SYSTEM_TOOLS = [
 			const kb = requireKbRoot(ctx);
 			const project = await resolveProject(kb, args.project);
 			const { walkKbNoteFiles } = require('../../../indexing/kbFilesystem');
-			const { indexNewNoteImmediately } = require('../../../indexing/dripnoteIndex');
+			const { indexNewNoteImmediately } = require('../../../indexing/dripTxt/dripTxtIndex.js');
 			let count = 0;
 			await walkKbNoteFiles(kb, uriFromRel(kb, project.folderPrefix), async note => {
 				await indexNewNoteImmediately(kb, note.uri, ctx.extensionContext);
@@ -87,8 +87,8 @@ const SYSTEM_TOOLS = [
 			const issueId = requireIssueId(args.issueId);
 			const row = findIssueRow(issues, issueId);
 			const uri = uriFromRel(kb, row.path);
-			const { findIssueHeadingBlock } = require('../../../document/project/issueInboxLayout');
-			const found = findIssueHeadingBlock(await readNoteText(uri), issueId);
+			const { findIssueHeadingBlock, formatFromPath } = require('../../../document/project/issueInboxLayout');
+			const found = findIssueHeadingBlock(await readNoteText(uri), issueId, formatFromPath(uri.fsPath));
 			if (!found) throw new ToolError(`${issueId} is indexed in ${row.path} but its heading was not found.`);
 			const doc = await vscode.workspace.openTextDocument(uri);
 			const editor = await vscode.window.showTextDocument(doc, { preview: false });

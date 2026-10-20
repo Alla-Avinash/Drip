@@ -1,12 +1,12 @@
 'use strict';
 
-const { collectHeadingSequenceValidated } = require('../document/parse/dripnoteHeadingParse');
-const { getMetadataSettingsForIndex } = require('../document/model/dripnoteMetadataTemplates');
+const { collectHeadingSequenceValidated } = require('../document/parse/dripTxt/dripTxtHeadingParse.js');
+const { getMetadataSettingsForIndex } = require('../document/model/dripNoteMetadataTemplates.js');
 const {
 	classifyPersistentHeadingTitle,
 	stripHeadingTitleTypePrefix
-} = require('../document/model/dripnotePersistentHeading');
-const { parseFileEntityIdNumber } = require('./dripnoteEntityIds');
+} = require('../document/model/dripTxt/dripTxtPersistentHeading.js');
+const { parseFileEntityIdNumber } = require('./dripTxt/dripTxtEntityIds.js');
 const { parseTypedMetadataForHeading } = require('./parse/dripIndexTypedMetadata');
 const {
 	getKnownMetadataTypeIds,
@@ -205,7 +205,7 @@ function collectTagsAndRelationsFromLines(lines, sourceHeadingId, knownTagsLower
  * Parse one heading node into index rows (heading + scoped edges).
  *
  * @param {string[]} lines
- * @param {import('../document/parse/dripnoteHeadingParse').HeadingNodeFlat} node
+ * @param {import('../document/parse/dripTxt/dripTxtHeadingParse.js').HeadingNodeFlat} node
  * @param {Set<string> | undefined} knownTagsLower
  * @param {number} nextAutoHeadingId
  * @param {{ includeDetails?: boolean, metadataType?: string | null, headingIdOverride?: number | null }} [options]
@@ -266,7 +266,7 @@ function parseHeadingNodeForIndex(lines, node, knownTagsLower, nextAutoHeadingId
  * this heading (same rule as issue blocks: text or plain headings at the same or a shallower
  * indent close a section — see `outlineParentsByLine`).
  *
- * @param {import('../document/parse/dripnoteHeadingParse').HeadingNodeFlat[]} nodes
+ * @param {import('../document/parse/dripTxt/dripTxtHeadingParse.js').HeadingNodeFlat[]} nodes
  * @param {Map<number, number>} headingIdByNodeIndex
  * @param {{ heading_id: number, parent?: number | null }[]} headings
  */
@@ -299,7 +299,7 @@ function assignHeadingParentsFromIndent(nodes, headingIdByNodeIndex, headings) {
 
 /**
  * @param {string[]} lines
- * @param {import('../document/parse/dripnoteHeadingParse').HeadingNodeFlat[]} nodes
+ * @param {import('../document/parse/dripTxt/dripTxtHeadingParse.js').HeadingNodeFlat[]} nodes
  * @param {Set<string> | undefined} knownTagsLower
  * @param {{ onlyDetailForNodeIndices?: Set<number>, knownMetadataTypeIds?: Set<string> }} [options]
  */

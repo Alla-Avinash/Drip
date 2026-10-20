@@ -50,11 +50,17 @@ When a `.d.txt` file is open in the editor, DRIP provides VS Code language featu
 ### Persistent-heading soft-lock
 
 - Persistent headings (the `# .…` sections that hold identity/metadata) can be edited either directly in the file or through the RHS Heading form. When edited via the form, the title/metadata area is soft-locked in the editor to prevent accidental edits.
+- Manual bulk edits to persistent headings are confirmed before they stick: deleting two or more persistent headings at once asks to confirm the delete, and pasting/bulk-adding persistent headings asks to keep them (undo on cancel). These prompts guard against accidental large edits while typing or pasting by hand.
+- Extension-driven edits never trigger those prompts — the cut performed by Capture and the write performed by Ingest mark themselves as intentional (a guarded edit or an expected disk write), so the soft-lock stays quiet while still confirming genuine manual bulk changes.
 
 ### Heading shorthand
 
 - Typing a bare `# ` at the start of a line auto-upgrades the marker to the numbered `#N` form from the leading tab indent: `# ` stays root, `\t# ` becomes `#1`, `\t\t# ` becomes `#2`, and so on. This happens as soon as the space after `#` is typed, so the user never types the `#N` number by hand.
 - Only lines whose `#` is preceded by whitespace (tabs/spaces) are upgraded — any non-whitespace before the `#` means it is not a heading and is left alone. `.d.md` / markdown notes are never touched.
+
+### Indent / outdent marker sync
+
+- The marker number always mirrors the leading-tab count, so indenting or outdenting a heading also renumbers it: Tab on a numbered heading adds a level (`#1` → `#2`), Shift+Tab drops one (`#1` → `#`). It applies to single lines and to whole selections, and only when the edit changed leading tabs (typing a title never renumbers).
 
 ## Flow (plain steps)
 

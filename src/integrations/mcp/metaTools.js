@@ -11,7 +11,7 @@ const { searchToolCards } = require('./toolEmbeddings');
 const { ROUTER_GUIDE } = require('./routerGuide');
 const { ToolError } = require('./tools/toolShared');
 const { parseFields, project } = require('./responseSchema');
-const { getMetadataSettings, getTypeRule } = require('../../document/model/dripnoteMetadataTemplates');
+const { getMetadataSettings, getTypeRule } = require('../../document/model/dripNoteMetadataTemplates.js');
 
 /**
  * High-value tools advertised directly in MCP `tools/list` (no search_tools round-trip).

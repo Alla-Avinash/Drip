@@ -56,15 +56,15 @@ Headings use a numeric marker, not markdown `#`-counts or indentation:
 - `#` is the root / file-level heading (`h0`).
 - `#1` is a first-level heading, `#2` a second-level heading, and so on.
 
-Hierarchy is read **from the marker number only** — leading tabs or spaces before the marker do not change a heading's level. Each heading has its own identity line (`@hN`) on the line directly above it. The `h0` heading sits below the `---` separator:
+Hierarchy is read **from the marker number only** — the leading tabs do not decide the level. They still mirror it, one tab per level (`#` = 0 tabs, `#1` = 1 tab, `#2` = 2 tabs), so the file stays visually scannable. Each heading has its own identity line (`@hN`) on the line directly above it, indented to match the heading. The `h0` heading sits below the `---` separator:
 
 ```
 ---
 
 # . My Note            ← h0 (file heading)
 
-#1 Concepts           ← level 1
-	#2 Frontend        ← level 2, child of "#1 Concepts"
+	#1 Concepts         ← level 1
+		#2 Frontend      ← level 2, child of "#1 Concepts"
 ```
 
 Body prose and metadata under a heading are tab-indented relative to its level: a metadata marker (`.concept`, `.issue`, …) sits at `level + 1` tabs, and its `key: value` attributes at `level + 2` tabs.
@@ -114,7 +114,7 @@ The typed headings a note may carry depend on where the note lives — one share
 - A normal KB note allows `concept` and `task`.
 - A note anywhere inside a project (`.p`) or feature (`.f`) folder allows `issue`.
 - A note inside a project's `_concepts` folder allows only `concept` — numbered `c-N` within the project, just like issues get `i-N`. A note inside `_decisions` allows only `decision`, numbered `d-N`.
-- A project/feature index note (`_Name.p.d.txt` / `_Name.f.d.txt`) allows only its own file-level type (`project` / `feature`).
+- A project/feature index note (`_Name.p.d.txt` / `_Name.f.d.txt` / `_Name.p.d.md` / `_Name.f.d.md`) allows only its own file-level type (`project` / `feature`).
 
 The `h0` heading follows the same rule. It is persistent by default (`# . <filename>`), and the user can retype it as any type the note's location allows — `concept` in a normal KB note, the structural `.p` / `.f` marker on a project/feature index note, and so on.
 

@@ -8,10 +8,10 @@ const vscode = require('vscode');
 const {
 	getMetadataSettingsForNotePath,
 	getTypeRule
-} = require('../../../document/model/dripnoteMetadataTemplates');
-const { normalizeDateTimeValue } = require('../../../document/parse/dripnoteDatetime');
-const { findPersistentZoneAtLine } = require('../../../document/model/persistentHeadingZones');
-const { planPersistentHeadingPatch } = require('../../../document/model/headingBlockPatch');
+} = require('../../../document/model/dripNoteMetadataTemplates.js');
+const { normalizeDateTimeValue } = require('../../../document/parse/dripTxt/dripTxtDatetime.js');
+const { findPersistentZoneAtLine } = require('../../../document/model/dripTxt/dripTxtPersistentHeadingZones.js');
+const { planPersistentHeadingPatch } = require('../../../document/model/dripTxt/dripTxtHeadingBlockPatch.js');
 const session = require('./headingFormSession');
 
 let applyDepth = 0;

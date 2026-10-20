@@ -102,6 +102,19 @@ Drip application development:
 
 
 
+	Phase - 3 
+
+		can have this application integrated with a person's linkedin so that he can post up his progress on what new things he had learnt in that week  
+			or even post up his updates on his recent project 
+			can directly use the changelog for this 
+
+		
+		can integrate this application with a chat/messaging platform like whatsapp.. so that the user can send notes/resources/docs/pdf's in messages and they get stored in this KB 
+		you can even create your own mobile application which stores all the resouces and then sends it to your pc for a bulk processing of these notes or resouces 
+
+
+		remove the vscode/codeoss specific binaries and package this as a standalone desktop app, like obsidian
+		create a website saying what this application is about and can get to have a webpage SEO to get the top results among the best affordable note taking applications.. 
 
 
 

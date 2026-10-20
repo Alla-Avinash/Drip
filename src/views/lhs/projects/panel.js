@@ -16,7 +16,7 @@ const {
 const {
 	getFileLevelMetadataSettings,
 	getMetadataSettings
-} = require('../../../document/model/dripnoteMetadataTemplates');
+} = require('../../../document/model/dripNoteMetadataTemplates.js');
 
 function tryCloseAuxiliaryBar() {
 	try {
@@ -422,7 +422,7 @@ class DripProjectViewPanel {
 			...prefix.replace(/\/+$/, '').split('/').filter(Boolean)
 		);
 		const { ensureProjectIndexFile } = require('../../../startup/dripProjectFolder');
-		const { projectIndexFileName } = require('../../../document/model/dripProjectFolder');
+		const { projectIndexFileName } = require('../../../document/model/dripNoteProjectFolder.js');
 		let uri = await ensureProjectIndexFile(folderUri, { kbRoot, context: this.context });
 		if (!uri) {
 			uri = vscode.Uri.joinPath(folderUri, projectIndexFileName(path.basename(folderUri.fsPath)));
@@ -448,7 +448,7 @@ class DripProjectViewPanel {
 				...folderPrefix.replace(/\/+$/, '').split('/').filter(Boolean)
 			);
 			const { ensureFeatureIndexFile } = require('../../../startup/dripFeatureFolder');
-			const { featureIndexFileName } = require('../../../document/model/dripFeature');
+			const { featureIndexFileName } = require('../../../document/model/dripNoteFeature.js');
 			uri = await ensureFeatureIndexFile(folderUri, { kbRoot, context: this.context });
 			if (!uri) {
 				uri = vscode.Uri.joinPath(folderUri, featureIndexFileName(path.basename(folderUri.fsPath)));
@@ -461,8 +461,8 @@ class DripProjectViewPanel {
 				await vscode.workspace.fs.stat(uri);
 			} catch {
 				// Standalone feature file missing — create a minimal `.f` note.
-				const { buildNewNoteFile, writeTextFile } = require('../../../document/kbNoteOps');
-				const { isDripFeatureFileName } = require('../../../document/model/dripFeature');
+				const { buildNewNoteFile, writeTextFile } = require('../../../document/dripNoteKbOps.js');
+				const { isDripFeatureFileName } = require('../../../document/model/dripNoteFeature.js');
 				const base = path.posix.basename(filePath);
 				const title = isDripFeatureFileName(base)
 					? base.replace(/\.f\.d\.txt$/i, '')

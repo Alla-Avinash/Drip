@@ -6,7 +6,7 @@
 
 const path = require('path');
 const vscode = require('vscode');
-const { readTextFile, writeTextFile } = require('../../../document/kbNoteOps');
+const { readTextFile, writeTextFile } = require('../../../document/dripNoteKbOps.js');
 const { runGuardedDocumentEdit, markExpectedDiskWrite } = require('../../../shared/documentEditGuard');
 const { normalizeIssueEntityId } = require('../../../document/project/projectStructureRules');
 const {
@@ -187,7 +187,7 @@ async function writeNoteText(uri, text) {
  * @param {import('vscode').Uri} uri
  */
 async function reindexNote(ctx, uri) {
-	const { indexNewNoteImmediately } = require('../../../indexing/dripnoteIndex');
+	const { indexNewNoteImmediately } = require('../../../indexing/dripTxt/dripTxtIndex.js');
 	try {
 		await indexNewNoteImmediately(requireKbRoot(ctx), uri, ctx.extensionContext);
 	} catch (err) {
@@ -200,7 +200,7 @@ async function reindexNote(ctx, uri) {
  * @param {any} i
  */
 function issueSummary(i) {
-	const { formatDateTimeToMinute } = require('../../../document/parse/dripnoteDatetime');
+	const { formatDateTimeToMinute } = require('../../../document/parse/dripTxt/dripTxtDatetime.js');
 	return {
 		id: i.issueKey,
 		title: String(i.title || '').replace(/^i-\d+\s+/i, ''),

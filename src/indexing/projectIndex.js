@@ -16,11 +16,11 @@ const {
 	isDripProjectFolderName,
 	projectDisplayNameFromFolderName,
 	isProjectIndexFileName
-} = require('../document/model/dripProjectFolder');
+} = require('../document/model/dripNoteProjectFolder.js');
 const {
 	isDripFeatureFolderName,
 	featureDisplayNameFromFolderName
-} = require('../document/model/dripFeature');
+} = require('../document/model/dripNoteFeature.js');
 const {
 	normalizeIssueEntityId,
 	parseIssueTitleEntityId
@@ -223,12 +223,12 @@ function allocateFeatureId(db) {
 }
 
 /**
- * True if basename is a `.f` folder index note (`_Auth.f.d.txt`).
+ * True if basename is a `.f` folder index note (`_Auth.f.d.txt` / `_Auth.f.d.md`).
  * @param {string} base
  * @returns {boolean}
  */
 function isFeatureIndexFileName(base) {
-	return /^_.+\.f\.d\.txt$/i.test(String(base || ''));
+	return /^_.+\.f\.d\.(txt|md)$/i.test(String(base || ''));
 }
 
 /**

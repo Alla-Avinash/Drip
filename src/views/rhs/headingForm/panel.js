@@ -17,11 +17,11 @@ const vscode = require('vscode');
 const path = require('path');
 const { DRIP_HEADING_FORM_VIEW_ID } = require('../../../shared/constants');
 const { getHeadingFormWebviewHtml } = require('./headingFormHtml');
-const { getHeadingEditModes } = require('../../../document/model/headingEditModes');
-const { getMetadataSettingsForNotePath } = require('../../../document/model/dripnoteMetadataTemplates');
-const { findPersistentZoneAtLine } = require('../../../document/model/persistentHeadingZones');
+const { getHeadingEditModes } = require('../../../document/model/dripTxt/dripTxtHeadingEditModes');
+const { getMetadataSettingsForNotePath } = require('../../../document/model/dripNoteMetadataTemplates.js');
+const { findPersistentZoneAtLine } = require('../../../document/model/dripTxt/dripTxtPersistentHeadingZones.js');
 const { listTagsFromIndex } = require('../../../indexing/embeddings/headingEmbeddingSearch');
-const { listKnownTagLabelsForCompletion } = require('../../editor/dripnoteTagCompletion');
+const { listKnownTagLabelsForCompletion } = require('../../editor/dripTxt/dripTxtTagCompletion.js');
 const session = require('./headingFormSession');
 const {
 	applyHeadingFormModelFromMessage,
@@ -415,7 +415,7 @@ class DripHeadingFormWebviewProvider {
 					case 'headingFormNormalizeDatetime': {
 						const key = String(message.key || '');
 						const raw = String(message.value || '');
-						const { normalizeDateTimeValue } = require('../../../document/parse/dripnoteDatetime');
+						const { normalizeDateTimeValue } = require('../../../document/parse/dripTxt/dripTxtDatetime.js');
 						const value = normalizeDateTimeValue(raw, new Date());
 						await session.postToForm({ type: 'headingFormDatetimeNormalized', key, value });
 						break;

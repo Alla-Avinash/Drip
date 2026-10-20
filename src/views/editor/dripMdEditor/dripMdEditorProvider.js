@@ -7,8 +7,18 @@ const { getDripMdEditorHtml } = require('./dripMdEditorHtml');
 const {
 	getMetadataTemplateConfig,
 	allowedHeadingTypeIdsForPath
-} = require('../../../document/model/dripnoteMetadataTemplates');
+} = require('../../../document/model/dripNoteMetadataTemplates.js');
 const { kbRootFor, projectFolderPrefixForNote, listTagsForNote, createTagForNote } = require('../../../graph/noteTagScope');
+
+/**
+ * The `.d.md` editor that is currently focused/visible, used so the capture command can
+ * ask its webview for the CodeMirror selection (a custom webview editor has no
+ * `vscode.window.activeTextEditor`).
+ * @type {import('vscode').WebviewPanel | null}
+ */
+let activeMdEditorPanel = null;
+/** Pending resolver for a `request-selection` round-trip. */
+let pendingSelectionResolver = null;
 
 /**
  * Build a plain, JSON-serializable snapshot of the metadata schema for the webview.
@@ -101,12 +111,17 @@ class DripMdEditorProvider {
 		webviewPanel.onDidDispose(() => {
 			changeSubscription.dispose();
 			settingsSubscription.dispose();
+			if (activeMdEditorPanel === webviewPanel) activeMdEditorPanel = null;
 		});
 
-		// Route keyboard input into the webview once the panel is the active editor.
+		// Route keyboard input into the webview once the panel is the active editor, and
+		// remember it as the active `.d.md` editor for selection capture.
 		webviewPanel.onDidChangeViewState(e => {
 			if (e.webviewPanel.visible && e.webviewPanel.active) {
+				activeMdEditorPanel = webviewPanel;
 				void webviewPanel.webview.postMessage({ type: 'focus' });
+			} else if (activeMdEditorPanel === webviewPanel) {
+				activeMdEditorPanel = null;
 			}
 		});
 
@@ -158,6 +173,16 @@ class DripMdEditorProvider {
 						await webviewPanel.webview.postMessage({ type: 'tags-search', query, semantic });
 					}
 					break;
+				case 'selection-response':
+					{
+						const text = String(message.text || '');
+						if (pendingSelectionResolver) {
+							const resolve = pendingSelectionResolver;
+							pendingSelectionResolver = null;
+							resolve(text);
+						}
+					}
+					break;
 			}
 		});
 	}
@@ -200,4 +225,41 @@ class DripMdEditorProvider {
 	}
 }
 
-module.exports = { DripMdEditorProvider };
+/**
+ * Ask the active `.d.md` editor's webview for its current CodeMirror selection text.
+ * Resolves to '' when there is no active `.d.md` editor, no selection, or the webview
+ * does not answer in time.
+ * @returns {Promise<string>}
+ */
+async function requestMdEditorSelection() {
+	if (!activeMdEditorPanel) return '';
+	// A previous unresolved request (rare) is superseded.
+	pendingSelectionResolver = null;
+	return new Promise(resolve => {
+		const timer = setTimeout(() => {
+			if (pendingSelectionResolver) {
+				pendingSelectionResolver = null;
+				resolve('');
+			}
+		}, 800);
+		pendingSelectionResolver = text => {
+			clearTimeout(timer);
+			resolve(String(text || ''));
+		};
+		void activeMdEditorPanel.webview.postMessage({ type: 'request-selection' });
+	});
+}
+
+/**
+ * Cut the active `.d.md` editor's current selection (the capture command has already
+ * copied it to the clipboard). The webview's CodeMirror dispatch echoes an `edit` message
+ * back, which writes the file as normal. `captureLength` optionally limits the cut to the
+ * first N characters of the selection, so text above the captured subtree is left in place.
+ * @param {number} [captureLength] number of leading characters to cut (omit = cut the whole selection)
+ */
+function deleteMdEditorSelection(captureLength) {
+	if (!activeMdEditorPanel) return;
+	void activeMdEditorPanel.webview.postMessage({ type: 'delete-selection', captureLength });
+}
+
+module.exports = { DripMdEditorProvider, requestMdEditorSelection, deleteMdEditorSelection };

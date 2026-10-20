@@ -12,8 +12,8 @@
 const path = require('path');
 const { openDripIndexDb } = require('./dripIndexDb');
 const { openDripProjectsDb } = require('./dripProjectDb');
-const { isDripFeatureFolderName } = require('../document/model/dripFeature');
-const { isProjectIndexFileName } = require('../document/model/dripProjectFolder');
+const { isDripFeatureFolderName } = require('../document/model/dripNoteFeature.js');
+const { isProjectIndexFileName } = require('../document/model/dripNoteProjectFolder.js');
 
 /**
  * @param {unknown} row

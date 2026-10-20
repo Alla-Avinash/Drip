@@ -31,7 +31,7 @@ interface Window {
 		const btnLlmAddProfile = document.getElementById('btn-llm-add-profile');
 		const autoOpenEl = document.getElementById('opt-auto-open');
 		const kbExtDtxt = document.getElementById('kb-ext-dtxt');
-		const kbExtMd = document.getElementById('kb-ext-md');
+		const kbExtDmd = document.getElementById('kb-ext-dmd');
 		const kbDefaultExt = document.getElementById('kb-default-ext');
 		const metadataTypesListEl = document.getElementById('metadata-types-list');
 		const fileLevelTypesListEl = document.getElementById('file-level-types-list');
@@ -51,7 +51,7 @@ interface Window {
 		const savedSettingsPathEl = document.getElementById('saved-settings-path');
 		const defaultMetadataTypes = window.__dripSettingsInit.defaultMetadataTypes;
 		const defaultFileLevelMetadataTypes = window.__dripSettingsInit.defaultFileLevelMetadataTypes;
-		/** Extensions set only via settings JSON; preserved when toggling .d.txt / .md here. */
+		/** Extensions set only via settings JSON; preserved when toggling .d.txt / .d.md here. */
 		var preservedOtherExts = [];
 		var metadataTypesState = [];
 		var fileLevelTypesState = [];
@@ -1007,14 +1007,17 @@ interface Window {
 				add(preservedOtherExts[i]);
 			}
 			if (kbExtDtxt.checked) add('.d.txt');
-			if (kbExtMd.checked) add('.md');
+			if (kbExtDmd.checked) add('.d.md');
 			if (!out.length) add('.d.txt');
 			return out;
 		}
 
 		function rebuildDefaultSelect(exts, selected) {
 			kbDefaultExt.innerHTML = '';
-			var list = exts && exts.length ? exts : ['.d.txt', '.md'];
+			// The "New note uses" dropdown is fixed to the two DRIP note formats.
+			// Any extra configured extensions (e.g. `.md`) still appear in KB tree/scans
+			// but are not valid new-note formats.
+			var list = ['.d.txt', '.d.md'];
 			for (var i = 0; i < list.length; i++) {
 				var opt = document.createElement('option');
 				opt.value = list[i];
@@ -1036,17 +1039,6 @@ interface Window {
 			var exts = mergeKbExtensionsList();
 			vscode.postMessage({ type: 'updateSetting', key: 'knowledgeBaseFileExtensions', value: exts });
 			rebuildDefaultSelect(exts, kbDefaultExt.value);
-			var cur = String(kbDefaultExt.value).toLowerCase();
-			var ok = false;
-			for (var i = 0; i < exts.length; i++) {
-				if (String(exts[i]).toLowerCase() === cur) {
-					ok = true;
-					break;
-				}
-			}
-			if (!ok) {
-				kbDefaultExt.value = exts[0];
-			}
 			vscode.postMessage({ type: 'updateSetting', key: 'defaultNewNoteExtension', value: kbDefaultExt.value });
 		}
 
@@ -1058,11 +1050,11 @@ interface Window {
 			var low = lowerList(raw);
 			preservedOtherExts = raw.filter(function (e) {
 				var l = String(e).trim().toLowerCase();
-				return l !== '.d.txt' && l !== '.md';
+				return l !== '.d.txt' && l !== '.d.md';
 			});
 			kbExtDtxt.checked = low.indexOf('.d.txt') >= 0;
-			kbExtMd.checked = low.indexOf('.md') >= 0;
-			if (!kbExtDtxt.checked && !kbExtMd.checked && preservedOtherExts.length === 0) {
+			kbExtDmd.checked = low.indexOf('.d.md') >= 0;
+			if (!kbExtDtxt.checked && !kbExtDmd.checked && preservedOtherExts.length === 0) {
 				kbExtDtxt.checked = true;
 			}
 			rebuildDefaultSelect(mergeKbExtensionsList(), message.defaultNewNoteExtension || '.d.txt');
@@ -1274,11 +1266,11 @@ interface Window {
 			vscode.postMessage({ type: 'updateSetting', key: 'autoOpenComposerOnSidebarReveal', value: autoOpenEl.checked });
 		});
 		kbExtDtxt.addEventListener('change', function () {
-			if (!kbExtDtxt.checked && !kbExtMd.checked) kbExtMd.checked = true;
+			if (!kbExtDtxt.checked && !kbExtDmd.checked) kbExtDmd.checked = true;
 			pushKbExtensionSettings();
 		});
-		kbExtMd.addEventListener('change', function () {
-			if (!kbExtDtxt.checked && !kbExtMd.checked) kbExtDtxt.checked = true;
+		kbExtDmd.addEventListener('change', function () {
+			if (!kbExtDtxt.checked && !kbExtDmd.checked) kbExtDtxt.checked = true;
 			pushKbExtensionSettings();
 		});
 		kbDefaultExt.addEventListener('change', function () {

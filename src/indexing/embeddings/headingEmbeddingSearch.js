@@ -1675,7 +1675,7 @@ async function listRelationTypesFromIndex(kbRootUri) {
 	/** @type {Map<string, { id: string, label: string }>} */
 	const byId = new Map();
 	try {
-		const { getMetadataSettings } = require('../../document/model/dripnoteMetadataTemplates');
+		const { getMetadataSettings } = require('../../document/model/dripNoteMetadataTemplates.js');
 		const settings = getMetadataSettings();
 		for (const name of settings.allowedRelations || []) {
 			const id = String(name || '')
@@ -1750,7 +1750,7 @@ async function listMetadataTypesFromIndex(kbRootUri) {
 		/** @type {Map<string, { label: string, marker: string }>} */
 		let settingsById = new Map();
 		try {
-			const { getMetadataSettings } = require('../../document/model/dripnoteMetadataTemplates');
+			const { getMetadataSettings } = require('../../document/model/dripNoteMetadataTemplates.js');
 			const types = getMetadataSettings().types || [];
 			settingsById = new Map(
 				types.map(t => {

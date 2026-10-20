@@ -15,7 +15,8 @@ const {
 	DRIP_OPEN_RECENT_FILE_COMMAND_ID,
 	DRIP_DAILY_NOTES_VIEW_ID,
 	DRIP_OPEN_TODAY_DAILY_NOTE_COMMAND_ID,
-	DRIP_CHAT_VIEW_ID
+	DRIP_CHAT_VIEW_ID,
+	DRIP_STORAGE_VIEW_ID
 } = require('../shared/constants');
 const {
 	ensureTodayDailyNote,
@@ -24,15 +25,16 @@ const {
 } = require('../startup/dailyNotesDrip');
 const { DripState } = require('../state/state');
 const { DripTreeDataProvider } = require('../views/lhs/knowledgebase/tree');
-		const {
+const {
 	DripComposerPanel,
-	DripTagsPanel,
 	DripStorageWebviewProvider,
-	DRIP_STORAGE_VIEW_ID,
 	postKbNoteSettingsToStorage,
-	postTagGraphStateToAll,
 	revealDripStorageView
 } = require('../views/views');
+const {
+	DripTagsPanel,
+	postTagGraphStateToAll
+} = require('../views/tags/panel');
 const {
 	DripHeadingFormWebviewProvider,
 	DRIP_HEADING_FORM_VIEW_ID,
@@ -43,15 +45,24 @@ const { setHeadingFormKbRootGetter } = require('../views/rhs/headingForm/heading
 const { registerPersistentHeadingSoftLock } = require('../views/editor/persistentHeadingSoftLock');
 const { registerDripProjectFolderWatch } = require('../startup/dripProjectFolder');
 const { registerDripFeatureFolderWatch } = require('../startup/dripFeatureFolder');
-const { getSettingsWebviewHtml } = require('../views/settingsWebview');
+const {
+	createOrShowSettingsPanel,
+	getOpenSettingsPanel,
+	postDripSettingsValuesToWebview,
+	registerSettingsThemeSync
+} = require('../views/settings/settingsPanel');
+const { registerGithubBackupCommands } = require('../startup/githubBackupCommands');
 const { registerNoteImagePasteAndDrop } = require('../views/editor/noteImagePaste');
-const { registerDripnoteReferenceAssist } = require('../graph/dripnoteReferenceAssist');
+const { registerDripnoteReferenceAssist } = require('../graph/dripTxtReferenceAssist.js');
 const { registerNoteDocumentLinks } = require('../graph/noteDocumentLinks');
-const { registerDripnoteReferenceDefinitions } = require('../graph/dripnoteReferenceDefinitions');
-const { registerDripnoteLinkDropInsert } = require('../graph/dripnoteLinkDropInsert');
-const { registerDripnoteDocumentSymbols } = require('../views/editor/dripnoteDocumentSymbols');
+const { registerDripnoteReferenceDefinitions } = require('../graph/dripTxtReferenceDefinitions.js');
+const { registerDripnoteLinkDropInsert } = require('../graph/dripTxtLinkDropInsert.js');
+const { registerDripnoteDocumentSymbols } = require('../views/editor/dripTxt/dripTxtDocumentSymbols.js');
 const { runEmbeddingBenchmark } = require('../retrieval/embeddings');
 const { parseSelectionForComposer } = require('../views/capturePreprocess');
+const { truncateSelectionToSubtree } = require('../capture/noteDraft');
+const { noteFormatForPath } = require('../document/model/dripNoteFileTypes.js');
+const { runGuardedDocumentEdit } = require('../shared/documentEditGuard');
 const { createKbTreeDragDropController } = require('../views/lhs/knowledgebase/kbTreeDragDrop');
 const { registerDripSidebarViewBehavior } = require('../views/lhs/knowledgebase/dripSidebarViews');
 const { showKbNewMenu } = require('../views/lhs/knowledgebase/kbCreateMenu');
@@ -83,25 +94,20 @@ function uriFromCommandArg(item) {
 	}
 	return undefined;
 }
-const { invalidateKbNoteExtensionsCache } = require('../document/model/noteFileTypes');
+const { invalidateKbNoteExtensionsCache } = require('../document/model/dripNoteFileTypes.js');
 const { initializeMultiGraphStorage } = require('../graph/tagGraphStore');
-const {
-	saveSettingsToDripIndex,
-	importSettingsToKnowledgeBase,
-	exportSettingsFromKnowledgeBase
-} = require('../startup/settingsDrip');
-const { getSettingsDripFileUri } = require('../startup/initializeDripIndex');
-const { registerDripnoteTagCompletion } = require('../views/editor/dripnoteTagCompletion');
-const { registerDripnoteSemanticTokens } = require('../views/editor/dripnoteSemanticTokens');
-const { registerDripnoteMetadataDiagnostics } = require('../document/validate/dripnoteMetadataDiagnosticsTemplates');
-const { registerDripMdNoteMetadataValidation } = require('../document/validate/dripMdNoteMetadataValidation');
-const { registerDripMdNoteFileHeaderReconcile } = require('../document/validate/dripMdNoteFileHeaderReconcile');
-const { registerDripnoteMetadataCompletion } = require('../views/editor/dripnoteMetadataCompletion');
-const { registerDripnoteHeadingShorthand } = require('../views/editor/dripnoteHeadingShorthand');
-const { registerDripnoteCustomDecorations } = require('../views/editor/dripnoteCustomDecorations');
-const { registerDripnoteHeadingIdentityDisplay } = require('../views/editor/dripnoteHeadingIdentityDisplay');
-const { DripMdEditorProvider } = require('../views/editor/dripMdEditor/dripMdEditorProvider');
-const { registerNoteLifecycle } = require('../indexing/sync/dripnoteLifecycle');
+const { registerDripnoteTagCompletion } = require('../views/editor/dripTxt/dripTxtTagCompletion.js');
+const { registerDripnoteSemanticTokens } = require('../views/editor/dripTxt/dripTxtSemanticTokens.js');
+const { registerDripnoteMetadataDiagnostics } = require('../document/validate/dripTxt/dripTxtMetadataDiagnosticsTemplates.js');
+const { registerDripMdNoteMetadataValidation } = require('../document/validate/dripMd/dripMdNoteMetadataValidation.js');
+const { registerDripMdNoteFileHeaderReconcile } = require('../document/validate/dripMd/dripMdNoteFileHeaderReconcile.js');
+const { registerDripnoteMetadataCompletion } = require('../views/editor/dripTxt/dripTxtMetadataCompletion.js');
+const { registerDripnoteHeadingShorthand } = require('../views/editor/dripTxt/dripTxtHeadingShorthand.js');
+const { registerDripnoteHeadingIndentSync } = require('../views/editor/dripTxt/dripTxtHeadingIndentSync.js');
+const { registerDripnoteCustomDecorations } = require('../views/editor/dripTxt/dripTxtCustomDecorations.js');
+const { registerDripnoteHeadingIdentityDisplay } = require('../views/editor/dripTxt/dripTxtHeadingIdentityDisplay.js');
+const { DripMdEditorProvider, requestMdEditorSelection, deleteMdEditorSelection } = require('../views/editor/dripMdEditor/dripMdEditorProvider');
+const { registerNoteLifecycle } = require('../indexing/sync/dripTxt/dripTxtLifecycle.js');
 const { registerStartupCheck, resetStartupCheckCache, runStartupCheck } = require('../startup/startupCheck');
 const {
 	DripRetrieverPanel,
@@ -114,98 +120,6 @@ const { DripChatWebviewProvider } = require('../views/rhs/chat/panel');
 const { runRetrieverHeadingQuickOpen } = require('../retrieval/retrieverQuickOpen');
 const { updateKnowledgeBase } = require('../startup/updateKnowledgeBase');
 const { openKbEditorNote } = require('../startup/kbEditorNote');
-const { getDefaultKnowledgeBaseSettingsObject } = require('../startup/defaultKnowledgeBaseSettings');
-
-/**
- * @param {import('vscode').Webview} webview
- * @param {import('../state/state').DripState} dripState
- * @param {import('vscode').ExtensionContext} [extensionContext]
- */
-async function postDripSettingsValuesToWebview(webview, dripState, extensionContext) {
-	const c = vscode.workspace.getConfiguration('drip');
-	const nt = require('../document/model/noteFileTypes');
-	const {
-		migrateFileLevelMetadataTypesIfNeeded,
-		getMetadataSettings,
-		getFileLevelMetadataSettings
-	} = require('../document/model/dripnoteMetadataTemplates');
-	try {
-		await migrateFileLevelMetadataTypesIfNeeded();
-	} catch {
-		/* ignore migration errors */
-	}
-	const kbRoot = dripState.getKnowledgeBaseRoot();
-	const defs = getDefaultKnowledgeBaseSettingsObject();
-	const docTypes = getMetadataSettings().types;
-	const fileTypes = getFileLevelMetadataSettings().types;
-	/** @type {{ folderPrefix: string, title: string }[]} */
-	let projects = [];
-	/** @type {Record<string, any>} */
-	let projectMetadataOverrides = {};
-	if (kbRoot) {
-		try {
-			const { listProjectsFromIndex } = require('../indexing/projectViewQuery');
-			projects = (await listProjectsFromIndex(kbRoot)).projects.map(p => ({
-				folderPrefix: String(p.folderPrefix || ''),
-				title: String(p.title || '')
-			}));
-		} catch (err) {
-			console.error('[DRIP] list projects for settings failed', err);
-		}
-		projectMetadataOverrides = await require('../document/model/dripnoteProjectMetadata').loadProjectMetadataSettings(kbRoot);
-	}
-	/** @type {unknown} */
-	let githubBackupStatus = null;
-	if (kbRoot && extensionContext) {
-		try {
-			const { getBackupStatus } = require('../startup/githubBackup');
-			githubBackupStatus = await getBackupStatus(extensionContext, kbRoot);
-		} catch (err) {
-			console.error('[DRIP] github backup status failed', err);
-		}
-	}
-	/** @type {unknown} */
-	let llmStatus = null;
-	if (extensionContext) {
-		try {
-			llmStatus = await require('../llm/llmSettings').getLlmStatus(extensionContext);
-		} catch (err) {
-			console.error('[DRIP] llm status failed', err);
-		}
-	}
-	await webview.postMessage({
-		type: 'settingsValues',
-		autoOpenComposerOnSidebarReveal: c.get('autoOpenComposerOnSidebarReveal', defs.autoOpenComposerOnSidebarReveal),
-		knowledgeBaseFileExtensions: nt.getKbNoteExtensions(),
-		defaultNewNoteExtension: nt.getDefaultNewNoteExtension(),
-		customTypeMarkers: c.get('dripnoteCustomTypeMarkers', defs.dripnoteCustomTypeMarkers),
-		customColors: c.get('dripnoteCustomColors', defs.dripnoteCustomColors),
-		metadataTemplatesEnabled: c.get('metadataTemplatesEnabled', defs.metadataTemplatesEnabled),
-		metadataStrictValidation: c.get('metadataStrictValidation', defs.metadataStrictValidation),
-		metadataIgnoreErrors: c.get('metadataIgnoreErrors', defs.metadataIgnoreErrors),
-		metadataAutoInsertTemplate: c.get('metadataAutoInsertTemplate', defs.metadataAutoInsertTemplate),
-		metadataShowIndentErrors: c.get('metadataShowIndentErrors', defs.metadataShowIndentErrors),
-		showHeadingHierarchyIndentErrors: c.get('showHeadingHierarchyIndentErrors', defs.showHeadingHierarchyIndentErrors),
-		metadataUseCustomColors: c.get('metadataUseCustomColors', defs.metadataUseCustomColors),
-		metadataTypes: docTypes,
-		fileLevelMetadataTypes: fileTypes,
-		metadataTypeColors: c.get('metadataTypeColors', defs.metadataTypeColors),
-		metadataKeyColor: c.get('metadataKeyColor', defs.metadataKeyColor),
-		metadataValueColor: c.get('metadataValueColor', defs.metadataValueColor),
-		dripnoteDocColors: c.get('dripnoteDocColors', defs.dripnoteDocColors),
-		dripnoteDocThemeColors: require('../views/editor/themeTokenColors').getDocRoleThemeColors(),
-		tagsRelationsConfig: c.get('tagsRelationsConfig', defs.tagsRelationsConfig),
-		dripMetadataMarks: c.get('dripMetadataMarks', defs.dripMetadataMarks),
-		editHeadingsInFile: c.get('editHeadingsInFile', defs.editHeadingsInFile === true),
-		editHeadingsViaRhs: c.get('editHeadingsViaRhs', defs.editHeadingsViaRhs !== false),
-		kbSettingsFilePath: kbRoot ? getSettingsDripFileUri(kbRoot).fsPath : '',
-		projects,
-		projectMetadataOverrides,
-		githubBackupStatus,
-		llmStatus,
-		mcpStatus: await require('../integrations/mcp/mcpBridge').getMcpStatus()
-	});
-}
 
 async function activate(context) {
 	const { configureEmbeddingModelCache } = require('../retrieval/embeddings');
@@ -225,6 +139,7 @@ async function activate(context) {
 	registerDripMdNoteFileHeaderReconcile(context);
 	registerDripnoteMetadataCompletion(context);
 	registerDripnoteHeadingShorthand(context);
+	registerDripnoteHeadingIndentSync(context);
 	registerDripnoteCustomDecorations(context);
 	registerDripnoteHeadingIdentityDisplay(context);
 	context.subscriptions.push(
@@ -273,8 +188,6 @@ async function activate(context) {
 	const newDailyNoteInitialText = new Map();
 	let hasAutoOpenedComposer = false;
 	let kbWatcher;
-	/** @type {import('vscode').WebviewPanel | null} */
-	let settingsPanel = null;
 
 	function refreshUi() {
 		sidebarRefreshHub.refresh();
@@ -442,322 +355,11 @@ async function activate(context) {
 	registerDripnoteLinkDropInsert(context);
 	registerDripnoteDocumentSymbols(context);
 
-	/**
-	 * @param {import('vscode').Webview} webview
-	 * @param {string} [error]
-	 */
-	async function postDripShortcutsToWebview(webview, error) {
-		try {
-			const data = await require('../startup/dripKeybindings').getDripShortcuts(context);
-			await webview.postMessage({ type: 'shortcutsData', ...data, error: error || '' });
-		} catch (err) {
-			await webview.postMessage({
-				type: 'shortcutsData',
-				rows: [],
-				error: error || (err instanceof Error ? err.message : String(err))
-			});
-		}
-	}
-
-	async function postLlmStatusToWebview(webview) {
-		try {
-			const status = await require('../llm/llmSettings').getLlmStatus(context);
-			await webview.postMessage({ type: 'llmStatus', status });
-		} catch (err) {
-			console.error('[DRIP] llm status failed', err);
-		}
-	}
-
-	function wireSettingsWebviewMessageHandler(webview) {
-		webview.onDidReceiveMessage(async message => {
-			try {
-				switch (message.type) {
-					case 'requestSettings':
-						await postDripSettingsValuesToWebview(webview, state, context);
-						break;
-					case 'updateSetting':
-						{
-							const kbRoot = state.getKnowledgeBaseRoot();
-							const target = kbRoot
-								? vscode.ConfigurationTarget.Workspace
-								: vscode.ConfigurationTarget.Global;
-							await vscode.workspace
-								.getConfiguration('drip')
-								.update(message.key, message.value, target);
-							if (kbRoot) {
-								await saveSettingsToDripIndex(kbRoot);
-								invalidateKbNoteExtensionsCache();
-							}
-						}
-						break;
-					case 'importKbSettings': {
-						const kbRoot = state.getKnowledgeBaseRoot();
-						if (!kbRoot) {
-							void vscode.window.showWarningMessage(
-								'Select a DRIP knowledge base folder before importing settings.'
-							);
-							break;
-						}
-						const result = await importSettingsToKnowledgeBase(kbRoot);
-						if (result.ok) {
-							invalidateKbNoteExtensionsCache();
-							await postDripSettingsValuesToWebview(webview, state, context);
-						}
-						break;
-					}
-					case 'exportKbSettings': {
-						const kbRoot = state.getKnowledgeBaseRoot();
-						if (!kbRoot) {
-							void vscode.window.showWarningMessage(
-								'Select a DRIP knowledge base folder before exporting settings.'
-							);
-							break;
-						}
-						await exportSettingsFromKnowledgeBase(kbRoot);
-						break;
-					}
-					case 'openKeyboardShortcuts':
-						await vscode.commands.executeCommand('workbench.action.openGlobalKeybindings');
-						break;
-					case 'openKeybindingsFile':
-						await require('../startup/dripKeybindings').openUserKeybindingsFile(context);
-						break;
-					case 'requestShortcuts':
-						await postDripShortcutsToWebview(webview);
-						break;
-					case 'updateShortcut': {
-						let error = '';
-						try {
-							await require('../startup/dripKeybindings').updateDripShortcut(
-								context,
-								String(message.command || ''),
-								message.mode,
-								message.key
-							);
-						} catch (err) {
-							error = err instanceof Error ? err.message : String(err);
-						}
-						await postDripShortcutsToWebview(webview, error);
-						break;
-					}
-					case 'selectKnowledgeBase':
-						await vscode.commands.executeCommand('drip.selectKnowledgeBase');
-						break;
-					case 'reindexCurrentKbWorkspace':
-						await vscode.commands.executeCommand('drip.reindexCurrentKbWorkspace');
-						break;
-					case 'resetReindexEntireKb':
-						await vscode.commands.executeCommand('drip.resetReindexEntireKb');
-						break;
-					case 'openDripUserSettings':
-						await vscode.commands.executeCommand('workbench.action.openSettings', 'drip');
-						break;
-					case 'runEmbeddingBenchmark':
-						await vscode.commands.executeCommand('drip.testEmbeddings');
-						break;
-					case 'githubBackupSaveRemote':
-						await vscode.commands.executeCommand('drip.github.configureRemote', {
-							remoteUrl: message.remoteUrl,
-							branch: message.branch
-						});
-						await postDripSettingsValuesToWebview(webview, state, context);
-						break;
-					case 'githubBackupInit':
-						await vscode.commands.executeCommand('drip.github.initRepo');
-						await postDripSettingsValuesToWebview(webview, state, context);
-						break;
-					case 'githubBackupPush':
-						await vscode.commands.executeCommand('drip.github.pushBackup');
-						await postDripSettingsValuesToWebview(webview, state, context);
-						break;
-					case 'githubBackupPull':
-						await vscode.commands.executeCommand('drip.github.pullBackup');
-						await postDripSettingsValuesToWebview(webview, state, context);
-						break;
-					case 'githubBackupOpen':
-						await vscode.commands.executeCommand('drip.github.openRemote');
-						break;
-					case 'githubBackupSetPat':
-						await vscode.commands.executeCommand('drip.github.setPat');
-						await postDripSettingsValuesToWebview(webview, state, context);
-						break;
-					case 'githubBackupClearPat':
-						await vscode.commands.executeCommand('drip.github.clearPat');
-						await postDripSettingsValuesToWebview(webview, state, context);
-						break;
-					case 'mcpSetEnabled':
-						await require('../integrations/mcp/mcpBridge').setMcpEnabled(message.value === true);
-						break;
-					case 'mcpSetPort':
-						await require('../integrations/mcp/mcpBridge').setMcpPort(message.value);
-						break;
-					case 'mcpCopy':
-						await require('../integrations/mcp/mcpBridge').copyMcpValue(message.kind);
-						break;
-					case 'mcpRestart':
-						await vscode.commands.executeCommand('drip.mcp.restart');
-						break;
-					case 'mcpRegenerateToken':
-						await vscode.commands.executeCommand('drip.mcp.regenerateToken');
-						break;
-					case 'mcpOpenHealth':
-						await vscode.env.openExternal(
-							vscode.Uri.parse((await require('../integrations/mcp/mcpBridge').getMcpStatus()).healthUrl)
-						);
-						break;
-				case 'llmAddProfile':
-					{
-						await require('../llm/llmSettings').addLlmProfile(context, message.profile);
-						await postLlmStatusToWebview(webview);
-					}
-					break;
-				case 'llmUpdateProfile':
-					{
-						await require('../llm/llmSettings').updateLlmProfile(context, message.profileId, message.patch);
-						await postLlmStatusToWebview(webview);
-					}
-					break;
-				case 'llmDeleteProfile':
-					{
-						await require('../llm/llmSettings').deleteLlmProfile(context, message.profileId);
-						await postLlmStatusToWebview(webview);
-					}
-					break;
-				case 'llmSetActiveProfile':
-					{
-						await require('../llm/llmSettings').setActiveLlmProfile(context, message.profileId);
-						await postLlmStatusToWebview(webview);
-					}
-					break;
-				case 'llmSetApiKey':
-					{
-						const key = String(message.value || '').trim();
-						if (key) {
-							await require('../llm/llmSettings').setLlmApiKey(context, key, message.profileId);
-						}
-						await postLlmStatusToWebview(webview);
-					}
-					break;
-				case 'llmClearApiKey':
-					await require('../llm/llmSettings').clearLlmApiKey(context, message.profileId);
-					await postLlmStatusToWebview(webview);
-					break;
-				case 'llmTestConnection':
-					{
-						const profileId = String(message.profileId || '');
-						const cfg = require('../llm/llmSettings').getLlmConfigForProfile(context, profileId);
-						const apiKey = await require('../llm/llmSettings').getLlmApiKey(context, profileId);
-						let result;
-						if (!cfg) {
-							result = { ok: false, message: 'Provider not found.' };
-						} else if (!apiKey) {
-							result = { ok: false, message: 'No API key saved for this provider.' };
-						} else {
-							try {
-								const { chatComplete } = require('../llm/llmClient');
-								await chatComplete({
-									baseUrl: cfg.baseUrl,
-									model: cfg.model,
-									apiKey,
-									maxTokens: 8,
-									temperature: 0,
-									timeoutMs: 20000,
-									messages: [{ role: 'user', content: 'Reply with the single word: ok' }]
-								});
-								result = { ok: true, message: `Connected — ${cfg.model}` };
-							} catch (err) {
-								result = { ok: false, message: err instanceof Error ? err.message : String(err) };
-							}
-						}
-						await webview.postMessage({ type: 'llmTestResult', profileId, ...result });
-					}
-					break;
-					case 'saveProjectMetadata': {
-						const kbRoot = state.getKnowledgeBaseRoot();
-						if (!kbRoot) {
-							void vscode.window.showWarningMessage(
-								'Select a DRIP knowledge base folder before saving project metadata.'
-							);
-							break;
-						}
-						const pm = require('../document/model/dripnoteProjectMetadata');
-						await pm.saveProjectMetadataSettings(kbRoot, message.projectKey, message.overrides);
-						await postDripSettingsValuesToWebview(webview, state, context);
-						break;
-					}
-				}
-			} catch (error) {
-				console.error(error);
-			}
-		});
-	}
-
-	/** @param {string} [panelId] settings nav id to show (e.g. `mcp`) */
-	function createOrShowSettingsPanel(panelId, projectKey, projectTitle) {
-		const column = vscode.window.activeTextEditor?.viewColumn || vscode.ViewColumn.One;
-		if (settingsPanel) {
-			settingsPanel.reveal(column, false);
-			if (panelId) {
-				void settingsPanel.webview.postMessage({
-					type: 'showPanel',
-					panel: panelId,
-					projectKey: projectKey || '',
-					projectTitle: projectTitle || ''
-				});
-			}
-			return settingsPanel;
-		}
-		settingsPanel = vscode.window.createWebviewPanel(
-			'drip.settings.editor',
-			'DRIP Settings',
-			column,
-			{
-				enableScripts: true,
-				retainContextWhenHidden: true,
-				localResourceRoots: [context.extensionUri]
-			}
-		);
-		settingsPanel.webview.html = getSettingsWebviewHtml(settingsPanel.webview, context.extensionUri, {
-			initialPanel: panelId,
-			initialProject: projectKey,
-			initialProjectTitle: projectTitle
-		});
-		wireSettingsWebviewMessageHandler(settingsPanel.webview);
-		const mcpBridge = require('../integrations/mcp/mcpBridge');
-		const panelWebview = settingsPanel.webview;
-		const mcpStatusSub = mcpBridge.onMcpStatusChange(async () => {
-			void panelWebview.postMessage({ type: 'mcpStatus', status: await mcpBridge.getMcpStatus() });
-		});
-		settingsPanel.onDidDispose(() => {
-			mcpStatusSub.dispose();
-			settingsPanel = null;
-		});
-		return settingsPanel;
-	}
-
-	// Keep the Doc Coloring swatches in sync with the editor when the theme or token
-	// color customizations change. Send only the resolved theme colors so any unsaved
-	// edits in the form are left untouched.
-	const postDocThemeColors = () => {
-		if (!settingsPanel) return;
-		void settingsPanel.webview.postMessage({
-			type: 'docThemeColors',
-			colors: require('../views/editor/themeTokenColors').getDocRoleThemeColors()
-		});
-	};
-	context.subscriptions.push(vscode.window.onDidChangeActiveColorTheme(postDocThemeColors));
-	context.subscriptions.push(
-		vscode.workspace.onDidChangeConfiguration(e => {
-			if (
-				e.affectsConfiguration('workbench.colorTheme') ||
-				e.affectsConfiguration('editor.tokenColorCustomizations') ||
-				e.affectsConfiguration('editor.semanticTokenColorCustomizations')
-			) {
-				postDocThemeColors();
-			}
-		})
-	);
-
+	registerSettingsThemeSync(context);
+	registerGithubBackupCommands(context, state, {
+		refreshUi,
+		refreshProjectView: refreshProjectViewIfShown
+	});
 
 	context.subscriptions.push(
 		vscode.window.registerWebviewViewProvider(
@@ -826,18 +428,56 @@ async function activate(context) {
 			// Selection → cut it into the Composer; no selection → use the clipboard text.
 			const editor = vscode.window.activeTextEditor;
 			const selections = editor ? editor.selections.filter(s => !s.isEmpty) : [];
-			const text = selections.length
-				? selections.map(s => editor.document.getText(s)).join('\n')
-				: await vscode.env.clipboard.readText();
+			let text = '';
+			let sourceFormat = '';
+			let fromMdEditor = false;
+
+			if (selections.length) {
+				text = selections.map(s => editor.document.getText(s)).join('\n');
+				sourceFormat = noteFormatForPath(editor.document.uri.fsPath);
+			} else {
+				// A custom webview editor (`.d.md`) has no activeTextEditor — ask its webview
+				// for the CodeMirror selection before falling back to the clipboard.
+				const mdSel = await requestMdEditorSelection();
+				if (mdSel && mdSel.trim()) {
+					text = mdSel;
+					sourceFormat = 'drip-md';
+					fromMdEditor = true;
+				} else {
+					text = await vscode.env.clipboard.readText();
+					sourceFormat = noteFormatForPath('');
+				}
+			}
+
 			if (!text.trim()) {
 				vscode.window.showInformationMessage('Select some text in the editor (or copy it) first.');
 				return;
 			}
-			const capture = parseSelectionForComposer(text);
-			if (selections.length) {
-				await vscode.env.clipboard.writeText(text);
-				await editor.edit(edit => {
-					for (const s of selections) edit.delete(s);
+			// Stop the capture at the first heading shallower (higher in the hierarchy) than the
+			// captured heading, so a parent heading (or anything above the subtree) is never
+			// captured or cut. `cutText` is a prefix of `text`, so its length maps onto the
+			// original selection's offsets for the cut below.
+			const cutText = truncateSelectionToSubtree(text, sourceFormat);
+			const capture = parseSelectionForComposer(cutText, sourceFormat);
+			if (fromMdEditor) {
+				// Cut the selection in the `.d.md` editor (copy to clipboard, then remove it).
+				await vscode.env.clipboard.writeText(cutText);
+				deleteMdEditorSelection(cutText.length);
+			} else if (selections.length) {
+				await vscode.env.clipboard.writeText(cutText);
+				// The cut is an intentional capture, not a manual bulk delete — guard it so the
+				// soft-lock does not ask to confirm the bulk delete of persistent headings.
+				await runGuardedDocumentEdit(async () => {
+					await editor.edit(edit => {
+						if (selections.length === 1) {
+							// Single selection: cut only the captured prefix; the remainder stays.
+							const s = selections[0];
+							const end = editor.document.positionAt(editor.document.offsetAt(s.start) + cutText.length);
+							edit.delete(new vscode.Range(s.start, end));
+						} else {
+							for (const s of selections) edit.delete(s);
+						}
+					});
 				});
 			}
 			await DripComposerPanel.createOrShow(context.extensionUri, state, sidebarRefreshHub, undefined, capture);
@@ -866,169 +506,12 @@ async function activate(context) {
 		}),
 		vscode.commands.registerCommand('drip.openDripSettingsView', async opts => {
 			createOrShowSettingsPanel(
+				context,
+				state,
 				opts && typeof opts.panel === 'string' ? opts.panel : undefined,
 				opts && typeof opts.projectKey === 'string' ? opts.projectKey : undefined,
 				opts && typeof opts.projectTitle === 'string' ? opts.projectTitle : undefined
 			);
-		}),
-		vscode.commands.registerCommand('drip.github.configureRemote', async opts => {
-			const kbRoot = state.getKnowledgeBaseRoot();
-			if (!kbRoot) {
-				void vscode.window.showWarningMessage('Select a DRIP knowledge base first.');
-				return;
-			}
-			const { saveRemoteConfig } = require('../startup/githubBackup');
-			const o = opts && typeof opts === 'object' ? opts : {};
-			let remoteUrl = String(o.remoteUrl || '').trim();
-			let branch = String(o.branch || '').trim();
-			if (!remoteUrl) {
-				remoteUrl =
-					(await vscode.window.showInputBox({
-						prompt: 'GitHub remote URL (HTTPS or SSH)',
-						placeHolder: 'https://github.com/you/my-kb.git',
-						ignoreFocusOut: true
-					})) || '';
-			}
-			if (!remoteUrl.trim()) return;
-			if (!branch) {
-				branch =
-					(await vscode.window.showInputBox({
-						prompt: 'Branch name',
-						value: 'main',
-						ignoreFocusOut: true
-					})) || 'main';
-			}
-			await saveRemoteConfig(kbRoot, { remoteUrl: remoteUrl.trim(), branch: branch.trim() || 'main' });
-			void vscode.window.showInformationMessage('DRIP GitHub remote saved.');
-		}),
-		vscode.commands.registerCommand('drip.github.initRepo', async () => {
-			const kbRoot = state.getKnowledgeBaseRoot();
-			if (!kbRoot) {
-				void vscode.window.showWarningMessage('Select a DRIP knowledge base first.');
-				return;
-			}
-			try {
-				const { initBackupRepo, isGitAvailable } = require('../startup/githubBackup');
-				if (!(await isGitAvailable())) {
-					const open = 'Open Git downloads';
-					const pick = await vscode.window.showErrorMessage(
-						'Git is not installed or not on PATH.',
-						open
-					);
-					if (pick === open) {
-						await vscode.env.openExternal(vscode.Uri.parse('https://git-scm.com/downloads'));
-					}
-					return;
-				}
-				await vscode.window.withProgress(
-					{
-						location: vscode.ProgressLocation.Notification,
-						title: 'DRIP: initializing GitHub backup…'
-					},
-					async () => initBackupRepo(context, kbRoot)
-				);
-				void vscode.window.showInformationMessage('DRIP GitHub backup initialized.');
-			} catch (err) {
-				const msg = err instanceof Error ? err.message : String(err);
-				void vscode.window.showErrorMessage(`DRIP GitHub init failed: ${msg}`);
-			}
-		}),
-		vscode.commands.registerCommand('drip.github.pushBackup', async () => {
-			const kbRoot = state.getKnowledgeBaseRoot();
-			if (!kbRoot) {
-				void vscode.window.showWarningMessage('Select a DRIP knowledge base first.');
-				return;
-			}
-			try {
-				const { pushBackup } = require('../startup/githubBackup');
-				await vscode.window.withProgress(
-					{
-						location: vscode.ProgressLocation.Notification,
-						title: 'DRIP: pushing KB backup…'
-					},
-					async () => pushBackup(context, kbRoot)
-				);
-				void vscode.window.showInformationMessage('DRIP knowledge base backup pushed.');
-			} catch (err) {
-				const msg = err instanceof Error ? err.message : String(err);
-				void vscode.window.showErrorMessage(`DRIP GitHub push failed: ${msg}`);
-			}
-		}),
-		vscode.commands.registerCommand('drip.github.pullBackup', async () => {
-			const kbRoot = state.getKnowledgeBaseRoot();
-			if (!kbRoot) {
-				void vscode.window.showWarningMessage('Select a DRIP knowledge base first.');
-				return;
-			}
-			try {
-				const { pullBackup } = require('../startup/githubBackup');
-				await vscode.window.withProgress(
-					{
-						location: vscode.ProgressLocation.Notification,
-						title: 'DRIP: pulling KB backup…'
-					},
-					async () =>
-						pullBackup(context, kbRoot, {
-							reindex: async () => {
-								await vscode.commands.executeCommand('drip.reindexCurrentKbWorkspace');
-							}
-						})
-				);
-				void vscode.window.showInformationMessage('DRIP knowledge base backup pulled.');
-				refreshUi();
-				refreshProjectViewIfShown();
-			} catch (err) {
-				const msg = err instanceof Error ? err.message : String(err);
-				void vscode.window.showErrorMessage(`DRIP GitHub pull failed: ${msg}`);
-			}
-		}),
-		vscode.commands.registerCommand('drip.github.openRemote', async () => {
-			const kbRoot = state.getKnowledgeBaseRoot();
-			if (!kbRoot) {
-				void vscode.window.showWarningMessage('Select a DRIP knowledge base first.');
-				return;
-			}
-			const { getGithubBackupSettings, githubWebUrl } = require('../startup/githubBackup');
-			const cfg = await getGithubBackupSettings(kbRoot);
-			const web = githubWebUrl(cfg.remoteUrl);
-			if (!web) {
-				void vscode.window.showWarningMessage(
-					'Set a github.com remote URL first (HTTPS or git@github.com:…).'
-				);
-				return;
-			}
-			await vscode.env.openExternal(vscode.Uri.parse(web));
-		}),
-		vscode.commands.registerCommand('drip.github.setPat', async () => {
-			const kbRoot = state.getKnowledgeBaseRoot();
-			if (!kbRoot) {
-				void vscode.window.showWarningMessage('Select a DRIP knowledge base first.');
-				return;
-			}
-			const { setStoredPat } = require('../startup/githubBackup');
-			const pat = await vscode.window.showInputBox({
-				prompt: 'GitHub personal access token (stored in VS Code Secret Storage for this KB)',
-				password: true,
-				ignoreFocusOut: true,
-				placeHolder: 'ghp_… or github_pat_…'
-			});
-			if (pat == null) return;
-			if (!String(pat).trim()) {
-				void vscode.window.showWarningMessage('Token was empty — nothing saved.');
-				return;
-			}
-			await setStoredPat(context, kbRoot, pat);
-			void vscode.window.showInformationMessage('DRIP GitHub token saved in Secret Storage.');
-		}),
-		vscode.commands.registerCommand('drip.github.clearPat', async () => {
-			const kbRoot = state.getKnowledgeBaseRoot();
-			if (!kbRoot) {
-				void vscode.window.showWarningMessage('Select a DRIP knowledge base first.');
-				return;
-			}
-			const { clearStoredPat } = require('../startup/githubBackup');
-			await clearStoredPat(context, kbRoot);
-			void vscode.window.showInformationMessage('DRIP GitHub token cleared.');
 		}),
 		vscode.commands.registerCommand('drip.showKbNewMenu', async item => {
 			const uri = uriFromCommandArg(item);
@@ -1054,8 +537,8 @@ async function activate(context) {
 				await state.refreshRecentsFromStorage();
 				dailyNotesTreeProvider.refresh();
 				refreshRetrieverCatalogIfShown();
-				if (settingsPanel) {
-					await postDripSettingsValuesToWebview(settingsPanel.webview, state, context);
+				if (getOpenSettingsPanel()) {
+					await postDripSettingsValuesToWebview(getOpenSettingsPanel().webview, state, context);
 				}
 			}
 		}),

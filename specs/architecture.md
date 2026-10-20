@@ -43,7 +43,7 @@ DRIP runs a small loopback HTTP MCP server. External AI apps use two meta tools 
 
 ### 9. Minimal wiring in the entry file
 
-The entry file only registers commands, providers, and webviews. All behavior lives in domain modules grouped by area, so a new developer can find where to change something in seconds.
+The entry file only registers commands, providers, and webviews. All behavior lives in domain modules grouped by area, so a new developer can find where to change something in seconds. The larger chunks were pulled out into their own modules: the Settings panel (panel lifecycle + message handler + theme sync) lives under `src/views/settings/`, the `drip.github.*` command registrations live in `src/startup/githubBackupCommands.js`, the tags-graph panels and message routing live in `src/views/tags/panel.js`, and the stateless editor/document helpers plus tag-graph state were split out of `DripState` into `src/state/documentFileOps.js` and `src/state/tagGraphState.js`.
 
 ### 10. Webview assets are real files, bundled with esbuild
 
@@ -53,23 +53,33 @@ Webview client scripts and styles live as actual `.ts`/`.css`/`.html` files inst
 
 `.d.md` heading titles are plain markdown (`# Foo`); a heading's type and persistence live only in its hidden comment (`<!-- drip hN | concept -->`, or `persistent` for untyped-but-indexed). The earlier `.c`/`.task`/`.i-N` title prefixes were dropped because they made the heading text itself ambiguous and forced a host rewrite to interpret. The webview is the single writer of an open document — every type/field change is a pure editor edit, and the host only reconciles on open and save, never on a mid-typing debounce, so the editor and the index can't fight over the same buffer (the source of the old "content is newer" save conflicts). The `.d.txt` heading-identity reconcile skips `.d.md` files for the same reason.
 
+### 12. File naming: dripMd / dripTxt / dripNote
+
+Source files are named by which note format they serve, so a developer can tell at a glance whether a file is `.d.md`-specific, `.d.txt`-specific, or shared:
+
+- `dripMd*` — logic for `.d.md` (markdown notes with hidden comments).
+- `dripTxt*` — logic for `.d.txt` (the structured "dripnote" language).
+- `dripNote*` — common logic that handles both formats (extension rules, KB note file operations).
+
+When one component holds logic for both formats, its files are split into `dripMd/` and `dripTxt/` subfolders; shared `dripNote*` files stay at the component root. The VS Code language id `dripnote` and scope `source.dripnote` (which apply to `.d.txt` only) keep their names — only the grammar *file* is `dripTxt.tmLanguage.json`.
+
 ## Module layout
 
 ```
 src/
   capture/        quick-capture and heading-content extraction
-  document/       the .d.txt format: model, parsing, projects, issues, validation
+  document/       the note formats (model/parse/validate split into dripMd/ + dripTxt/ + dripNote*), projects, issues
   extension/      entry wiring (activate)
   graph/          cross-file links, tag graph (+ tags/ webview assets built to dist/)
-  indexing/       SQLite index, identity, embeddings, parse, sync
+  indexing/       SQLite index, identity (dripMd/ + dripTxt/ subfolders), embeddings, parse, sync
   ingest/         deciding where a captured note should go
   integrations/mcp/  local MCP server + tool catalog
   llm/            chat memory and the OpenAI-compatible client
   retrieval/      retriever query, quick open, embeddings benchmark
   shared/         constants, utilities, edit guards
   startup/        KB selection, settings, daily notes, drafts, github backup, startup check
-  state/          session state
-  views/          editor services (incl. dripMdEditor/ custom `.d.md` editor), lhs (KB/projects/retriever), rhs (storage/heading/chat), composer, settings
+  state/          session state (DripState + documentFileOps helpers + tagGraphState mixin)
+  views/          editor services (dripMdEditor/ + dripTxt/), lhs (KB/projects/retriever), rhs (storage/heading/chat), composer, storage, tags (graph panels), settings
 scripts/          build-webview.mjs (esbuild bundle → dist/)
 dist/             compiled webview assets (git-ignored, flat *.js/*.css)
 ```

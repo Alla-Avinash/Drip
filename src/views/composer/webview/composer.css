@@ -66,8 +66,221 @@ button#select-kb {
 	min-height: 160px;
 }
 
-#metadata {
-	min-height: 88px;
+/* Metadata chips */
+.metadata-chips {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+/* The chip container stacks the two rows (heading metadata on top, tags/relations below). */
+#chips {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.chip-row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 5px;
+}
+
+/* Metadata chips — mirrors the .d.md editor's chip picker: a type chip, one chip per
+ * field already present (`key: value`), and a faint "+ key" chip for each addable one. */
+.composer-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 2px 9px;
+	border-radius: 10px;
+	border: 1px solid var(--vscode-editorWidget-border, #454545);
+	background: var(--vscode-editor-inactiveSelectionBackground, rgba(128, 128, 128, 0.12));
+	font-size: 12px;
+	line-height: 1.4;
+	white-space: nowrap;
+	user-select: none;
+}
+
+.composer-chip-key {
+	color: var(--vscode-descriptionForeground);
+}
+
+.composer-chip-value {
+	color: var(--vscode-editor-foreground);
+}
+
+.composer-chip-type {
+	font-style: italic;
+	color: var(--vscode-textLink-foreground, #3794ff);
+	border-style: dashed;
+	cursor: pointer;
+}
+
+.composer-chip-type:hover {
+	border-color: var(--vscode-focusBorder, #007fd4);
+}
+
+.composer-chip-editable {
+	cursor: pointer;
+}
+
+.composer-chip-editable:hover {
+	border-color: var(--vscode-focusBorder, #007fd4);
+}
+
+.composer-chip-static {
+	opacity: 0.75;
+}
+
+.composer-chip-add {
+	border-style: dashed;
+	color: var(--vscode-descriptionForeground);
+	cursor: pointer;
+	opacity: 0.8;
+}
+
+.composer-chip-add:hover {
+	color: var(--vscode-textLink-foreground, #3794ff);
+	border-color: var(--vscode-textLink-foreground, #3794ff);
+	opacity: 1;
+}
+
+.composer-chip-required {
+	border-style: solid;
+}
+
+/* Popover menu for editing a chip's value. */
+.composer-popover {
+	position: fixed;
+	z-index: 10001;
+	min-width: 160px;
+	max-width: 260px;
+	padding: 4px;
+	background: var(--vscode-menu-background, var(--vscode-editorWidget-background, #252526));
+	border: 1px solid var(--vscode-menu-border, var(--vscode-editorWidget-border, #454545));
+	border-radius: 4px;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+	color: var(--vscode-menu-foreground, var(--vscode-editor-foreground));
+	font-size: 13px;
+	user-select: none;
+}
+
+.composer-popover-item {
+	padding: 4px 10px;
+	border-radius: 3px;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.composer-popover-item:hover {
+	background: var(--vscode-menu-selectionBackground, var(--vscode-editor-selectionBackground));
+}
+
+.composer-popover-item.is-danger {
+	color: var(--vscode-errorForeground, #f14c4c);
+}
+
+/* A popover value row (enum options) — flex so its tick sits right-aligned. */
+.composer-popover-item.composer-popover-value {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.composer-popover-item.is-selected {
+	background: var(--vscode-menu-selectionBackground, var(--vscode-editor-selectionBackground));
+}
+
+/* The tick marking the currently selected value / heading type. */
+.composer-popover-tick {
+	margin-left: auto;
+	color: var(--vscode-textLink-foreground, #3794ff);
+	font-weight: 600;
+}
+
+/* "Heading type" picker (title + colored-dot option rows). */
+.composer-popover-title {
+	padding: 4px 10px 6px;
+	font-size: 0.85em;
+	color: var(--vscode-descriptionForeground);
+}
+
+.composer-type-option {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.composer-type-option.is-selected {
+	background: var(--vscode-menu-selectionBackground, var(--vscode-editor-selectionBackground));
+}
+
+.composer-type-dot {
+	font-size: 0.7em;
+	color: var(--vscode-textLink-foreground, #3794ff);
+	flex: 0 0 auto;
+}
+
+.composer-popover-input {
+	display: block;
+	width: calc(100% - 16px);
+	margin: 4px 6px;
+	padding: 3px 6px;
+	box-sizing: border-box;
+	background: var(--vscode-input-background, #3c3c3c);
+	color: var(--vscode-input-foreground, #cccccc);
+	border: 1px solid var(--vscode-input-border, transparent);
+	border-radius: 3px;
+	outline: none;
+}
+
+.composer-popover-input:focus {
+	border-color: var(--vscode-focusBorder, #007fd4);
+}
+
+/* Scrollable tag list inside the tags dropdown, so a long result set never overflows. */
+.composer-tags-list {
+	max-height: 260px;
+	overflow-y: auto;
+}
+
+/* "Create new tag" input pinned at the bottom of the tags dropdown. */
+.composer-popover-create {
+	border-top: 1px solid var(--vscode-menu-border, var(--vscode-editorWidget-border, #454545));
+	margin-top: 4px;
+	padding-top: 4px;
+}
+
+/* Input + "+ Create" button side by side. */
+.composer-popover-create-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 0 6px 4px;
+}
+
+.composer-popover-create-row .composer-popover-input {
+	flex: 1;
+	width: auto;
+	margin: 0;
+}
+
+.composer-popover-create-btn {
+	flex: 0 0 auto;
+	background: var(--vscode-button-background, #0e639c);
+	color: var(--vscode-button-foreground, #ffffff);
+	border: none;
+	border-radius: 3px;
+	padding: 3px 8px;
+	font-size: 12px;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.composer-popover-create-btn:hover {
+	background: var(--vscode-button-hoverBackground, #1177bb);
 }
 
 label {

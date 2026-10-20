@@ -1495,7 +1495,7 @@ class ChipRowWidget extends WidgetType {
 	private commit(fields: MdField[]) {
 		if (!view) return;
 		const text = formatHeadingComment(this.parsed.headingNum, this.typeId, fields);
-		view.dispatch({ changes: { from: this.from, to: this.to, insert: text } });
+		view.dispatch({ changes: { from: this.from, to: this.to, insert: text }, filter: false });
 	}
 
 	/** Change the heading's type (rewrites the comment's type token). Empty = demote. */
@@ -1506,7 +1506,7 @@ class ChipRowWidget extends WidgetType {
 			return;
 		}
 		const text = formatHeadingComment(this.parsed.headingNum, typeId, this.parsed.fields);
-		view.dispatch({ changes: { from: this.from, to: this.to, insert: text } });
+		view.dispatch({ changes: { from: this.from, to: this.to, insert: text }, filter: false });
 	}
 
 	/** Open the "Heading type" picker anchored on the type chip. */
@@ -1522,7 +1522,7 @@ class ChipRowWidget extends WidgetType {
 		const doc = view.state.doc;
 		const line = doc.lineAt(this.from);
 		const end = line.number < doc.lines ? doc.line(line.number + 1).from : doc.length;
-		view.dispatch({ changes: { from: line.from, to: end, insert: '' } });
+		view.dispatch({ changes: { from: line.from, to: end, insert: '' }, filter: false });
 	}
 
 	private setField(key: string, value: string) {
@@ -1547,15 +1547,16 @@ class ChipRowWidget extends WidgetType {
 	}
 
 	/**
-	 * Build the tags dropdown: a search box, then the current tags (ticked) and the tags
-	 * already in the note's graph (fetched from the host into `cachedTags`), plus a "create
-	 * new tag" input at the bottom. The list narrows as you type — word matches first, then
-	 * semantic (embedding) matches from the host — and clicking a tag toggles it and closes.
+	 * Build the tag dropdown used by every relation (`tags`, `pre-req`, …): a search box,
+	 * then the current values (ticked) and the tags already in the note's graph (fetched
+	 * from the host into `cachedTags`), plus a "create new tag" input at the bottom. The
+	 * list narrows as you type — word matches first, then semantic (embedding) matches
+	 * from the host — and clicking a tag toggles it and closes.
 	 */
 	private buildTagsPicker(pop: HTMLElement, field: MdField) {
 		const header = document.createElement('div');
 		header.className = 'md-popover-title';
-		header.textContent = 'Tags';
+		header.textContent = field.key.charAt(0).toUpperCase() + field.key.slice(1);
 		pop.appendChild(header);
 
 		// Search box — filters the list live and drives the host semantic search.
@@ -1811,21 +1812,20 @@ class ChipRowWidget extends WidgetType {
 				unit.addEventListener('change', commit);
 				remove();
 				requestAnimationFrame(() => amount.focus());
-			} else if (field.key === 'tags') {
-				// Tags: a searchable dropdown of tags already in the note's graph (tick the
-				// current ones) plus a "create new tag" input at the bottom. The list is
-				// fetched from the host asynchronously and re-rendered in place as it (and
-				// the semantic search results) arrive.
+			} else if (isRelation) {
+				// Relations (`tags`, `pre-req`, …) all reference tags, so every relation
+				// edits through the same searchable tag dropdown: a search box, the current
+				// values (ticked), word + semantic matches from the host, and a "create new
+				// tag" input at the bottom.
 				this.buildTagsPicker(pop, field);
 				vscode.postMessage({ type: 'tags-list' });
 			} else {
-				// Other relations (pre-req / …) — comma-separated list input.
-				const list = parseListField(field.value);
-				const { input } = popoverInput(pop, list.join(', '), v => {
-					const items = v.split(',').map(s => s.trim()).filter(Boolean);
-					this.setField(field.key, items.length ? `[${items.join(', ')}]` : '');
+				// Any other field (ref attributes, …) — free text input.
+				const { input } = popoverInput(pop, field.value, v => {
+					if (v) this.setField(field.key, v);
+					else this.removeField(field.key);
 				});
-				input.placeholder = 'a, b, c';
+				input.placeholder = field.key;
 				requestAnimationFrame(() => input.focus());
 				remove();
 			}
@@ -1916,7 +1916,7 @@ function promoteHeading(lineFrom: number, anchor: HTMLElement) {
 		buildTypePicker(pop, '', typeId => {
 			const chosen = typeId || PERSISTENT_TYPE_ID;
 			const text = `${formatHeadingComment(0, chosen, [])}\n`;
-			view!.dispatch({ changes: { from: insertAt, to: insertAt, insert: text } });
+			view!.dispatch({ changes: { from: insertAt, to: insertAt, insert: text }, filter: false });
 		});
 	});
 }
@@ -1999,6 +1999,23 @@ function buildDecorations(state: EditorState): DecorationSet {
 				side: 1
 			}).range(line.to)
 		);
+	}
+
+	// Hide orphaned drip comments. The chip-row and banner scans above decorate the
+	// well-placed ones (directly under their heading, or the file header at the very top);
+	// any `<!-- drip … -->` / `<!-- drip-file … -->` left over — e.g. a note hand-edited
+	// outside the editor left a stray comment behind — must never render raw. The markdown
+	// parser exposes these as `CommentBlock` nodes (not `HTMLBlock`), so they are handled
+	// here as a line scan rather than in the tree walk below.
+	for (let i = 1; i <= doc.lines; i++) {
+		const line = doc.line(i);
+		const text = line.text.trim();
+		const isHeadingC = isHeadingCommentLine(text);
+		const isFileC = isFileHeaderCommentLine(text);
+		if (!isHeadingC && !isFileC) continue;
+		if (isHeadingC && i > 1 && isHeadingLine(doc.line(i - 1).text)) continue; // chipped
+		if (isFileC && i === fileHeaderLineNo) continue; // banner
+		decos.push(hide(line.from, line.to));
 	}
 
 	const inRange = (a: number, b: number) => cursor >= a && cursor <= b;
@@ -2329,6 +2346,139 @@ const wysiwygField = StateField.define<DecorationSet>({
 	provide: f => EditorView.decorations.from(f)
 });
 
+// ---------------------------------------------------------------------------
+// Heading metadata atomicity — a `<!-- drip hN -->` comment belongs to the
+// heading directly above it and is never editable by the user's keystrokes.
+// Three pieces work together (all below):
+//
+//  1. `protectDripComments` — a change filter that suppresses any direct document
+//     change touching a drip comment/header line (or its adjacent newlines), so
+//     Backspace, Delete, Enter, typing, and paste can never split, merge, or edit
+//     a comment. The chip UI and the host sync rewrite these lines with
+//     `filter: false` dispatches, which opt out of the filter.
+//  2. `protectDripCursor` — a transaction filter that re-maps the caret so it
+//     never rests on a comment line.
+//  3. `atomicHeadingEnter` — the one keymap handler, because it must re-route
+//     rather than block: Enter at the end of a heading lands below its comment.
+// ---------------------------------------------------------------------------
+
+/** The line number of the drip heading comment directly below `headingLineNo`
+ * (0 when there is none). */
+function dripCommentLineBelow(doc: Text, headingLineNo: number): number {
+	const nextNo = headingLineNo + 1;
+	if (nextNo > doc.lines) return 0;
+	return isHeadingCommentLine(doc.line(nextNo).text) ? nextNo : 0;
+}
+
+/** The start-of-line position of the line after `lineNo` (or EOF). */
+function lineStartAfter(doc: Text, lineNo: number): number {
+	return lineNo < doc.lines ? doc.line(lineNo + 1).from : doc.length;
+}
+
+/** A single empty caret (no selection and no multi-cursor). */
+function isLoneCaret(state: EditorState): boolean {
+	return state.selection.ranges.length === 1 && state.selection.main.empty;
+}
+
+/**
+ * Ranges that must never be edited directly: every drip heading-comment line and
+ * the `<!-- drip-file -->` header line, each extended by one position on both
+ * sides so the adjacent newlines (the heading↔comment and comment↔body seams)
+ * are protected too. Lines are walked in order, so the ranges come out sorted
+ * and are merged here for the filter.
+ */
+function protectedDripCommentRanges(doc: Text): number[] {
+	const pairs: [number, number][] = [];
+	for (let i = 1; i <= doc.lines; i++) {
+		const line = doc.line(i);
+		if (!isHeadingCommentLine(line.text) && !isFileHeaderCommentLine(line.text)) continue;
+		const from = Math.max(0, line.from - 1);
+		const to = Math.min(doc.length, line.to + 1);
+		if (to > from) pairs.push([from, to]);
+	}
+	const out: number[] = [];
+	for (const [s, e] of pairs) {
+		if (out.length && s <= out[out.length - 1]) {
+			out[out.length - 1] = Math.max(out[out.length - 1], e);
+		} else {
+			out.push(s, e);
+		}
+	}
+	return out;
+}
+
+/** Suppress any direct document change that would touch a drip comment/header
+ * line (or its adjacent newlines). Returning the protected ranges drops just
+ * those changes; everything else in the document stays editable. */
+const protectDripComments = EditorState.changeFilter.of(tr => {
+	if (!tr.docChanged) return true;
+	const ranges = protectedDripCommentRanges(tr.startState.doc);
+	return ranges.length ? ranges : true;
+});
+
+/**
+ * Clamp a cursor position so it never rests on a drip comment/header line.
+ * Moving down/forward jumps to the start of the line after the comment; moving
+ * up/backward (or a stationary click) lands at the end of the line above.
+ */
+function clampDripCursorPosition(doc: Text, oldHead: number, pos: number): number {
+	const line = doc.lineAt(Math.max(0, Math.min(pos, doc.length)));
+	if (!isHeadingCommentLine(line.text) && !isFileHeaderCommentLine(line.text)) return pos;
+	if (oldHead < pos) {
+		const nextNo = line.number + 1;
+		return nextNo <= doc.lines ? doc.line(nextNo).from : doc.length;
+	}
+	return Math.max(0, line.from - 1);
+}
+
+/** Re-map any explicit selection change so the caret never lands on the chip row
+ * (or the file banner). Returning the same transaction when nothing moved onto a
+ * comment line leaves every other selection change untouched. */
+const protectDripCursor = EditorState.transactionFilter.of(tr => {
+	const sel = tr.selection;
+	if (!sel) return tr;
+	const doc = tr.startState.doc;
+	const oldHead = tr.startState.selection.main.head;
+	let changed = false;
+	const ranges = sel.ranges.map(r => {
+		const head = clampDripCursorPosition(doc, oldHead, r.head);
+		if (head === r.head) return r;
+		changed = true;
+		return EditorSelection.range(r.anchor, head);
+	});
+	if (!changed) return tr;
+	return { selection: EditorSelection.create(ranges, sel.mainIndex) };
+});
+
+/** Enter at the very end of a heading lands below its comment (keeping the two
+ * together) instead of splitting a blank line between them. */
+const atomicHeadingEnter = {
+	key: 'Enter',
+	run: (view: EditorView) => {
+		const { state } = view;
+		if (!isLoneCaret(state)) return false;
+		const head = state.selection.main.head;
+		const line = state.doc.lineAt(head);
+		if (head !== line.to || !isHeadingLine(line.text)) return false;
+		const commentNo = dripCommentLineBelow(state.doc, line.number);
+		if (!commentNo) return false;
+
+		const afterNo = commentNo + 1;
+		const blankBelow = afterNo <= state.doc.lines && state.doc.line(afterNo).text.trim() === '';
+		if (blankBelow) {
+			// A blank line already separates the comment from the body — land on it.
+			view.dispatch({ selection: EditorSelection.cursor(state.doc.line(afterNo).from) });
+		} else {
+			const at = lineStartAfter(state.doc, commentNo);
+			view.dispatch({
+				changes: { from: at, to: at, insert: '\n' },
+				selection: EditorSelection.cursor(at + 1)
+			});
+		}
+		return true;
+	}
+};
+
 let view: EditorView | null = null;
 let suppressEdit = false;
 let initialContentLoaded = false;
@@ -2346,7 +2496,9 @@ function buildExtensions() {
 		markdown({ base: markdownLanguage }),
 		// 4-space indent — the markdown standard for nested lists.
 		indentUnit.of('    '),
-		keymap.of([...defaultKeymap, ...historyKeymap, ...foldKeymap, indentWithRenumber]),
+		keymap.of([atomicHeadingEnter, ...defaultKeymap, ...historyKeymap, ...foldKeymap, indentWithRenumber]),
+		protectDripComments,
+		protectDripCursor,
 		wysiwygField,
 		EditorView.theme({
 			'&': {
@@ -2444,7 +2596,8 @@ function setDocument(text: string, placeCaretAtEnd = false) {
 	committing = true;
 	try {
 		view.dispatch({
-			changes: { from: 0, to: view.state.doc.length, insert: text }
+			changes: { from: 0, to: view.state.doc.length, insert: text },
+			filter: false
 		});
 	} finally {
 		committing = false;
@@ -2503,6 +2656,41 @@ window.addEventListener('message', event => {
 			el.className = 'md-image-wrap';
 			el.textContent = '';
 			el.appendChild(buildImageElement(uri, el.dataset.alt || '', Number(el.dataset.from) || 0, Number(el.dataset.to) || 0));
+		}
+	} else if (msg.type === 'request-selection') {
+		// The host's capture command needs this webview's CodeMirror selection (the
+		// custom editor has no `activeTextEditor`). Report all non-empty ranges joined
+		// with a newline, matching the text editor's multi-selection join.
+		let text = '';
+		if (view) {
+			const parts: string[] = [];
+			for (const r of view.state.selection.ranges) {
+				if (r.empty) continue;
+				parts.push(view.state.sliceDoc(r.from, r.to));
+			}
+			text = parts.join('\n');
+		}
+		vscode.postMessage({ type: 'selection-response', text });
+	} else if (msg.type === 'delete-selection') {
+		// Cut the current selection (the capture command already copied it to the clipboard).
+		// `captureLength` limits the cut to a leading prefix so text above the captured
+		// subtree is left in place.
+		if (view) {
+			const ranges = view.state.selection.ranges.filter(r => !r.empty);
+			if (ranges.length) {
+				const captureLength = typeof msg.captureLength === 'number' && msg.captureLength >= 0 ? msg.captureLength : -1;
+				const changes = ranges.map((r, idx) => {
+					if (captureLength >= 0 && idx === 0) {
+						return { from: r.from, to: Math.min(r.to, r.from + captureLength) };
+					}
+					return { from: r.from, to: r.to };
+				});
+				view.dispatch({
+					changes,
+					selection: EditorSelection.cursor(ranges[0].from),
+					filter: false
+				});
+			}
 		}
 	}
 });

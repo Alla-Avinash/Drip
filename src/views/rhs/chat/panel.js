@@ -22,7 +22,7 @@ const SESSION_MAX_MESSAGES = 100;
 class DripChatWebviewProvider {
 	/**
 	 * @param {import('vscode').ExtensionContext} context
-	 * @param {import('../../state/state').DripState} state
+	 * @param {import('../../../state/state').DripState} state
 	 */
 	constructor(context, state) {
 		this.context = context;

@@ -3,7 +3,7 @@
 const {
 	getMetadataSettings,
 	getSpecialMetadataSettings
-} = require('../../document/model/dripnoteMetadataTemplates');
+} = require('../../document/model/dripNoteMetadataTemplates.js');
 
 /**
  * Document + special (project/feature) type ids allowed in index.drip.

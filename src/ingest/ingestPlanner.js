@@ -19,7 +19,7 @@ const {
 	splitFileHeaderAndBody,
 	buildHeadingTreeFromBody,
 	parseType1HeadingRecords
-} = require('../document/kbNoteOps');
+} = require('../document/dripNoteKbOps.js');
 
 const TITLE_FALLBACK_CHARS = 60;
 

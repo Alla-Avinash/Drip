@@ -6,7 +6,7 @@ const { isDriplockKnowledgeBaseUri } = require('./selectKnowledgeBase');
 const { ensureDripIndexSkeleton } = require('./initializeDripIndex');
 const { loadKbSidecar } = require('./loadKbSidecar');
 const { updateKnowledgeBase } = require('./updateKnowledgeBase');
-const { processAllPendingLinkMigrations } = require('../indexing/dripnoteReferencePhase3');
+const { processAllPendingLinkMigrations } = require('../indexing/dripTxt/dripTxtReferencePhase3.js');
 const { initEmptyDripIndexFile, getIndexDbUri } = require('../indexing/dripIndexDb');
 const { ensureKbEditorNote } = require('./kbEditorNote');
 

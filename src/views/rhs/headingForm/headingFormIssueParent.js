@@ -7,8 +7,8 @@
 
 const path = require('path');
 const { getHeadingFormKbRoot } = require('./headingFormKb');
-const { getMetadataSettingsForNotePath } = require('../../../document/model/dripnoteMetadataTemplates');
-const { findPersistentHeadingZones } = require('../../../document/model/persistentHeadingZones');
+const { getMetadataSettingsForNotePath } = require('../../../document/model/dripNoteMetadataTemplates.js');
+const { findPersistentHeadingZones } = require('../../../document/model/dripTxt/dripTxtPersistentHeadingZones.js');
 const {
 	issueIdFromHeadingTitle,
 	findNearestOutlineAncestorIssueId,

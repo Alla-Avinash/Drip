@@ -2,8 +2,8 @@
 
 const path = require('path');
 const vscode = require('vscode');
-const { buildNewNoteFile } = require('../document/kbNoteOps');
-const { allocateNextEntityNumber, indexNewNoteImmediately } = require('../indexing/dripnoteIndex');
+const { buildNewNoteFile } = require('../document/dripNoteKbOps.js');
+const { allocateNextEntityNumber, indexNewNoteImmediately } = require('../indexing/dripTxt/dripTxtIndex.js');
 const { DAILY_NOTES_DIR } = require('../shared/constants');
 
 const MONTH_NAMES = [

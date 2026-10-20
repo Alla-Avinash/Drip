@@ -12,7 +12,7 @@ const {
 	writeTextFile: writeTextFileRaw,
 	readTextFile,
 	splitFileHeaderAndBody
-} = require('../kbNoteOps');
+} = require('../dripNoteKbOps.js');
 const { markExpectedDiskWrite } = require('../../shared/documentEditGuard');
 
 /**
@@ -24,8 +24,8 @@ async function writeTextFile(uri, content) {
 	markExpectedDiskWrite(uri);
 	await writeTextFileRaw(uri, content);
 }
-const { allocateNextEntityNumber, indexNewNoteImmediately } = require('../../indexing/dripnoteIndex');
-const { isHeadingIdentityLine } = require('../../indexing/dripnoteHeadingIdentity');
+const { allocateNextEntityNumber, indexNewNoteImmediately } = require('../../indexing/dripTxt/dripTxtIndex.js');
+const { isHeadingIdentityLine } = require('../../indexing/dripTxt/dripTxtHeadingIdentity.js');
 const {
 	PROJECT_ISSUES_FILE_NAME,
 	FEATURE_INBOX_FILE_NAME,
@@ -40,10 +40,12 @@ const {
 	findNearestOutlineAncestorIssueId,
 	setIssueParentLineInLines
 } = require('./issueParentLink');
-const { isDripFeatureFolderName } = require('../model/dripFeature');
+const { isDripFeatureFolderName } = require('../model/dripNoteFeature.js');
 const {
+	isMarkdownFormat,
+	formatFromPath,
 	findIssueHeadingBlock,
-	relevelBlock,
+	dedentToRoot,
 	appendIssueToInbox,
 	appendSubIssueUnderParent,
 	insertSiblingBeforeIssue,
@@ -52,6 +54,12 @@ const {
 	insertSiblingBeforeHeading,
 	insertSiblingAfterHeading
 } = require('./issueInboxLayout');
+const { convertIssueBlockLines } = require('./issueBlockFormat');
+const {
+	isHeadingComment,
+	parseHeadingComment,
+	formatHeadingComment
+} = require('../model/dripMd/dripMdNoteComment.js');
 
 /**
  * @param {import('vscode').Uri} projectFolderUri
@@ -175,7 +183,9 @@ async function writeSubIssueUnderParent(kbRootUri, projectFolderUri, prefix, par
 		} catch {
 			continue;
 		}
-		const next = appendSubIssueUnderParent(text, parentId, block);
+		const fmt = formatFromPath(uri.fsPath);
+		const fmtBlock = convertIssueBlockLines(block, 'drip-txt', fmt);
+		const next = appendSubIssueUnderParent(text, parentId, fmtBlock, fmt);
 		if (next == null) continue;
 		await writeTextFile(uri, next);
 		return uri;
@@ -287,7 +297,7 @@ async function moveIssueToFeatureMailbox(kbRootUri, projectFolderUri, featureUri
 			? found.start - 1
 			: found.start;
 	const blockLines = found.lines.slice(blockStart, found.end);
-	const dedentedLines = relevelBlock(blockLines, -found.indent);
+	const dedentedLines = dedentToRoot(blockLines, found.indent, 'drip-txt');
 
 	const before = found.lines.slice(0, blockStart);
 	const after = found.lines.slice(found.end);
@@ -313,9 +323,11 @@ async function moveIssueToFeatureMailbox(kbRootUri, projectFolderUri, featureUri
 		await writeTextFile(target.mailboxUri, `${mailboxText}${dedentedLines.join('\n')}\n`);
 	} else {
 		const fileText = await readTextFile(target.mailboxUri);
+		const fmt = formatFromPath(target.mailboxUri.fsPath);
+		const fmtLines = convertIssueBlockLines(dedentedLines, 'drip-txt', fmt);
 		await writeTextFile(
 			target.mailboxUri,
-			appendIssueToInbox(fileText, dedentedLines, FEATURE_INBOX_HEADING_TITLE)
+			appendIssueToInbox(fileText, fmtLines, FEATURE_INBOX_HEADING_TITLE, fmt)
 		);
 	}
 
@@ -330,12 +342,22 @@ async function moveIssueToFeatureMailbox(kbRootUri, projectFolderUri, featureUri
 }
 
 /**
- * Remove any `parent: i-N` metadata line from a dedented issue block. Used when the block is
- * re-parented under a new issue by indentation — indentation becomes the source of truth.
+ * Remove any `parent: i-N` metadata from a dedented issue block. Used when the block is
+ * re-parented under a new issue by nesting — nesting becomes the source of truth. In `.d.md`
+ * the parent lives inside the hidden comment.
  * @param {string[]} lines
+ * @param {string} [format]
  * @returns {string[]}
  */
-function stripIssueParentLine(lines) {
+function stripIssueParentLine(lines, format) {
+	if (isMarkdownFormat(format)) {
+		return (lines || []).map(l => {
+			if (!isHeadingComment(l)) return l;
+			const c = parseHeadingComment(l);
+			if (!c) return l;
+			return formatHeadingComment(c.headingNum, c.typeId, c.fields.filter(f => f.key !== ISSUE_PARENT_META_KEY));
+		});
+	}
 	return (lines || []).filter(function (l) {
 		return !/^\s*parent\s*:/i.test(String(l));
 	});
@@ -343,54 +365,69 @@ function stripIssueParentLine(lines) {
 
 /**
  * @param {string[]} lines
+ * @param {string} [format]
  * @returns {boolean}
  */
-function hasIssueParentLine(lines) {
+function hasIssueParentLine(lines, format) {
+	if (isMarkdownFormat(format)) {
+		return (lines || []).some(l => {
+			if (!isHeadingComment(l)) return false;
+			const c = parseHeadingComment(l);
+			return !!c && c.fields.some(f => f.key === ISSUE_PARENT_META_KEY);
+		});
+	}
 	return (lines || []).some(function (l) {
 		return /^\s*parent\s*:/i.test(String(l));
 	});
 }
 
 /**
- * Append a dedented issue block to a destination target.
+ * Append a dedented issue block to a destination target. The block is converted into the
+ * destination file's format first (`sourceFormat` describes the block's current syntax).
  *
  * @param {import('vscode').Uri} kbRootUri
  * @param {import('vscode').Uri} projectFolderUri
  * @param {{ kind: 'feature', featureUri: import('vscode').Uri } | { kind: 'inbox' } | { kind: 'issue', issueId: string, position?: 'before' | 'after' | 'under', fileUri: import('vscode').Uri } | { kind: 'heading', headingPath: string, position?: 'before' | 'after' | 'under', fileUri: import('vscode').Uri } | { kind: 'file', position?: 'top' | 'bottom', fileUri: import('vscode').Uri }} target
- * @param {string[]} blockLines dedented block lines (indent 0)
+ * @param {string[]} blockLines dedented block lines (root level, in `sourceFormat`)
  * @param {{ context?: import('vscode').ExtensionContext, removeParent?: boolean }} options
+ * @param {string} [sourceFormat]
  * @returns {Promise<import('vscode').Uri>} the file written
  */
-async function appendIssueBlockToTarget(kbRootUri, projectFolderUri, target, blockLines, options) {
+async function appendIssueBlockToTarget(kbRootUri, projectFolderUri, target, blockLines, options, sourceFormat) {
+	const src = sourceFormat || 'drip-txt';
+
 	if (target.kind === 'inbox') {
 		const issuesUri = await ensureProjectIssuesFile(projectFolderUri, {
 			kbRoot: kbRootUri,
 			context: options.context
 		});
 		const issuesText = await readTextFile(issuesUri);
+		const txtBlock = convertIssueBlockLines(blockLines, src, 'drip-txt');
 		await writeTextFile(
 			issuesUri,
-			appendIssueToInbox(issuesText, blockLines, PROJECT_ISSUES_INBOX_HEADING_TITLE)
+			appendIssueToInbox(issuesText, txtBlock, PROJECT_ISSUES_INBOX_HEADING_TITLE, 'drip-txt')
 		);
 		return issuesUri;
 	}
 
 	if (target.kind === 'issue') {
+		const fmt = formatFromPath(target.fileUri.fsPath);
+		const fmtBlock = convertIssueBlockLines(blockLines, src, fmt);
 		const pos = target.position === 'before' || target.position === 'after' ? target.position : 'under';
 		const refText = await readTextFile(target.fileUri);
 		let next = null;
 		if (pos === 'under') {
-			// A sub-issue can't be nested under another issue — indentation would fight the `parent:`
+			// A sub-issue can't be nested under another issue — nesting would fight the `parent:`
 			// link. Only allow it when the user chose to remove the parent first.
-			if (!options.removeParent && hasIssueParentLine(blockLines)) {
+			if (!options.removeParent && hasIssueParentLine(fmtBlock, fmt)) {
 				throw new Error('This issue has a parent. Check "Remove parent" to place it under another issue.');
 			}
-			// Re-parent under an existing issue: indentation carries the link, so drop any parent line.
-			next = appendSubIssueUnderParent(refText, target.issueId, stripIssueParentLine(blockLines));
+			// Re-parent under an existing issue: nesting carries the link, so drop any parent field.
+			next = appendSubIssueUnderParent(refText, target.issueId, stripIssueParentLine(fmtBlock, fmt), fmt);
 		} else if (pos === 'before') {
-			next = insertSiblingBeforeIssue(refText, target.issueId, blockLines);
+			next = insertSiblingBeforeIssue(refText, target.issueId, fmtBlock, fmt);
 		} else {
-			next = insertSiblingAfterIssue(refText, target.issueId, blockLines);
+			next = insertSiblingAfterIssue(refText, target.issueId, fmtBlock, fmt);
 		}
 		if (next == null) throw new Error(`Issue ${target.issueId} not found in ${target.fileUri.fsPath}`);
 		await writeTextFile(target.fileUri, next);
@@ -399,17 +436,19 @@ async function appendIssueBlockToTarget(kbRootUri, projectFolderUri, target, blo
 
 	if (target.kind === 'heading') {
 		// Place relative to a plain (or issue) heading in a file: as its last child (default),
-		// or as a sibling directly before/after it. The `parent:` line (if any) is kept so the
+		// or as a sibling directly before/after it. The `parent:` field (if any) is kept so the
 		// issue's own hierarchy survives, unless the user chose to remove it.
+		const fmt = formatFromPath(target.fileUri.fsPath);
+		const fmtBlock = convertIssueBlockLines(blockLines, src, fmt);
 		const pos = target.position === 'before' || target.position === 'after' ? target.position : 'under';
 		const text = await readTextFile(target.fileUri);
 		let next = null;
 		if (pos === 'before') {
-			next = insertSiblingBeforeHeading(text, target.headingPath, blockLines);
+			next = insertSiblingBeforeHeading(text, target.headingPath, fmtBlock, fmt);
 		} else if (pos === 'after') {
-			next = insertSiblingAfterHeading(text, target.headingPath, blockLines);
+			next = insertSiblingAfterHeading(text, target.headingPath, fmtBlock, fmt);
 		} else {
-			next = appendBlockUnderHeading(text, target.headingPath, blockLines);
+			next = appendBlockUnderHeading(text, target.headingPath, fmtBlock, fmt);
 		}
 		if (next == null) throw new Error(`Heading "${target.headingPath}" not found in ${target.fileUri.fsPath}`);
 		await writeTextFile(target.fileUri, next);
@@ -419,14 +458,16 @@ async function appendIssueBlockToTarget(kbRootUri, projectFolderUri, target, blo
 	if (target.kind === 'file') {
 		// File-level placement: put the issue at the top of the body (first heading) or at the
 		// very bottom of the file, with no heading nesting — so there is no hierarchy problem.
+		const fmt = formatFromPath(target.fileUri.fsPath);
+		const fmtBlock = convertIssueBlockLines(blockLines, src, fmt);
 		const text = await readTextFile(target.fileUri);
 		const { bodyStartLine } = splitFileHeaderAndBody(text);
 		const lines = text.replace(/\r\n/g, '\n').split('\n');
 		if (target.position === 'top') {
-			lines.splice(bodyStartLine, 0, '', ...blockLines, '');
+			lines.splice(bodyStartLine, 0, '', ...fmtBlock, '');
 		} else {
 			while (lines.length && !String(lines[lines.length - 1]).trim()) lines.pop();
-			lines.push('', ...blockLines, '');
+			lines.push('', ...fmtBlock, '');
 		}
 		let next = lines.join('\n');
 		await writeTextFile(target.fileUri, next.endsWith('\n') ? next : next + '\n');
@@ -435,6 +476,7 @@ async function appendIssueBlockToTarget(kbRootUri, projectFolderUri, target, blo
 
 	const t = await resolveFeatureMailboxTarget(target.featureUri);
 	if (t.kind === 'folder') {
+		const txtBlock = convertIssueBlockLines(blockLines, src, 'drip-txt');
 		let mailboxText = '';
 		try {
 			mailboxText = await readTextFile(t.mailboxUri);
@@ -446,13 +488,15 @@ async function appendIssueBlockToTarget(kbRootUri, projectFolderUri, target, blo
 			);
 		}
 		if (!mailboxText.endsWith('\n')) mailboxText += '\n';
-		await writeTextFile(t.mailboxUri, `${mailboxText}${blockLines.join('\n')}\n`);
+		await writeTextFile(t.mailboxUri, `${mailboxText}${txtBlock.join('\n')}\n`);
 		return t.mailboxUri;
 	}
+	const fmt = formatFromPath(t.mailboxUri.fsPath);
+	const fmtBlock = convertIssueBlockLines(blockLines, src, fmt);
 	const fileText = await readTextFile(t.mailboxUri);
 	await writeTextFile(
 		t.mailboxUri,
-		appendIssueToInbox(fileText, blockLines, FEATURE_INBOX_HEADING_TITLE)
+		appendIssueToInbox(fileText, fmtBlock, FEATURE_INBOX_HEADING_TITLE, fmt)
 	);
 	return t.mailboxUri;
 }
@@ -474,17 +518,18 @@ async function moveIssueBlock(kbRootUri, sourceUri, projectFolderUri, target, is
 	const id = normalizeIssueEntityId(issueId);
 	if (!id) throw new Error('Invalid issue id');
 	const removeParent = options.removeParent === true;
+	const sourceFormat = formatFromPath(sourceUri.fsPath);
 
 	let text = await readTextFile(sourceUri);
-	let found = findIssueHeadingBlock(text, id);
+	let found = findIssueHeadingBlock(text, id, sourceFormat);
 	if (!found) throw new Error(`Issue ${id} not found in ${sourceUri.fsPath}`);
 
-	// Indentation-carried parent is lost on move; record it as `parent: i-N` first — unless the
+	// Nesting-carried parent is lost on move; record it as `parent: i-N` first — unless the
 	// user is detaching the hierarchy, in which case we leave it out entirely.
-	const outlineParent = findNearestOutlineAncestorIssueId(found.lines.join('\n'), found.start);
+	const outlineParent = findNearestOutlineAncestorIssueId(found.lines.join('\n'), found.start, sourceFormat);
 	if (outlineParent && !removeParent) {
-		text = setIssueParentLineInLines(found.lines, found.start, outlineParent).join('\n');
-		found = findIssueHeadingBlock(text, id);
+		text = setIssueParentLineInLines(found.lines, found.start, outlineParent, sourceFormat).join('\n');
+		found = findIssueHeadingBlock(text, id, sourceFormat);
 		if (!found) throw new Error(`Issue ${id} not found in ${sourceUri.fsPath}`);
 	}
 
@@ -494,9 +539,9 @@ async function moveIssueBlock(kbRootUri, sourceUri, projectFolderUri, target, is
 			? found.start - 1
 			: found.start;
 	const blockLines = found.lines.slice(blockStart, found.end);
-	const dedentedLines = relevelBlock(blockLines, -found.indent);
-	// Detach: drop the `parent:` line so the issue can sit under any heading/issue.
-	const finalLines = removeParent ? stripIssueParentLine(dedentedLines) : dedentedLines;
+	const dedentedLines = dedentToRoot(blockLines, found.indent, sourceFormat);
+	// Detach: drop the `parent:` field so the issue can sit under any heading/issue.
+	const finalLines = removeParent ? stripIssueParentLine(dedentedLines, sourceFormat) : dedentedLines;
 
 	const before = found.lines.slice(0, blockStart);
 	const after = found.lines.slice(found.end);
@@ -507,7 +552,7 @@ async function moveIssueBlock(kbRootUri, sourceUri, projectFolderUri, target, is
 
 	// Append to the destination FIRST: if it throws (e.g. "has a parent" guard, or the target
 	// heading/issue isn't found), the issue is never removed from its source file.
-	const targetUri = await appendIssueBlockToTarget(kbRootUri, projectFolderUri, target, finalLines, options);
+	const targetUri = await appendIssueBlockToTarget(kbRootUri, projectFolderUri, target, finalLines, options, sourceFormat);
 
 	// Destination write succeeded — now remove the issue from its source file.
 	await writeTextFile(sourceUri, remaining.endsWith('\n') ? remaining : remaining + '\n');

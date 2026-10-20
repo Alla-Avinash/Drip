@@ -17,6 +17,11 @@ const {
 	parseIssueTypePrefix,
 	normalizeIssueEntityId
 } = require('./projectStructureRules');
+const {
+	isHeadingComment,
+	parseHeadingComment,
+	formatHeadingComment
+} = require('../model/dripMd/dripMdNoteComment.js');
 
 /**
  * Issue id from a heading title (`.i-4 Fix`, legacy `.i i-4 Fix`, or index form `i-4 Fix`).
@@ -39,11 +44,11 @@ function issueIdFromHeadingTitle(title) {
  *
  * @param {string} docText
  * @param {number} targetHeadingLine 0-based
+ * @param {string} [format] `'drip-md'` for `.d.md` notes
  * @returns {string | null}
  */
-function findNearestOutlineAncestorIssueId(docText, targetHeadingLine) {
-	const { parseHeadingForValidation } = require('../parse/dripnoteHeadingParse');
-	const { outlineParentsByLine } = require('./issueInboxLayout');
+function findNearestOutlineAncestorIssueId(docText, targetHeadingLine, format) {
+	const { outlineParentsByLine, isMarkdownFormat, parseHeadingForFormat } = require('./issueInboxLayout');
 	const target = Math.floor(Number(targetHeadingLine));
 	if (!Number.isFinite(target) || target < 0) return null;
 	const lines = String(docText || '')
@@ -54,11 +59,13 @@ function findNearestOutlineAncestorIssueId(docText, targetHeadingLine) {
 	/** @type {Map<number, string | null>} heading line → issue id (null for plain headings) */
 	const issueIdByLine = new Map();
 	lines.forEach((line, i) => {
-		const ph = parseHeadingForValidation(line);
-		if (ph && !ph.usesNonTabIndent) issueIdByLine.set(i, issueIdFromHeadingTitle(ph.title));
+		const ph = parseHeadingForFormat(line, format);
+		if (ph && (isMarkdownFormat(format) || !ph.usesNonTabIndent)) {
+			issueIdByLine.set(i, issueIdFromHeadingTitle(ph.title));
+		}
 	});
 	if (!issueIdByLine.has(target)) return null;
-	const parents = outlineParentsByLine(lines, new Set(issueIdByLine.keys()));
+	const parents = outlineParentsByLine(lines, new Set(issueIdByLine.keys()), format);
 	let cur = parents.get(target);
 	while (cur != null) {
 		const id = issueIdByLine.get(cur);
@@ -98,11 +105,12 @@ function nearestOutlineParentIssueKey(headingId, parentByHeadingId, issueKeyByHe
  * @param {Record<string, unknown>} attributes
  * @param {string} docText
  * @param {number} headingLine
+ * @param {string} [format] `'drip-md'` for `.d.md` notes
  * @returns {Record<string, unknown>}
  */
-function ensureIssueParentAttribute(attributes, docText, headingLine) {
+function ensureIssueParentAttribute(attributes, docText, headingLine, format) {
 	const attrs = attributes && typeof attributes === 'object' ? { ...attributes } : {};
-	if (findNearestOutlineAncestorIssueId(docText, headingLine)) {
+	if (findNearestOutlineAncestorIssueId(docText, headingLine, format)) {
 		attrs[ISSUE_PARENT_META_KEY] = '';
 		return attrs;
 	}
@@ -234,12 +242,25 @@ function sanitizeIssueParents(issues) {
  * @param {string[]} lines
  * @param {number} headingLine
  * @param {string} parentId
+ * @param {string} [format] `'drip-md'` for `.d.md` notes
  * @returns {string[]}
  */
-function setIssueParentLineInLines(lines, headingLine, parentId) {
+function setIssueParentLineInLines(lines, headingLine, parentId, format) {
 	const out = (lines || []).slice();
 	const id = normalizeIssueEntityId(parentId);
 	if (!id) return out;
+
+	if (format === 'drip-md') {
+		const cIdx = Math.max(0, Math.floor(Number(headingLine) || 0)) + 1;
+		if (cIdx >= out.length || !isHeadingComment(out[cIdx])) return out;
+		const c = parseHeadingComment(out[cIdx]);
+		if (!c) return out;
+		const fields = c.fields.filter(f => f.key !== ISSUE_PARENT_META_KEY);
+		fields.push({ key: ISSUE_PARENT_META_KEY, value: id });
+		out[cIdx] = formatHeadingComment(c.headingNum, c.typeId, fields);
+		return out;
+	}
+
 	const head = String(out[headingLine] || '');
 	const tabs = (head.match(/^(\t*)/) || ['', ''])[1];
 	let markerIdx = -1;

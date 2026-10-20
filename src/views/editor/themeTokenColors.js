@@ -17,7 +17,7 @@ const fs = require('fs');
 const path = require('path');
 
 // Doc Coloring role -> semantic token type. See the `role` values in
-// dripnoteColoringTokens.js and ROLE_TO_COLOR_KEY in dripnoteCustomDecorations.js.
+// dripTxtColoringTokens.js and ROLE_TO_COLOR_KEY in dripTxtCustomDecorations.js.
 const ROLE_TO_SEMANTIC_TYPE = {
 	color1: 'metatype',
 	color2: 'heading',

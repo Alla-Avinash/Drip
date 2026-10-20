@@ -20,7 +20,7 @@ const { searchFolderEmbeddingsExact } = require('../indexing/embeddings/folderEm
 const { scoreAllFileEmbeddings } = require('../indexing/embeddings/fileEmbeddingStore');
 const { syncFileEmbeddings } = require('../indexing/embeddings/fileEmbeddingSync');
 const { normalizeCorpusOptions, isPathVisibleForCorpus } = require('../indexing/kbFilesystem');
-const { isDripProjectFolderName } = require('../document/model/dripProjectFolder');
+const { isDripProjectFolderName } = require('../document/model/dripNoteProjectFolder.js');
 
 const FOLDER_LIMIT = 4;
 const FILE_LIMIT = 8;

@@ -40,6 +40,7 @@ function normalizeDraftRecord(raw) {
 		metadata: String(raw.metadata || ''),
 		content: String(raw.content || ''),
 		metadataFilename: String(raw.metadataFilename || '').trim(),
+		sourceFormat: String(raw.sourceFormat || ''),
 		updatedAt: String(raw.updatedAt || new Date().toISOString()),
 		status: String(raw.status || 'draft')
 	};

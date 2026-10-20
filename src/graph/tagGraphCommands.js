@@ -18,7 +18,7 @@ async function writeUtf8(uri, text) {
 }
 
 /**
- * @param {import('../src/state/state').DripState} state
+ * @param {import('../state/state').DripState} state
  * @returns {Promise<boolean>} false if the user cancelled the save dialog
  */
 async function exportActiveTagGraphToFile(state) {
@@ -53,7 +53,7 @@ async function exportActiveTagGraphToFile(state) {
 }
 
 /**
- * @param {import('../src/state/state').DripState} state
+ * @param {import('../state/state').DripState} state
  * @param {() => Promise<void>} pushTagGraphUi
  */
 async function runTagGraphNew(state, pushTagGraphUi) {
@@ -73,7 +73,7 @@ async function runTagGraphNew(state, pushTagGraphUi) {
 }
 
 /**
- * @param {import('../src/state/state').DripState} state
+ * @param {import('../state/state').DripState} state
  * @param {() => Promise<void>} pushTagGraphUi
  */
 async function runTagGraphImport(state, pushTagGraphUi) {

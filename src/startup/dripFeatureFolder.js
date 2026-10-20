@@ -12,10 +12,10 @@ const {
 	isDripFeatureFolderName,
 	featureDisplayNameFromFolderName,
 	featureIndexFileName
-} = require('../document/model/dripFeature');
-const { canPlaceFeature } = require('../document/model/dripKbFolderRules');
-const { buildNewNoteFile, writeTextFile } = require('../document/kbNoteOps');
-const { allocateNextEntityNumber, indexNewNoteImmediately } = require('../indexing/dripnoteIndex');
+} = require('../document/model/dripNoteFeature.js');
+const { canPlaceFeature } = require('../document/model/dripNoteKbFolderRules.js');
+const { buildNewNoteFile, writeTextFile } = require('../document/dripNoteKbOps.js');
+const { allocateNextEntityNumber, indexNewNoteImmediately } = require('../indexing/dripTxt/dripTxtIndex.js');
 
 /** Prevent recursive create → watch → create loops. */
 const ensuringKeys = new Set();
@@ -61,6 +61,7 @@ async function ensureFeatureIndexFile(folderUri, options = {}) {
 		const displayName = featureDisplayNameFromFolderName(folderName);
 		const noteName = featureIndexFileName(folderName);
 		const noteUri = vscode.Uri.joinPath(folderUri, noteName);
+		const isDripMd = noteName.toLowerCase().endsWith('.d.md');
 
 		try {
 			await vscode.workspace.fs.stat(noteUri);
@@ -104,12 +105,12 @@ async function ensureFeatureIndexFile(folderUri, options = {}) {
 			{
 				title: h0Label,
 				content: '',
-				metadataFilename: displayName
+				metadataFilename: displayName,
+				typeId: 'feature'
 			},
-			{
-				fileEntityNumber: n,
-				h0TypeMarker: '.f'
-			}
+			isDripMd
+				? { fileEntityNumber: n, format: 'drip-md' }
+				: { fileEntityNumber: n, h0TypeMarker: '.f' }
 		);
 		await writeTextFile(noteUri, text);
 

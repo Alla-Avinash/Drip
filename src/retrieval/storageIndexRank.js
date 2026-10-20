@@ -81,7 +81,7 @@ async function hydrateFilePlacementFields(kbRoot, fileUriStr, noteInput) {
 		bestHeadingPathForNote,
 		buildHeadingTreeFromBody,
 		splitFileHeaderAndBody
-	} = require('../document/kbNoteOps');
+	} = require('../document/dripNoteKbOps.js');
 
 	const uri = vscode.Uri.parse(fileUriStr);
 	let text = '';

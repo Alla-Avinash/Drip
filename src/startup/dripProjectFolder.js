@@ -14,10 +14,10 @@ const {
 	projectIndexFileName,
 	CONCEPTS_SUBFOLDER_NAME,
 	DECISIONS_SUBFOLDER_NAME
-} = require('../document/model/dripProjectFolder');
-const { canPlaceProjectFolder } = require('../document/model/dripKbFolderRules');
-const { buildNewNoteFile, writeTextFile } = require('../document/kbNoteOps');
-const { allocateNextEntityNumber, indexNewNoteImmediately } = require('../indexing/dripnoteIndex');
+} = require('../document/model/dripNoteProjectFolder.js');
+const { canPlaceProjectFolder } = require('../document/model/dripNoteKbFolderRules.js');
+const { buildNewNoteFile, writeTextFile } = require('../document/dripNoteKbOps.js');
+const { allocateNextEntityNumber, indexNewNoteImmediately } = require('../indexing/dripTxt/dripTxtIndex.js');
 
 /** Prevent recursive create → watch → create loops. */
 const ensuringKeys = new Set();
@@ -84,6 +84,7 @@ async function ensureProjectIndexFile(folderUri, options = {}) {
 		const displayName = projectDisplayNameFromFolderName(folderName);
 		const noteName = projectIndexFileName(folderName);
 		const noteUri = vscode.Uri.joinPath(folderUri, noteName);
+		const isDripMd = noteName.toLowerCase().endsWith('.d.md');
 
 		try {
 			await vscode.workspace.fs.stat(noteUri);
@@ -111,12 +112,12 @@ async function ensureProjectIndexFile(folderUri, options = {}) {
 			{
 				title: displayName,
 				content: '',
-				metadataFilename: displayName
+				metadataFilename: displayName,
+				typeId: 'project'
 			},
-			{
-				fileEntityNumber: n,
-				h0TypeMarker: '.p'
-			}
+			isDripMd
+				? { fileEntityNumber: n, format: 'drip-md' }
+				: { fileEntityNumber: n, h0TypeMarker: '.p' }
 		);
 		await writeTextFile(noteUri, text);
 

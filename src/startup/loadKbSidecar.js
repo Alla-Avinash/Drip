@@ -1,8 +1,8 @@
 'use strict';
 
 const { loadSettingsFromDripIndex } = require('./settingsDrip');
-const { invalidateKbNoteExtensionsCache } = require('../document/model/noteFileTypes');
-const { loadProjectMetadataSettings } = require('../document/model/dripnoteProjectMetadata');
+const { invalidateKbNoteExtensionsCache } = require('../document/model/dripNoteFileTypes.js');
+const { loadProjectMetadataSettings } = require('../document/model/dripTxt/dripTxtProjectMetadata.js');
 const { loadDraftsFromDripIndex, migrateGlobalDraftsToDripIndex } = require('./draftsDrip');
 const { migrateWorkspaceRecentsToDripIndex, loadRecentsFromDripIndex } = require('./recentsDrip');
 const tagGraphStore = require('../graph/tagGraphStore');

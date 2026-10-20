@@ -12,15 +12,15 @@
  */
 
 const vscode = require('vscode');
-const { getHeadingEditModes } = require('../../document/model/headingEditModes');
+const { getHeadingEditModes } = require('../../document/model/dripTxt/dripTxtHeadingEditModes');
 const {
 	findPersistentZoneAtLine,
 	findPersistentHeadingZones,
 	countPersistentHeadings,
 	isPersistentHeadingReadyForRhs
-} = require('../../document/model/persistentHeadingZones');
-const { classifyPersistentHeadingTitle } = require('../../document/model/dripnotePersistentHeading');
-const { getMetadataSettings, getMetadataSettingsForNotePath } = require('../../document/model/dripnoteMetadataTemplates');
+} = require('../../document/model/dripTxt/dripTxtPersistentHeadingZones.js');
+const { classifyPersistentHeadingTitle } = require('../../document/model/dripTxt/dripTxtPersistentHeading.js');
+const { getMetadataSettings, getMetadataSettingsForNotePath } = require('../../document/model/dripNoteMetadataTemplates.js');
 const {
 	revealDripHeadingFormView,
 	syncHeadingFormFromEditor,
@@ -31,7 +31,7 @@ const {
 	isGuardedDocumentEditActive,
 	isExpectedDiskWrite
 } = require('../../shared/documentEditGuard');
-const { parseHeadingForValidation } = require('../../document/parse/dripnoteHeadingParse');
+const { parseHeadingForValidation } = require('../../document/parse/dripTxt/dripTxtHeadingParse.js');
 
 /** @type {Map<string, string>} */
 const lastTextByUri = new Map();
