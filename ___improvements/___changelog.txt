@@ -1,0 +1,37 @@
+
+
+
+    - do research on the linear changelog 
+    - this helps in keeping in update the project progress and can help students to showcase their work in a better manner like the linear change log which keeps track of the changes to the application 
+    - with a particular date.. gets the changes made like the issues fixed from the previous publication date/previous git push/ from previous log/
+    - Why people need this? 
+        - to let them showcase their github project 
+        - or to let them keep track of their progress or work which they have done.. in an organization.
+    - each log has a standard structure 
+        - it talks about the new main features developed or improved 
+        - standard sections  
+            - Fixes
+            - Improvements 
+            - API 
+            - MCP or keyboardshortcuts ==> for helpign the user see what the change is and they can see it physically 
+        - each of these sections can have bullet points of the actual actions done 
+        - they also have the labels on then saying which component/feature/functionality/action(payments, search, filters,diffs, editor, ) they belong to.. 
+    - The three concepts
+        - Change type — what happened?
+            New features, Improvements, Fixes, API
+            These describe the nature of the update. For example, adding semantic search is a new feature; correcting duplicate task creation is a fix.
+        - Product area — where did it change?
+            Editor, Issues, MCP, Diffs, Agents
+            These identify the part of the product affected by the change. They are not necessarily UI components: MCP is an integration/protocol area, while Editor is a product area.
+        - Source issue — what work was done? 
+            An issue ID (I-23), title, description, and completion status.
+            This connects the published update to the actual development work, providing traceability.
+
+
+
+
+
+
+
+
+

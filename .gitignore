@@ -22,8 +22,7 @@ sample_delete.txt
 .cursor/not_imp_context/**
 
 
-__*.txt
-__*.md
+
 
 
 *.vsix
