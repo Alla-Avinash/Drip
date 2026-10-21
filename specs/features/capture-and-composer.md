@@ -45,7 +45,7 @@ The Composer is where a user drafts a new note or captures a selection/clipboard
 - The note is serialized back into the target file's own format, and nested sub-headings inside the body are converted the same way as the top heading:
   - A `.d.txt` target gets a tab-nested heading with the type shortcut re-applied (`# .c Concept`) and a metadata block (`.concept` plus indented `key: value` lines) above the body; an untyped-but-indexed heading gets a bare `.` shortcut and no `.marker` line (only its fields). Nested headings re-appear as `#1`, `#2` with the same shortcut/marker treatment.
   - A `.d.md` target gets a flush-left markdown heading (`# Concept`) with a hidden `<!-- drip h0 | concept | key: value … -->` comment directly under it (its real `hN` id is resolved on the next open/save). Nested headings keep their comments as-is.
-  - A brand-new `.d.md` file gets the `<!-- drip-file … -->` header, the h0 title, the metadata comment, then the body.
+  - A brand-new `.d.md` file gets the `<!-- drip-file … -->` header, a `---` separator, two blank lines, then the h0 title (with its metadata comment — `persistent` by default) and the body.
 
 ## Flow (plain steps)
 

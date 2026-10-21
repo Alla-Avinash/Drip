@@ -34,14 +34,8 @@ async function showKbNewMenu(targetUri) {
 				iconPath: new vscode.ThemeIcon('file')
 			},
 			{
-				label: 'New File',
-				description: 'Create a new .d.md file',
-				command: 'drip.createMarkdownFile',
-				iconPath: new vscode.ThemeIcon('file-add')
-			},
-			{
 				label: 'New Note',
-				description: 'Create a new note (default format)',
+				description: 'Create a new note (.d.md or .d.txt)',
 				command: 'drip.createNoteFile',
 				iconPath: new vscode.ThemeIcon('notebook')
 			}

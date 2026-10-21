@@ -136,10 +136,7 @@ async function notifyDraftSaved(sidebarProvider, draft, statusMessage) {
 		};
 		postToStorage({
 			type: 'composerNote',
-			note: {
-				...lastComposerNote,
-				content: combineComposerSections(lastComposerNote.metadata, lastComposerNote.content)
-			}
+			note: lastComposerNote
 		});
 	}
 	postToStorage({ type: 'storageActionStatus', message: statusMessage || '' });
@@ -266,7 +263,7 @@ class DripStorageWebviewProvider {
 						break;
 					}
 					case 'createNoteInFolderFromPicker': {
-						const fileUri = await this.state.createNoteInFolderFromPicker(message.folderUri, message.title);
+						const fileUri = await this.state.createNoteInFolderFromPicker(message.folderUri, message.title, message.fileExtension);
 						await this.sidebarProvider.refresh();
 						const listing = await this.state.browseKbList(message.folderUri, {
 							corpus: message.corpus,
@@ -459,7 +456,7 @@ class DripStorageWebviewProvider {
 			const { planLlmIngest } = require('../ingest/ingestPlanner');
 			return await planLlmIngest({
 				kbRoot,
-				note: { title: note.title || '', content: note.content || '' },
+				note: { title: note.title || '', content: combineComposerSections(note.metadata, note.content) },
 				context: this.state.context,
 				corpus: { corpus: corpus.corpus, customCorpusPaths: corpus.customCorpusPaths }
 			});
@@ -590,13 +587,7 @@ class DripComposerPanel {
 						};
 						postToStorage({
 							type: 'composerNote',
-							note: {
-								...lastComposerNote,
-								content: combineComposerSections(
-									lastComposerNote.metadata,
-									lastComposerNote.content
-								)
-							}
+							note: lastComposerNote
 						});
 						break;
 					}
@@ -740,10 +731,7 @@ class DripComposerPanel {
 		};
 		postToStorage({
 			type: 'composerNote',
-			note: {
-				...lastComposerNote,
-				content: combineComposerSections(metadata, content)
-			}
+			note: lastComposerNote
 		});
 		await this.panel.webview.postMessage({
 			type: 'capturedSelection',
@@ -843,10 +831,7 @@ class DripComposerPanel {
 
 		postToStorage({
 			type: 'composerNote',
-			note: {
-				...lastComposerNote,
-				content: combineComposerSections(lastComposerNote.metadata, lastComposerNote.content)
-			}
+			note: lastComposerNote
 		});
 
 		if (options.clearStorageSuggestions) {

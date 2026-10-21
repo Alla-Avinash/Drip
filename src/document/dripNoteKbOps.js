@@ -993,9 +993,10 @@ function buildNewNoteFile(draft, options = {}) {
 }
 
 /**
- * A brand-new `.d.md` note: the hidden `<!-- drip-file -->` header, the h0 title, then the
- * body as flush-left markdown. `fileid` is `@f0` when no number was allocated yet — the
- * `.d.md` sync resolves the real id on the next open/save.
+ * A brand-new `.d.md` note: the hidden `<!-- drip-file -->` header, a `---` separator, two
+ * blank lines of breathing room, then the h0 title (always carrying its metadata comment —
+ * `persistent` by default) and the body as flush-left markdown. `fileid` is `@f0` when no
+ * number was allocated yet — the `.d.md` sync resolves the real id on the next open/save.
  */
 function buildNewDripMdNoteFile(draft, options = {}) {
 	const metaLabel = (options.metadataFilename || draft.metadataFilename || draft.title || 'Untitled').trim();
@@ -1003,9 +1004,9 @@ function buildNewDripMdNoteFile(draft, options = {}) {
 	const fileid = formatFileEntityId(n);
 	const body = String(draft.content || '').replace(/\r\n/g, '\n').replace(/^\s+/, '').replace(/\s+$/, '');
 	const header = formatFileHeaderComment({ filename: metaLabel, fileid, headings: 0 });
-	const hasMeta = String(draft.typeId || '').trim() || (Array.isArray(draft.fields) && draft.fields.length);
-	const commentLine = hasMeta ? `${draftToMdCommentText(draft.typeId, draft.fields)}\n` : '';
-	return `${header}\n# ${metaLabel}\n${commentLine}\n${body}${body ? '\n' : ''}`;
+	// The h0 title always carries its metadata comment; an untyped draft is `persistent`.
+	const commentLine = draftToMdCommentText(draft.typeId, draft.fields);
+	return `${header}\n---\n\n\n\n# ${metaLabel}\n${commentLine}\n\n${body}${body ? '\n' : ''}`;
 }
 
 function buildAppendedNote(existingContent, draft, headingPath, options = {}) {

@@ -16,6 +16,10 @@ Two right-sidebar views: **Storage** for browsing the KB and placing/ingesting n
 - Shows ingest suggestions (optionally ranked by embeddings).
 - Receives and syncs note/settings state from the editor.
 
+### New-file format
+
+When the target is a folder (a new file will be created), Storage shows a `.d.txt` / `.d.md` radio to pick the note's file format. It defaults to the user's `defaultNewNoteExtension` preference, so LLM suggestions ("Suggest with LLM") and AI paths reuse that default rather than a hard-coded format. The chosen extension drives the file name and its serialization, so a `.d.txt` note is always written as drip-txt and a `.d.md` note as markdown — never cross-formatted.
+
 ### Where the note lands in a file
 
 When the target is a file, Storage shows that file's heading tree and the user picks a spot in it (by pointing at a heading row or moving the insert slot):

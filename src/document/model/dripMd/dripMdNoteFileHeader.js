@@ -5,17 +5,25 @@
  * plus the h0 title heading that sit at the top of a note.
  *
  * A `.d.md` note keeps its file-level identity in one HTML comment at the very top,
- * followed by a visible h0 heading and a blank line, so a plain markdown editor
- * shows only clean content:
+ * followed by a `---` separator and two blank lines before the visible h0 heading
+ * (which carries its own `<!-- drip h0 … -->` metadata comment), so a plain markdown
+ * editor shows only clean content:
  *
  *     <!-- drip-file filename: "My Note" | fileid: @f23 | headings: 5 -->
+ *     ---
+ *
+ *
  *     # My Note
+ *     <!-- drip h0 | persistent | tags: [a, b] -->
  *
  *     <body>
  *
  *   - `filename` the file stem (title), quoted because it may contain spaces
  *   - `fileid`   the sequential per-KB id (`@fN`)
- *   - `headings` count of persistent (`.…`) headings in the body
+ *   - `headings` count of persistent (`.…`) headings in the body (the h0 is never counted)
+ *
+ * The two blank lines between the `---` and the h0 are fixed breathing room — the
+ * reconcile always restores them so the file-level identity never crowds the title.
  *
  * This module is pure string logic. It never touches the database — fileid allocation
  * and uniqueness checking are a separate DB phase, injected here as the `fileid`
@@ -23,7 +31,7 @@
  */
 
 const { parseMarkdownHeading } = require('../../parse/dripMd/dripMdHeadingParse.js');
-const { isHeadingComment } = require('./dripMdNoteComment.js');
+const { isHeadingComment, parseHeadingComment, formatHeadingComment } = require('./dripMdNoteComment.js');
 const { parseFileEntityIdNumber } = require('../../../indexing/dripTxt/dripTxtEntityIds.js');
 
 /** `<!-- drip-file filename: "…" | fileid: @fN | headings: N -->` */
@@ -139,8 +147,9 @@ function countPersistentHeadings(bodyLines) {
  * @param {string} text
  * @param {{ fileStem?: string, fileid?: string | null }} [opts]
  * @returns {{ headerLines: string[], bodyStartLineIndex: number, changed: boolean }}
- *   `headerLines` is the canonical header block (comment, h0, blank line). The host
- *   replaces the original lines `[0, bodyStartLineIndex)` with it.
+ *   `headerLines` is the canonical header block (comment, `---`, two blank lines, h0,
+ *   h0 metadata comment, blank line). The host replaces the original lines
+ *   `[0, bodyStartLineIndex)` with it.
  */
 function reconcileMdNoteFileHeader(text, opts) {
 	const options = opts || {};
@@ -157,10 +166,10 @@ function reconcileMdNoteFileHeader(text, opts) {
 	}
 
 	// Determine where the body begins (preserved verbatim from here on).
+	let h0Index = -1;
 	let bodyStartLineIndex;
 	if (headerCommentIndex >= 0 && (firstHeadingIndex < 0 || headerCommentIndex < firstHeadingIndex)) {
 		// Header comment present: the h0 is the first heading after it.
-		let h0Index = -1;
 		for (let i = headerCommentIndex + 1; i < lines.length; i++) {
 			if (parseMarkdownHeading(lines[i])) {
 				h0Index = i;
@@ -170,11 +179,32 @@ function reconcileMdNoteFileHeader(text, opts) {
 		bodyStartLineIndex = h0Index >= 0 ? firstNonBlankLineIndex(lines, h0Index + 1) : firstNonBlankLineIndex(lines, headerCommentIndex + 1);
 	} else if (firstHeadingIndex >= 0) {
 		// No header comment, but there is a heading — treat the first heading as the title.
+		h0Index = firstHeadingIndex;
 		bodyStartLineIndex = firstNonBlankLineIndex(lines, firstHeadingIndex + 1);
 	} else {
 		// No heading at all: everything is body, header is prepended (leading blanks fold
 		// into the canonical separator).
 		bodyStartLineIndex = firstNonBlankLineIndex(lines, 0);
+	}
+
+	// The h0 title always carries its metadata in a `<!-- drip h0 | … -->` comment. When one
+	// is present, keep it glued to the title (it is part of the header — a blank separator
+	// would push it into the body and hide the h0 chips). Look past any blank separator left
+	// by an older reconcile for the h0's own comment (it is the only comment numbered `h0`).
+	let h0CommentLine = '';
+	if (h0Index >= 0) {
+		const firstAfterH0 = firstNonBlankLineIndex(lines, h0Index + 1);
+		if (firstAfterH0 < lines.length && isHeadingComment(lines[firstAfterH0])) {
+			const parsed = parseHeadingComment(lines[firstAfterH0]);
+			if (parsed && parsed.headingNum === 0) {
+				h0CommentLine = lines[firstAfterH0];
+				bodyStartLineIndex = firstNonBlankLineIndex(lines, firstAfterH0 + 1);
+			}
+		}
+	}
+	// Untyped h0 titles default to the `persistent` marker so the title always shows its chips.
+	if (!h0CommentLine) {
+		h0CommentLine = formatHeadingComment(0, 'persistent', []);
 	}
 
 	const bodyLines = lines.slice(bodyStartLineIndex);
@@ -189,9 +219,15 @@ function reconcileMdNoteFileHeader(text, opts) {
 	}
 
 	const headings = countPersistentHeadings(bodyLines);
+	// Canonical header: file identity, a `---` separator, two blank lines of breathing room,
+	// then the h0 title with its metadata comment. The gap is fixed and never collapses.
 	const headerLines = [
 		formatFileHeaderComment({ filename: fileStem, fileid, headings }),
+		'---',
+		'',
+		'',
 		`# ${fileStem}`,
+		h0CommentLine,
 		''
 	];
 

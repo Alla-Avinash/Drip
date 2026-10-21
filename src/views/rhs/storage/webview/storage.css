@@ -99,6 +99,9 @@ textarea { min-height: 120px; resize: vertical; font-family: var(--vscode-editor
 .shared-folder-actions label { font-size: 11px; color: var(--vscode-descriptionForeground); min-width: 4.5em; margin: 0; }
 .shared-folder-actions input { flex: 1; min-width: 100px; padding: 5px 8px; font-size: 12px; }
 .shared-folder-actions button { padding: 5px 10px; font-size: 11px; flex-shrink: 0; }
+.new-file-format { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--vscode-descriptionForeground); flex-wrap: wrap; width: 100%; margin-top: 6px; }
+.new-file-format label { display: inline-flex; align-items: center; gap: 3px; cursor: pointer; min-width: 0; }
+.new-file-format input[type="radio"] { width: auto; min-width: 0; flex: none; padding: 0; border: none; background: none; margin: 0; }
 .picker-search-label { font-size: 11px; color: var(--vscode-descriptionForeground); margin: 0 0 6px 0; font-weight: 600; }
 .heading-tree-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
 .heading-tree-toolbar button { padding: 3px 8px; font-size: 11px; border-radius: 4px; background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); cursor: pointer; border: none; }

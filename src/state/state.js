@@ -754,7 +754,7 @@ class DripState {
 		};
 	}
 
-	async createNoteInFolderFromPicker(folderUriStr, title) {
+	async createNoteInFolderFromPicker(folderUriStr, title, extension) {
 		const kbRoot = await this.ensureKnowledgeBaseRoot();
 		if (!kbRoot) {
 			throw new Error('No knowledge base folder selected.');
@@ -770,7 +770,7 @@ class DripState {
 			throw new Error('Enter a note title.');
 		}
 
-		const fileUri = vscode.Uri.joinPath(baseUri, buildNoteFileName(t));
+		const fileUri = vscode.Uri.joinPath(baseUri, buildNoteFileName(t, extension));
 		const n = await allocateNextEntityNumber(kbRoot);
 		await writeTextFile(
 			fileUri,
@@ -912,7 +912,7 @@ class DripState {
 				fileName = stripKbNoteExtension(fileName);
 			}
 
-			targetUri = vscode.Uri.joinPath(targetFolder, buildNoteFileName(fileName));
+			targetUri = vscode.Uri.joinPath(targetFolder, buildNoteFileName(fileName, selection.fileExtension));
 			const n = await allocateNextEntityNumber(kbRoot);
 			markExpectedDiskWrite(targetUri);
 			await writeTextFile(targetUri, buildNewNoteFile(writeDraft, { fileEntityNumber: n, format: noteFormatForPath(targetUri.fsPath) }));
@@ -992,6 +992,20 @@ class DripState {
 			await vscode.window.showErrorMessage(blockReason);
 			return undefined;
 		}
+		// One "New Note" entry now prompts for the format instead of two separate
+		// menu items (.d.md vs .d.txt).
+		const formatPick = await vscode.window.showQuickPick(
+			[
+				{ label: '.d.md', description: 'Markdown note (WYSIWYG .d.md editor)' },
+				{ label: '.d.txt', description: 'Plain-text note' }
+			],
+			{ title: 'New Note', placeHolder: 'Choose the note format' }
+		);
+		if (!formatPick) {
+			return undefined;
+		}
+		const extension = formatPick.label;
+
 		const title = await vscode.window.showInputBox({
 			prompt: 'Enter a note title',
 			placeHolder: 'Example: editor architecture'
@@ -1001,7 +1015,7 @@ class DripState {
 			return undefined;
 		}
 
-		const fileUri = vscode.Uri.joinPath(baseUri, buildNoteFileName(title));
+		const fileUri = vscode.Uri.joinPath(baseUri, buildNoteFileName(title, extension));
 		const n = await allocateNextEntityNumber(kbRoot);
 		await writeTextFile(
 			fileUri,

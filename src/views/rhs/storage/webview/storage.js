@@ -1,6 +1,6 @@
 const vscode = acquireVsCodeApi();
 	let currentDraftId = '';
-	let remoteNote = { id: '', title: '', headings: '', content: '', metadataFilename: '' };
+	let remoteNote = { id: '', title: '', headings: '', typeId: '', fields: [], metadata: '', content: '', metadataFilename: '' };
 
 	// Move-issue mode (RHS): project-scoped issue relocation. Additive — normal Storage flow is untouched.
 	const movePanelEl = document.getElementById('issue-move-panel');
@@ -69,6 +69,8 @@ const vscode = acquireVsCodeApi();
 	/** Note without a heading, file target: 'append' to the chosen heading's text, or 'new_heading' with a typed title. */
 	let noTitleMode = 'append';
 	let noTitleHeading = '';
+	/** File extension chosen for new notes ('.d.txt' or '.d.md'); seeded from the user's default note extension preference. */
+	let newFileExtension = '.d.txt';
 	/** Heading trees show only persistent (`# .…`) headings; children of hidden headings move up to the nearest shown one. */
 	let persistentOnly = !!(vscode.getState() || {}).persistentOnly;
 	const sharedFolderActionsEl = document.getElementById('shared-folder-actions');
@@ -999,6 +1001,24 @@ const vscode = acquireVsCodeApi();
 				!browsePickerOpen();
 			suggestedHeadingsWrap.hidden = !showHeadings;
 		}
+	}
+
+	/** Normalize the chosen new-note extension and reflect it across every format radio on the page. */
+	function setNewFileFormat(ext) {
+		newFileExtension = ext === '.d.md' ? '.d.md' : '.d.txt';
+		document.querySelectorAll('input[name="shared-new-file-format"], input[name="new-file-format"]').forEach(function (radio) {
+			radio.checked = radio.value === newFileExtension;
+		});
+	}
+
+	/** Radio pair markup for the new-note format, checking whichever format is currently selected. */
+	function newFileFormatRadioHtml(name) {
+		const opts = ['.d.txt', '.d.md'];
+		return '<span class="new-file-format">' +
+			opts.map(function (v) {
+				return '<label><input type="radio" name="' + name + '" value="' + v + '"' + (newFileExtension === v ? ' checked' : '') + ' /> ' + v + '</label>';
+			}).join('') +
+			'</span>';
 	}
 
 	function renderSharedFolderActions() {
@@ -1950,10 +1970,12 @@ const vscode = acquireVsCodeApi();
 				if (!title || !pickerCurrentFolderUri) {
 					return;
 				}
+				const fmt = document.querySelector('input[name="shared-new-file-format"]:checked');
 				vscode.postMessage({
 					type: 'createNoteInFolderFromPicker',
 					folderUri: pickerCurrentFolderUri,
 					title,
+					fileExtension: fmt ? fmt.value : newFileExtension,
 					...corpusPayload()
 				});
 				if (sharedNewFileNameEl) {
@@ -2349,6 +2371,9 @@ const vscode = acquireVsCodeApi();
 			id: currentDraftId,
 			title: remoteNote.title || '',
 			headings: remoteNote.headings || '',
+			typeId: remoteNote.typeId || '',
+			fields: Array.isArray(remoteNote.fields) ? remoteNote.fields.slice() : [],
+			metadata: remoteNote.metadata || '',
 			content: remoteNote.content || '',
 			metadataFilename: remoteNote.metadataFilename || ''
 		};
@@ -2514,6 +2539,7 @@ const vscode = acquireVsCodeApi();
 		if (message.type === 'kbNoteSettings' && sharedNewFileNameEl) {
 			const ext = message.defaultNewNoteExtension || '.d.txt';
 			sharedNewFileNameEl.placeholder = 'Note title (new files: *' + ext + ')';
+			setNewFileFormat(ext);
 		}
 
 		if (message.type === 'composerNote') {
@@ -2524,6 +2550,9 @@ const vscode = acquireVsCodeApi();
 				id: n.id || '',
 				title: n.title || '',
 				headings: n.headings || '',
+				typeId: n.typeId || '',
+				fields: Array.isArray(n.fields) ? n.fields.slice() : [],
+				metadata: n.metadata || '',
 				content: n.content || '',
 				metadataFilename: n.metadataFilename || ''
 			};
@@ -2905,6 +2934,11 @@ const vscode = acquireVsCodeApi();
 					rerenderHeadingTrees();
 					return;
 				}
+				if (t && t.name === 'new-file-format') {
+					newFileExtension = t.value === '.d.md' ? '.d.md' : '.d.txt';
+					postSelection();
+					return;
+				}
 				if (!t || !t.id) {
 					return;
 				}
@@ -2989,7 +3023,8 @@ const vscode = acquireVsCodeApi();
 		} else if (selectedTarget.targetType === 'folder') {
 			selectionControlsEl.innerHTML =
 				'<label for="new-file-name">Name</label>' +
-				'<input id="new-file-name" value="' + escapeHtml(selectedTarget.fileNameDefault || '') + '" placeholder="note-title" />';
+				'<input id="new-file-name" value="' + escapeHtml(selectedTarget.fileNameDefault || '') + '" placeholder="note-title" />' +
+				newFileFormatRadioHtml('new-file-format');
 		}
 		postSelection();
 	}
@@ -3039,10 +3074,12 @@ const vscode = acquireVsCodeApi();
 
 		if (selectedTarget.targetType === 'folder') {
 			const nameEl = document.getElementById('new-file-name');
+			const fmt = document.querySelector('input[name="new-file-format"]:checked');
 			const folderPayload = {
 				targetType: 'folder',
 				uri: selectedTarget.uri,
-				fileName: nameEl ? nameEl.value : selectedTarget.fileNameDefault
+				fileName: nameEl ? nameEl.value : selectedTarget.fileNameDefault,
+				fileExtension: fmt ? fmt.value : newFileExtension
 			};
 			return Object.assign(folderPayload, llmSelectionExtras(folderPayload));
 		}

@@ -49,13 +49,18 @@ HTML reveals on adjacency: a rendered HTML block (or an inline HTML tag) shows i
 
 ## File header (identity block)
 
-Every `.d.md` note keeps a one-line identity block at the very top, before the title, so a plain markdown editor shows only clean content:
+Every `.d.md` note keeps a one-line identity block at the very top, then a `---` separator and two blank lines before the h0 title, so a plain markdown editor shows only clean content:
 
     <!-- drip-file filename: "My Note" | fileid: @f23 | headings: 5 -->
-    # My Note
+    ---
 
-- `filename` is the file stem (the basename minus `.d.md`), `fileid` the sequential per-knowledge-base id (`@fN`), and `headings` the count of persistent headings in the body (a heading is persistent when it has a hidden comment under it — see "Metadata comments").
-- The identity block is **display-only** in the DRIP editor: it renders as a small banner above the title showing the filename, file id, and persistent-heading count. It is never editable — the raw comment stays hidden as the source of truth, and the banner is only a visual summary. The h0 title renders as a normal heading beneath it.
+
+    # My Note
+    <!-- drip h0 | persistent | tags: [a, b] -->
+
+- `filename` is the file stem (the basename minus `.d.md`), `fileid` the sequential per-knowledge-base id (`@fN`), and `headings` the count of persistent headings in the body (a heading is persistent when it has a hidden comment under it — see "Metadata comments"). The h0 title is the file's name, never a body heading, so it is never counted in `headings`.
+- The identity block is **display-only** in the DRIP editor: it renders as a small banner above the title showing the filename, file id, and persistent-heading count. It is never editable — the raw comment stays hidden as the source of truth, and the banner is only a visual summary. The `---` renders as a horizontal rule, and the h0 title renders as a normal heading beneath it.
+- The two blank lines between the `---` and the h0 are fixed breathing room: the reconcile always restores them, so the file-level identity never crowds the title. The h0 title always carries its own `<!-- drip h0 | … -->` metadata comment (an untyped title defaults to `persistent`), which renders as its chip row.
 
 A host-side reconcile keeps this block in shape without touching the body. It runs on open and on save only: it reads the file and — only when something actually drifted — rewrites the top, correcting `filename` to the stem, aligning the h0 heading to match the stem, and refreshing the persistent-heading count. It never runs on a mid-typing debounce, because the webview is the single writer of an open document and a background rewrite would race the editor (see "Single writer" below).
 
@@ -69,6 +74,8 @@ A persistent heading carries its identity and metadata in a one-line HTML commen
     <!-- drip h12 | concept | status: in-progress | deadline: 2026-04-29 18:30 | tags: [a, b, c] -->
 
 `h12` is the per-file heading number, `concept` the metadata type id, and the rest are `key: value` fields. An untyped-but-indexed heading uses the `persistent` marker instead of a type id (`<!-- drip h12 | persistent | tags: [a, b] -->`). A heading with no comment under it is a plain heading — not indexed, no id, no chips.
+
+The h0 title always carries its own type/metadata the same way, in a `<!-- drip h0 | … -->` comment directly under the title — an untyped title defaults to `persistent`. The header reconcile keeps that comment glued to the title (it is part of the header, never pushed into the body), so its chips render like any other persistent heading. It is still the file's name, not a body heading.
 
 Because enum/datetime/duration values can only come from DRIP settings, invalid values only appear when a note is hand-edited as text. So a one-time sweep runs the first time each note is opened in a session (including tabs restored from a previous session) and drops invalid fields straight out of the comment: unknown keys, empty values, enum values outside the allowed list, non-canonical datetimes (`YYYY-MM-DD HH:mm` only), and bad durations. The comment's own type token is the authority for which fields are valid. This is host-side and never touches the database.
 
