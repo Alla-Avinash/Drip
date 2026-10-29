@@ -1,8 +1,9 @@
 {
 	"name": "drip",
 	"displayName": "DRIP — Personal Knowledge Base & Note Capture",
+	"icon": "icons/drip_icon.png",
 	"description": "Capture, organize and search a personal knowledge base of plain-text or markdown notes — with concepts, projects, issues, tags and an optional LLM that files quick captures.",
-	"version": "3.0.0",
+	"version": "3.1.0",
 	"publisher": "AvinashAlla",
 	"license": "UNLICENSED",
 	"engines": {
