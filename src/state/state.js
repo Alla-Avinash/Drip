@@ -771,7 +771,7 @@ class DripState {
 		}
 
 		const fileUri = vscode.Uri.joinPath(baseUri, buildNoteFileName(t, extension));
-		const n = await allocateNextEntityNumber(kbRoot);
+		const n = await allocateNextEntityNumber(kbRoot, fileUri);
 		await writeTextFile(
 			fileUri,
 			buildNewNoteFile({
@@ -784,6 +784,11 @@ class DripState {
 			await indexNewNoteImmediately(kbRoot, fileUri, this.context);
 		} catch (err) {
 			console.error('[DRIP] immediate index after createNoteInFolderFromPicker', err);
+		}
+		try {
+			await require('../peer/projectRecord').recordNewProjectFile(kbRoot, fileUri, { title: t });
+		} catch (err) {
+			console.error('[DRIP] record note create', err);
 		}
 
 		return fileUri.toString();
@@ -913,7 +918,7 @@ class DripState {
 			}
 
 			targetUri = vscode.Uri.joinPath(targetFolder, buildNoteFileName(fileName, selection.fileExtension));
-			const n = await allocateNextEntityNumber(kbRoot);
+			const n = await allocateNextEntityNumber(kbRoot, targetUri);
 			markExpectedDiskWrite(targetUri);
 			await writeTextFile(targetUri, buildNewNoteFile(writeDraft, { fileEntityNumber: n, format: noteFormatForPath(targetUri.fsPath) }));
 			try {
@@ -958,7 +963,7 @@ class DripState {
 					throw new Error(autoBlockReason);
 				}
 				targetUri = vscode.Uri.joinPath(targetFolder, buildNoteFileName(draft.title));
-				const n = await allocateNextEntityNumber(kbRoot);
+				const n = await allocateNextEntityNumber(kbRoot, targetUri);
 				markExpectedDiskWrite(targetUri);
 				await writeTextFile(targetUri, buildNewNoteFile(writeDraft, { fileEntityNumber: n, format: noteFormatForPath(targetUri.fsPath) }));
 				try {
@@ -1016,7 +1021,7 @@ class DripState {
 		}
 
 		const fileUri = vscode.Uri.joinPath(baseUri, buildNoteFileName(title, extension));
-		const n = await allocateNextEntityNumber(kbRoot);
+		const n = await allocateNextEntityNumber(kbRoot, fileUri);
 		await writeTextFile(
 			fileUri,
 			buildNewNoteFile({
@@ -1029,6 +1034,11 @@ class DripState {
 			await indexNewNoteImmediately(kbRoot, fileUri, this.context);
 		} catch (err) {
 			console.error('[DRIP] immediate index after createNoteFile', err);
+		}
+		try {
+			await require('../peer/projectRecord').recordNewProjectFile(kbRoot, fileUri, { title });
+		} catch (err) {
+			console.error('[DRIP] record note create', err);
 		}
 
 		await vscode.commands.executeCommand('vscode.open', fileUri);
@@ -1057,7 +1067,7 @@ class DripState {
 		}
 
 		const fileUri = vscode.Uri.joinPath(baseUri, buildNoteFileName(title, '.d.md'));
-		const n = await allocateNextEntityNumber(kbRoot);
+		const n = await allocateNextEntityNumber(kbRoot, fileUri);
 		await writeTextFile(
 			fileUri,
 			buildNewNoteFile({
@@ -1070,6 +1080,11 @@ class DripState {
 			await indexNewNoteImmediately(kbRoot, fileUri, this.context);
 		} catch (err) {
 			console.error('[DRIP] immediate index after createMarkdownFile', err);
+		}
+		try {
+			await require('../peer/projectRecord').recordNewProjectFile(kbRoot, fileUri, { title });
+		} catch (err) {
+			console.error('[DRIP] record note create', err);
 		}
 
 		await vscode.commands.executeCommand('vscode.open', fileUri);
@@ -1161,16 +1176,17 @@ class DripState {
 	}
 
 	/**
-	 * Create a project folder `Name.p` (and index note) under the KB root or selected folder.
-	 * @param {import('vscode').Uri | undefined} targetUri
+	 * Create a project folder `Name.p` (and index note) under `.drip.project`.
+	 * @param {import('vscode').Uri | undefined} _targetUri
 	 */
-	async createProjectFolder(targetUri) {
+	async createProjectFolder(_targetUri) {
 		const kbRoot = await this.ensureKnowledgeBaseRoot();
 		if (!kbRoot) {
 			throw new Error('No knowledge base folder selected.');
 		}
 
-		const baseUri = await this.resolveTargetFolder(targetUri);
+		const { ensureProjectsHome } = require('../startup/projectsDrip');
+		const baseUri = await ensureProjectsHome(kbRoot);
 		const name = await vscode.window.showInputBox({
 			prompt: 'New project name (saved as Name.p)',
 			placeHolder: 'MyProject',
@@ -1185,7 +1201,7 @@ class DripState {
 				const folderName = isDripProjectFolderName(v) ? v : `${v}${PROJECT_FOLDER_EXT}`;
 				const prospective = path.join(baseUri.fsPath, folderName);
 				if (!canPlaceProjectFolder(kbRoot.fsPath, prospective)) {
-					return 'Project folders cannot be nested inside another project.';
+					return 'Projects can only be created in the Projects section.';
 				}
 				return undefined;
 			}
@@ -1200,7 +1216,7 @@ class DripState {
 		const folderUri = vscode.Uri.joinPath(baseUri, folderName);
 
 		if (!canPlaceProjectFolder(kbRoot.fsPath, folderUri.fsPath)) {
-			await vscode.window.showErrorMessage('Project folders cannot be nested inside another project.');
+			await vscode.window.showErrorMessage('Projects can only be created in the Projects section.');
 			return undefined;
 		}
 
@@ -1291,6 +1307,21 @@ class DripState {
 		} catch (err) {
 			console.error('[DRIP] ensure feature index after createFeatureFolder', err);
 		}
+		try {
+			const { recordNewProjectFile } = require('../peer/projectRecord');
+			const { ensureFeatureIndexFile } = require('../startup/dripFeatureFolder');
+			const indexUri = await ensureFeatureIndexFile(folderUri, { kbRoot, context: this.context });
+			if (indexUri) {
+				await recordNewProjectFile(kbRoot, indexUri, {
+					kind: 'feature',
+					title: trimmed,
+					displayKey: '',
+					folderRel: folderName
+				});
+			}
+		} catch (err) {
+			console.error('[DRIP] record feature folder create', err);
+		}
 		return folderUri;
 	}
 
@@ -1367,7 +1398,7 @@ class DripState {
 
 		const displayName = trimmed;
 		const h0Label = featureEntityId ? `${featureEntityId} ${displayName}` : displayName;
-		const n = await allocateNextEntityNumber(kbRoot);
+		const n = await allocateNextEntityNumber(kbRoot, fileUri);
 		await writeTextFile(
 			fileUri,
 			buildNewNoteFile(
@@ -1379,6 +1410,15 @@ class DripState {
 			await indexNewNoteImmediately(kbRoot, fileUri, this.context);
 		} catch (err) {
 			console.error('[DRIP] index feature file', err);
+		}
+		try {
+			await require('../peer/projectRecord').recordNewProjectFile(kbRoot, fileUri, {
+				kind: 'feature',
+				title: displayName,
+				displayKey: featureEntityId
+			});
+		} catch (err) {
+			console.error('[DRIP] record feature file create', err);
 		}
 		await vscode.commands.executeCommand('vscode.open', fileUri);
 		return fileUri;
@@ -2081,6 +2121,13 @@ class DripState {
 				// proceed
 			}
 		}
+		if (isNoteFile) {
+			try {
+				await require('../peer/projectRecord').recordDeletedProjectFile(kbRoot, item.uri);
+			} catch (err) {
+				console.error('[DRIP] record concept/decision delete', err);
+			}
+		}
 		await vscode.workspace.fs.delete(item.uri, { recursive: true });
 	}
 
@@ -2107,7 +2154,17 @@ class DripState {
 			return;
 		}
 		try {
-			await this._removeDailyNotesFolderFromIndex(kbRoot, item.uri);
+			const { readProjectRecord } = require('../peer/projectSidecar');
+			const rec = await readProjectRecord(item.uri);
+			if (rec && rec.projectId) {
+				require('../peer/projectLanSync').stopLanListener(rec.projectId);
+			}
+		} catch {
+			/* sharing may not be running */
+		}
+		try {
+			const { removeProjectFolderFromIndexes } = require('../indexing/projectIndex');
+			await removeProjectFolderFromIndexes(kbRoot, item.uri);
 		} catch {
 			// proceed
 		}

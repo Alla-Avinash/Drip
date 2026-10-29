@@ -16,6 +16,9 @@ benchmarks/results/*.json
 temp-data/
 *.tmp
 
+# Isolated Peer B editor instance (user data, extensions, test KBs)
+.drip-test/
+
 sample_delete.txt
 
 .cursor/other_files/**

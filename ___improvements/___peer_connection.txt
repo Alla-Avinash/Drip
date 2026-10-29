@@ -1,0 +1,703 @@
+
+
+https://github.com/kermanx/p2p-live-share  in this vscode extension i want to make some particular changes so to make this not like a more continuous network but make it as a atomic operations with peer to peer, no centralised server.. i want to make something like how linear allows creation of issues in its application.. but i have it in a special md or special txt formst..
+What you're describing is a peer-to-peer issue-tracking system built around local Markdown or text files, with a workflow similar to Linear, rather than a continuously connected collaboration session.
+
+The key design change is to move from sharing a workspace to exchanging discrete, versioned operations. For example, one person creates an issue, sends it to another peer, and the other person can accept, update, or close it without both people being online simultaneously.
+
+The repository you linked, P2P Live Share, is a reasonable starting point because it already supports peer-to-peer communication through WebRTC. However, its main purpose is real-time collaboration, including synchronized editing and workspace files. It uses Trystero with public signaling options by default, so it isn't entirely free of centralized infrastructure today. 
+
+GitHub
+
+1. How I would redesign it
+Local issue files
+
+.issue.md or .issue.txt · No account or central database
+
+Atomic operation engine
+
+Create · Update · Assign · Comment · Close
+
+P2P synchronization
+
+Exchange pending operations when peers connect
+
+Peer A
+
+Local files and history
+
+Peer B
+
+Local files and history
+
+The important point: the issue exists locally; the network is only used to exchange changes. Neither peer needs to remain connected for the issue to exist or be edited.
+
+2. What an issue file could look like
+For example, each issue could be an independent .issue.md file:
+
+---
+id: iss_8f31a2
+title: Fix authentication token refresh
+status: open
+priority: high
+assignee: peer_b
+created_by: peer_a
+version: 1
+---
+
+## Description
+Refresh expired access tokens automatically.
+
+## Acceptance criteria
+- [ ] Detect expired access tokens
+- [ ] Refresh tokens securely
+- [ ] Handle refresh failures
+The frontmatter stores structured fields, while Markdown stores the description and acceptance criteria. Your extension can render these files in a Linear-style issue panel while keeping the underlying data portable and editable.
+
+3. How atomic operations should work
+Instead of continuously synchronizing document edits, generate discrete operations.
+
+Operation
+
+Example
+
+Create issue
+
+issue.create
+
+Change status
+
+issue.status.set
+
+Assign issue
+
+issue.assignee.set
+
+Add comment
+
+issue.comment.add
+
+Close issue
+
+issue.close
+
+Every operation should have a unique ID, target issue ID, author/peer ID, timestamp, and causal metadata such as its parent operation or version.
+
+Example:
+
+{
+  "opId": "op_a102",
+  "type": "issue.status.set",
+  "issueId": "iss_8f31a2",
+  "value": "in_progress",
+  "author": "peer_a",
+  "baseVersion": 1
+}
+
+When Peer A changes the status, the extension:
+
+Validates the operation.
+
+Saves it locally and updates the issue.
+
+Queues it for synchronization.
+
+Sends it to Peer B when a connection is available.
+
+Lets Peer B validate and apply it exactly once logically, even if it receives the same operation multiple times.
+
+Important: atomicity means an operation is applied completely or not at all. Use a local transaction for the operation log and materialized issue state. Network delivery itself cannot guarantee exactly-once execution, so use unique operation IDs and idempotent processing.
+
+4. What should be reused from P2P Live Share?
+Existing functionality
+
+Recommended treatment
+
+WebRTC peer transport
+
+Reuse if it fits your requirements
+
+Trystero connection/signaling
+
+Reuse initially, or replace later
+
+Continuous text synchronization
+
+Remove from the issue workflow
+
+Workspace file synchronization
+
+Replace with explicit issue operations
+
+Live collaboration session
+
+Replace with optional, temporary peer connections
+
+Invitation links
+
+Reuse or adapt for peer discovery and pairing
+
+You probably do not need to rewrite the whole extension. First inspect how its transport and synchronization layers are separated. Reusing the connection layer while building a new issue-operation layer will be cleaner than modifying its live-editing behavior into an issue tracker.
+
+5. The main architecture decision
+There is one unavoidable trade-off: fully decentralized does not mean automatically discoverable.
+
+No central application server: achievable. Store issues and operation history on peers.
+
+No always-on connection: achievable. Queue operations until peers reconnect.
+
+No centralized signaling server whatsoever: possible, but discovery and NAT traversal become harder. You may need manual connection details, LAN discovery, or another decentralized discovery mechanism.
+
+Conflict resolution: necessary when two peers independently change the same field while offline.
+
+For an initial version, I would use local issue files, an append-only operation log, peer-to-peer synchronization on demand, and deterministic conflict rules. Keep the issue state separate from the transport implementation.
+
+One question that determines the next architectural step: when Peer A creates an issue, how should Peer B receive it?
+
+1. Delivery model
+
+
+Manual exchange — send an issue or operation bundle to a peer
+
+Sync on connection — peers exchange pending operations whenever they connect
+
+Peer gossip — peers forward operations to other known peers over time
+2. Who can see an issue?
+
+
+Only explicitly selected peers
+
+A shared group of peers, without a central server
+
+Anyone who receives the issue or its sharing capability
+i want to know how linear handles this does it have a centralized server and tell me how do synchronization works here in linear when a person is offline and comes back online after a while but there is someother person also online and have created the issues after him how does the sync happen in such cases?
+Yes. Linear uses a centralized backend, but its clients are local-first. Each client maintains a local database so users can interact with issues immediately, while Linear's servers store the shared workspace state and coordinate synchronization across users. 
+
+Linear
++1
+
+1. What happens when someone goes offline?
+Linear documents this behavior explicitly: changes that cannot reach the backend are stored locally and retried when connectivity returns. Offline mode is a fallback, not a fully independent collaboration system. 
+
+Linear Docs
+
+Let's use your exact scenario:
+
+10:00 AM — Peer A goes offline
+
+A has a local copy of the workspace and creates issue ISS-101. The change is saved locally but cannot reach Linear's server.
+
+10:05 AM — Peer B stays online
+
+B creates ISS-102. The server processes and stores the issue, and other connected clients receive the update.
+
+10:30 AM — Peer A reconnects
+
+A sends its queued changes and retrieves the changes it missed. Its local database catches up with the shared workspace.
+
+The important detail is that A's issue and B's issue are separate creations. A's offline issue does not disappear simply because B created another issue first.
+
+2. How does Linear know what A missed?
+Linear uses delta synchronization. Each client tracks a checkpoint representing the last synchronization action it applied. When A reconnects, it sends that checkpoint and receives the relevant changes after it, rather than downloading the entire workspace again. Linear documents an ordered, append-only log of synchronization actions for each workspace. 
+
+Linear
+
+For example:
+
+Shared workspace change log (simplified)
+
+501
+issue.create — ISS-102 by B
+
+502
+issue.update — existing issue by B
+
+503
+issue.create — ISS-103 by B
+
+A's last checkpoint: 500
+
+On reconnect: A fetches applicable actions 501–503, applies them locally, and advances its checkpoint.
+
+This log is a conceptual illustration, not Linear's actual production records.
+
+3. What if A and B modify the same issue?
+This is the more difficult case. Linear's documentation warns that offline edits can overwrite another person's changes: it does not simply reject an offline change because it was created earlier. 
+
+Linear Docs
+
+For example:
+
+Time
+
+Peer A (offline)
+
+Peer B (online)
+
+10:00
+
+Sees status Open
+
+Sees status Open
+
+10:05
+
+Changes description
+
+Changes status to In Progress
+
+10:30
+
+Reconnects and submits its pending edit
+
+B's change is already on the server
+
+If A only changed the description, the changes concern different fields. But Linear's documented offline behavior means you should not assume every conflicting edit will be merged intelligently. If both change the same field, an overwrite is possible.
+
+4. What this means for your decentralized extension
+You can adopt Linear's strongest synchronization idea without adopting its centralized backend:
+
+Give every operation a unique ID.
+
+Maintain a local append-only operation log.
+
+Track the last operation each peer has received from other peers.
+
+Exchange only missing operations when peers reconnect.
+
+Define explicit conflict rules for simultaneous edits.
+
+The key difference is authority: Linear has a central server that maintains the authoritative workspace state. Your system has no such server, so peers must agree on how to reconcile competing operations.
+
+My recommendation: model your extension as a local-first, operation-based system with durable logs and explicit conflict handling. Use P2P only to exchange operations, not as the source of truth. That is the architectural direction closest to Linear's synchronization model while preserving your decentralized requirement.
+
+what exactly is in the https://github.com/kermanx/p2p-live-share  github repo? you say it uses webrtc but it is directly interconnected with the files and folders but not with a particular interface which only deals with a specific database which renders it up right?
+You're understanding the distinction correctly. P2P Live Share connects collaboration to the actual VS Code workspace and its files; it is not an issue-management application with a dedicated database and interface.
+
+The repository is a TypeScript VS Code extension that provides real-time collaborative editing, workspace file synchronization, remote language services, terminal sharing, port forwarding, and chat. It uses WebRTC through Trystero for peer communication. 
+
+GitHub
++1
+
+1. What is actually inside the repository?
+Component
+
+What it does
+
+VS Code extension
+
+Adds the P2P Live Share panel and collaboration commands
+
+Collaboration layer
+
+Coordinates shared editing and workspace synchronization
+
+WebRTC / Trystero
+
+Establishes communication between peers
+
+Remote language service
+
+Allows collaboration with language-related functionality
+
+Terminal and port sharing
+
+Exposes selected development capabilities to collaborators
+
+Workspace file sync
+
+Shares workspace files and changes
+
+Relay/signaling support
+
+Helps peers discover and establish connections
+
+The repository has a src/ directory containing the implementation, along with package.json, TypeScript configuration, build configuration, assets, and documentation. 
+
+GitHub
+
+2. Does it have a dedicated interface and database like Linear?
+Not in the sense you're describing.
+
+Capability
+
+P2P Live Share
+
+Your proposed extension
+
+Primary interface
+
+VS Code collaboration panel and existing editors
+
+Dedicated issue-management interface
+
+Main data
+
+Workspace files, editor state, collaboration messages
+
+Structured issues and their operation history
+
+Persistence
+
+Existing workspace files and related runtime state
+
+Local issue files and/or a local database
+
+Synchronization
+
+Live collaboration and workspace synchronization
+
+Discrete issue operations
+
+Issue-specific features
+
+Not its primary purpose
+
+Create, assign, prioritize, comment, close
+
+The repository does have an interface; it simply uses VS Code's existing interface rather than providing a Linear-style issue tracker. Its documented functionality centers on workspace collaboration, not an issue database. 
+
+GitHub
+
+I wouldn't conclude that it has no internal storage at all without examining the implementation. The important distinction is that it doesn't advertise a dedicated issue database as its core data model.
+
+3. What should you reuse?
+I'd retain the VS Code extension framework and investigate reusing its P2P transport, but build three separate components:
+
+Issue UI: a sidebar listing issues, filters, detail views, and create/edit forms.
+
+Issue storage: a defined schema for .issue.md files, plus an operation log and synchronization checkpoints.
+
+P2P engine: exchanges issue operations rather than continuously synchronizing arbitrary workspace edits.
+
+That gives you a Linear-like experience without making the workspace itself the collaboration model.
+
+One important design choice: use Markdown files as the portable source of truth, with a local SQLite database only as an index/cache if you need fast filtering and querying. You don't need a central database server for this architecture.
+
+now tell me if i use p2p extension what will happen if a user went offline.. please refer to the repoi
+According to the repository's README, P2P Live Share is designed for real-time collaboration, not durable offline-first synchronization. It shares workspace files and collaborative editing over WebRTC, using Trystero for connection establishment. The README does not promise that offline edits are queued and replayed when a peer reconnects. 
+
+GitHub
+
+What happens when a user goes offline?
+Imagine A is hosting a session and B joins it.
+
+Situation
+
+Likely behavior
+
+B disconnects temporarily
+
+The live peer connection is interrupted; B no longer receives live updates.
+
+A edits a file while B is disconnected
+
+A's local workspace changes.
+
+B edits a file while disconnected
+
+B's local workspace may change, but automatic replay to A is not guaranteed by the documented design.
+
+B reconnects to the same session
+
+Do not assume missed edits are automatically reconciled or replayed. The repository's implementation must be checked to determine what is restored.
+
+A shuts down the session
+
+B cannot rely on the session continuing to act as an always-available synchronization service.
+
+These are the expected implications of its live-collaboration model, not a verified description of every reconnect code path.
+
+The distinction for your project
+If you fork this extension, don't assume its existing synchronization handles offline operations. You would need to inspect the source code for:
+
+Whether workspace files are fully transferred when a peer joins.
+
+Whether disconnected edits are buffered anywhere.
+
+Whether reconnecting triggers a fresh state transfer.
+
+How simultaneous changes to the same file are reconciled.
+
+The repository's README alone doesn't establish these behaviors. You can start with the source code.
+
+For your issue tracker, I'd implement durable local operations independently of the existing live-editing system. That way, creating an issue while offline is safe by design, and peers exchange missing operations when they reconnect—without depending on a continuous session.
+
+so now tell me how does this repo work internally how is the connection made and what if one connection breaks in the middle how does it connect back ? i need detailed infor
+I checked the repository's actual TypeScript source, including src/session/host.ts, src/session/guest.ts, src/sync/connection.ts, src/sync/doc.ts, and src/fs/guest.ts. This gives us a more concrete picture than the README alone. 
+
+GitHub
++4
+
+The most important finding is that the extension has two separate layers:
+
+A connection layer that discovers peers, sends messages, and reports connection failures.
+
+A collaboration layer that uses Yjs to synchronize shared document state and routes workspace operations between guest and host.
+
+Here's how they work together.
+
+1. Overall architecture
+Peer B — Guest VS Code
+
+Editors · virtual workspace · guest filesystem handlers
+
+WebRTC data channel · collaboration messages
+
+Connection abstraction
+
+src/sync/connection.ts
+
+Message actions · peer tracking · ping · error and close handling
+
+Direct peer communication
+
+Peer A — Host VS Code
+
+Real workspace · filesystem · terminal · language services
+
+A signaling strategy or WebSocket server helps establish or route the connection, depending on the selected mode.
+
+The guest's workspace is not simply a copy of the host's ordinary local folder. The extension registers a custom VS Code filesystem scheme, p2p-live-share, and implements file operations that route to the host. Open text documents are tracked using Yjs documents. 
+
+GitHub
++2
+
+2. How is a connection established?
+The repository supports more than one connection mode. The invitation link identifies which mode to use, along with the room and host information. This is implemented in src/sync/share.ts. 
+
+GitHub
+
+Mode A: Trystero (MQTT or Nostr)
+
+Peers join the same room using a signaling strategy. That strategy helps them discover one another and exchange WebRTC connection information. Once WebRTC is established, collaboration data travels directly between peers.
+
+Source: Trystero connection implementation · How Trystero works
+
+Mode B: WebSocket relay
+
+The host or guest connects to a WebSocket server. In this mode, the server routes messages between participants instead of using a direct WebRTC data channel for the collaboration transport.
+
+Source: src/sync/ws/guest.ts and src/sync/ws/host.ts
+
+Mode C: Host Locally
+
+The host listens on a selected local network interface and guests connect directly to it. This avoids a separate relay server when the network permits direct connectivity.
+
+Source: Repository README
+
+What happens in WebRTC mode?
+Host starts a session. The extension generates a room ID and connection configuration.
+
+Host shares an invitation link. The link encodes the connection type, room ID, and signaling endpoint or host address.
+
+Guest joins the room. Trystero discovers the other peer and exchanges the information needed to establish a connection.
+
+WebRTC negotiates the connection. The peers establish a direct data channel if network conditions permit.
+
+The extension initializes collaboration. The guest waits for an init message from the host, receives a Yjs document update and host metadata, then installs the filesystem, RPC, terminal, and other handlers.
+
+The final step is directly visible in createGuestSession() and createHostSession(). A guest waits up to 15 seconds before displaying a warning that no host was found, with an option to continue waiting. 
+
+GitHub
++1
+
+One important networking detail: WebRTC does not guarantee a direct path on every network. NAT and firewall restrictions can prevent it. Trystero's documentation recommends a TURN server for cases where direct connectivity fails; TURN relays traffic but does not itself provide durable storage. 
+
+GitHub
+
+3. How does the repository send and synchronize data?
+The code does not use one universal synchronization mechanism for everything. It uses different message actions for different purposes.
+
+Message or mechanism
+
+Purpose
+
+init
+
+Sends initial shared-document state and host metadata to a new guest
+
+doc
+
+Propagates updates to the shared Yjs document
+
+texts
+
+Propagates updates for open text files
+
+RPC
+
+Routes guest filesystem and other requests to the host
+
+__ping__ / __pong__
+
+Measures whether a peer responds and estimates latency
+
+_ack
+
+Acknowledges received messages in the Trystero transport controller
+
+The connection abstraction in src/sync/connection.ts exposes a makeAction() API that wraps sending and receiving these messages. The Trystero implementation adds its own delivery tracking and acknowledgements. 
+
+GitHub
++3
+
+A concrete example: editing a file
+Suppose the host and guest both have src/app.ts open.
+
+The guest opens the shared file, triggering trackContent().
+
+The guest requests the initial file content through the host's RPC interface.
+
+The guest creates a local Yjs document and applies the initial update.
+
+When the guest edits the file, Yjs emits a document update.
+
+The guest sends that update using the texts action, targeted at the host.
+
+The host applies the received update to the corresponding document and updates its shared file state.
+
+Subsequent updates propagate through the same collaboration mechanism.
+
+This flow is implemented in src/fs/guest.ts and supported by the host's filesystem and document synchronization services. 
+
+GitHub
++2
+
+Yjs is important here because it represents collaborative document changes in a way that can be applied and merged. However, using Yjs does not automatically mean the extension has a durable offline operation queue or complete session recovery.
+
+4. What happens when a connection breaks in the middle?
+This is where the source code becomes especially relevant to your project.
+
+There are three distinct mechanisms to understand: message retransmission, peer-disconnection detection, and session reconnection.
+
+A. Message retransmission and acknowledgements
+In src/sync/trystero/controller.ts, the extension implements a lightweight reliability layer over Trystero's message transport.
+
+The important constants are:
+
+ResendTimeout = 2000: a message still awaiting acknowledgement becomes eligible for retransmission after two seconds.
+
+AckInterval = 200: acknowledgement processing is throttled to roughly a 200 ms interval.
+
+For ordinary messages, the controller assigns a per-peer sequence number, keeps a pending-send record, and retransmits messages that haven't been acknowledged. The receiver buffers out-of-order messages and applies them in sequence. 
+
+GitHub
+
+Example: a message is lost or delayed
+
+Host
+
+Sends message #7
+
+Guest
+
+Message not received
+
+After the retransmission timeout, the controller sends message #7 again.
+
+Host
+
+Resends #7
+
+Guest
+
+Receives and applies #7
+
+Simplified illustration of the controller's retransmission mechanism.
+
+There is an important limitation: this is in-memory delivery tracking, not a durable offline queue. The controller removes a peer's state when that peer disappears from the active peer list. If a peer disconnects for a long time, the sender cannot rely on this pending-message map to preserve and replay all missed changes after a fresh session is established. 
+
+GitHub
+
+Also, the controller's acknowledgement confirms receipt and ordered processing at the message layer; it is not a durable disk commit acknowledgement.
+
+B. Detecting a broken connection
+In src/sync/connection.ts, the extension subscribes to the connection's onClose event. When that event fires, it invokes onSessionClosed() and displays a dialog explaining that the connection may have closed because of network issues or a relay server going offline. 
+
+GitHub
+
+The guest session also watches whether the host remains in the active peer list. If the host disappears, it invokes the same session-closure flow. 
+
+GitHub
+
+C. Reconnecting
+The function onSessionClosed() in src/session/index.ts does the following:
+
+Saves the current connection configuration in memory.
+
+Clears the active session, disposing its scope.
+
+Shows an error dialog with a Reconnect option.
+
+If the user selects Reconnect, waits 500 ms.
+
+Calls createGuestSession(config) or createHostSession(config), depending on the former role. 
+
+GitHub
+
+That means the repository's documented source behavior is user-prompted session recreation, not a general-purpose automatic offline synchronization protocol.
+
+There is an important nuance: recreating a guest session runs the initialization handshake again. The guest waits for the host's init message, and the host sends its current Yjs document state when a peer joins. This restores initial shared-document state, but does not establish that all unsaved offline edits from the old session will be merged or replayed. 
+
+GitHub
++1
+
+5. What if the host disconnects versus the guest?
+Scenario
+
+Behavior indicated by the source
+
+Guest loses connection
+
+Connection-close handling can offer the guest a reconnect action.
+
+Host disappears from the guest's peer list
+
+Guest session closure is triggered and reconnection can be offered.
+
+Host intentionally stops sharing
+
+The session ends for guests; the extension warns that guests will be disconnected.
+
+Network drops briefly, then returns
+
+Do not assume the extension will preserve every pending operation and automatically reconcile state.
+
+Guest reconnects to the host
+
+A new session initialization occurs; this is different from resuming the old in-memory message queue.
+
+The repository also has a WebSocket transport path. Its guest implementation handles an unexpected socket close by emitting an error and close event; it does not itself implement an automatic reconnect loop in that handler. 
+
+GitHub
++1
+
+6. What should you take from this for your own extension?
+The useful parts to reuse are the connection abstraction, message routing, peer tracking, and transport-level acknowledgement logic. The parts you should build separately are durable operation storage, missed-operation exchange, and conflict resolution.
+
+For your issue tracker, I would design this sequence:
+
+1. Create operation locally
+
+Write issue change to a durable local log
+
+2. Exchange operations with peers
+
+Use P2P transport when a connection is available
+
+3. Track acknowledgement and checkpoints
+
+Know which operations each peer has received
+
+4. Reconnect and request missing operations
+
+Compare known operation IDs and exchange the gaps
+
+5. Validate and apply idempotently
+
+Deduplicate operations and resolve conflicting changes
+
+The architectural lesson is simple: a reliable connection and reliable synchronization are two different problems. P2P Live Share addresses real-time transport and collaboration. Your project needs to add durable, offline-first synchronization above that transport layer.
+
+

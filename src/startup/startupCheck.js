@@ -119,6 +119,7 @@ async function runStartupCheckInner(context, state) {
 	try {
 		await ensureDripIndexSkeleton(kbRoot);
 		await ensureKbEditorNote(kbRoot, context);
+		await require('./projectsDrip').ensureProjectsHome(kbRoot);
 		await initEmptyDripIndexFile(kbRoot);
 		await loadKbSidecar(context, kbRoot, {
 			refreshDrafts:

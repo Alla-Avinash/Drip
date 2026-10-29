@@ -337,3 +337,38 @@ html, body {
 	cursor: pointer;
 	font-size: 14px;
 }
+
+.hf-talk {
+	margin-top: 8px;
+	padding-top: 10px;
+	border-top: 1px solid var(--hf-border);
+}
+.hf-talk-body {
+	max-height: 180px;
+	overflow: auto;
+	margin: 6px 0;
+}
+.hf-talk-line {
+	margin: 4px 0;
+	font-size: 12px;
+}
+.hf-talk-who {
+	color: var(--hf-muted);
+	font-weight: 600;
+}
+.hf-talk-compose {
+	display: flex;
+	gap: 6px;
+}
+.hf-talk-compose input {
+	flex: 1;
+}
+.hf-talk-actions {
+	display: flex;
+	gap: 6px;
+	margin-top: 6px;
+}
+.hf-muted {
+	color: var(--hf-muted);
+	font-size: 12px;
+}

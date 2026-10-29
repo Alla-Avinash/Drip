@@ -30,6 +30,26 @@ function newProfileId() {
 	return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/** @type {Set<() => void>} */
+const _settingsListeners = new Set();
+
+/**
+ * Subscribe to LLM settings changes (profiles, active profile, enabled flag,
+ * or API key). The chat re-reads its config through this so it never keeps a
+ * stale "LLM is off" state after the user enables a provider or saves a key.
+ * @param {() => void} fn
+ * @returns {{ dispose: () => void }}
+ */
+function onLlmSettingsChanged(fn) {
+	_settingsListeners.add(fn);
+	return { dispose: () => _settingsListeners.delete(fn) };
+}
+
+/** @returns {void} */
+function emitLlmSettingsChanged() {
+	for (const fn of _settingsListeners) fn();
+}
+
 /**
  * Normalize a raw profile into a safe shape, minting an id when missing.
  * @param {{ id?: string, name?: string, baseUrl?: string, model?: string, enabled?: boolean }} p
@@ -134,10 +154,12 @@ async function setLlmApiKey(context, key, profileId) {
 	if (!id) {
 		if (v) await context.secrets.store(LEGACY_SECRET, v);
 		else await context.secrets.delete(LEGACY_SECRET);
+		emitLlmSettingsChanged();
 		return;
 	}
 	if (v) await context.secrets.store(profileSecretKey(id), v);
 	else await context.secrets.delete(profileSecretKey(id));
+	emitLlmSettingsChanged();
 }
 
 /**
@@ -148,9 +170,11 @@ async function clearLlmApiKey(context, profileId) {
 	const id = profileId || getActiveProfileId(context);
 	if (!id) {
 		await context.secrets.delete(LEGACY_SECRET);
+		emitLlmSettingsChanged();
 		return;
 	}
 	await context.secrets.delete(profileSecretKey(id));
+	emitLlmSettingsChanged();
 }
 
 /**
@@ -185,6 +209,7 @@ async function addLlmProfile(context, profile) {
 	if (!getActiveProfileId(context)) {
 		await context.globalState.update(ACTIVE_PROFILE_KEY, created.id);
 	}
+	emitLlmSettingsChanged();
 	return created;
 }
 
@@ -200,6 +225,7 @@ async function updateLlmProfile(context, id, patch) {
 		return normalizeProfile({ ...p, ...(patch || {}), id });
 	});
 	await context.globalState.update(PROFILES_KEY, next);
+	emitLlmSettingsChanged();
 }
 
 /**
@@ -214,6 +240,7 @@ async function deleteLlmProfile(context, id) {
 	if (getActiveProfileId(context) === id) {
 		await context.globalState.update(ACTIVE_PROFILE_KEY, next[0] ? next[0].id : '');
 	}
+	emitLlmSettingsChanged();
 }
 
 /**
@@ -223,6 +250,7 @@ async function deleteLlmProfile(context, id) {
 async function setActiveLlmProfile(context, id) {
 	if (!readProfiles(context).some(p => p.id === id)) return;
 	await context.globalState.update(ACTIVE_PROFILE_KEY, id);
+	emitLlmSettingsChanged();
 }
 
 /**
@@ -240,6 +268,7 @@ async function migrateLegacyLlmSettings(context) {
 		await context.secrets.store(profileSecretKey(activeId), legacy);
 	}
 	await context.secrets.delete(LEGACY_SECRET);
+	emitLlmSettingsChanged();
 }
 
 module.exports = {
@@ -247,6 +276,7 @@ module.exports = {
 	ACTIVE_PROFILE_KEY,
 	DEFAULT_BASE_URL,
 	DEFAULT_MODEL,
+	onLlmSettingsChanged,
 	getLlmConfig,
 	getLlmConfigForProfile,
 	getLlmApiKey,

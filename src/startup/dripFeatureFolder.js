@@ -73,7 +73,7 @@ async function ensureFeatureIndexFile(folderUri, options = {}) {
 		let n = 0;
 		if (kbRoot) {
 			try {
-				n = await allocateNextEntityNumber(kbRoot);
+				n = await allocateNextEntityNumber(kbRoot, noteUri);
 			} catch (err) {
 				console.error('[DRIP] allocate file id for feature index', err);
 			}

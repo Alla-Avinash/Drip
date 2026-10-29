@@ -32,8 +32,9 @@ const headingAllocCache = new Map();
  * @param {number} fileNum
  * @returns {string}
  */
-function headingAllocCacheKey(kbRoot, fileNum) {
-	return `${kbRoot.fsPath}|${Math.max(0, Math.floor(Number(fileNum) || 0))}`;
+function headingAllocCacheKey(kbRoot, fileNum, scopeKey) {
+	const scope = String(scopeKey || '');
+	return `${kbRoot.fsPath}|${scope}|${Math.max(0, Math.floor(Number(fileNum) || 0))}`;
 }
 
 function clearHeadingAllocCache() {
@@ -185,7 +186,7 @@ function writeFileIdIntoTopLines(topLines, fileEntityId) {
  * @param {string} line
  */
 function isFileKeyLine(line) {
-	return /^\s*(filename|fileid|headings|created|random)\s*:/i.test(String(line || ''));
+	return /^\s*(filename|fileid|fileuid|headings|created|random)\s*:/i.test(String(line || ''));
 }
 
 /**
@@ -329,6 +330,15 @@ function rebuildCanonicalFileLevelBlock(lines, opts) {
 	const filename = String(opts.filename || 'Untitled').trim() || 'Untitled';
 	const fileEntityId = String(opts.fileEntityId || '').trim() || '@f0';
 	const noteFsPath = opts.noteFsPath || null;
+	let fileUid = '';
+	for (const line of src) {
+		const m = String(line || '').match(/^\s*fileuid\s*:\s*(.+)\s*$/i);
+		if (m && String(m[1] || '').trim()) {
+			fileUid = String(m[1]).trim();
+			break;
+		}
+		if (String(line || '').trim() === '---') break;
+	}
 	const sepIdx = findSeparatorLineIndex(src);
 
 	// h0 = first root-level (`#`) heading, wherever it currently sits (above or below `---`).
@@ -382,9 +392,10 @@ function rebuildCanonicalFileLevelBlock(lines, opts) {
 	}
 	while (body.length && !String(body[0]).trim()) body.shift();
 
-	return [
+	const header = [
 		`filename: ${filename}`,
 		`fileid: ${fileEntityId}`,
+		...(fileUid ? [`fileuid: ${fileUid}`] : []),
 		'headings: 0',
 		'---',
 		'',
@@ -394,6 +405,7 @@ function rebuildCanonicalFileLevelBlock(lines, opts) {
 		...promotedBlock,
 		...body
 	];
+	return header;
 }
 
 /**
@@ -1232,6 +1244,9 @@ async function reconcileHeadingIdentitiesForKbNote(kbRoot, text, options = {}) {
 		return { ...result, lockedFile: file };
 	}
 
+	const { headingAllocScopeForNote } = require('../../document/project/projectFileIds');
+	const scopeKey = headingAllocScopeForNote(kbRoot, options.noteUri);
+
 	const pool = options.headingIdPool || null;
 	if (pool) {
 		const kbAlloc = options.cachedAllocator || {
@@ -1250,17 +1265,17 @@ async function reconcileHeadingIdentitiesForKbNote(kbRoot, text, options = {}) {
 			result.usedNonH0Ids,
 			parseHeadingsCountFromLines(result.text.split('\n'))
 		);
-		void syncFileHeadingAllocatorFromUsedIds(kbRoot, file.fileNum, result.usedNonH0Ids).catch(err => {
+		void syncFileHeadingAllocatorFromUsedIds(kbRoot, file.fileNum, result.usedNonH0Ids, scopeKey).catch(err => {
 			console.error('[DRIP] sync heading allocator failed', err);
 		});
 		return { ...result, lockedFile: file };
 	}
 
-	const cacheKey = headingAllocCacheKey(kbRoot, file.fileNum);
+	const cacheKey = headingAllocCacheKey(kbRoot, file.fileNum, scopeKey);
 	let alloc = options.cachedAllocator || headingAllocCache.get(cacheKey);
 	if (!alloc) {
 		await initEmptyDripIndexFile(kbRoot);
-		alloc = await readFileHeadingAllocator(kbRoot, file.fileNum);
+		alloc = await readFileHeadingAllocator(kbRoot, file.fileNum, scopeKey);
 	}
 	const kbAlloc = { next: alloc.next, free: [...(alloc.free || [])] };
 	const result = reconcileHeadingIdentitiesInText(text, {
@@ -1269,10 +1284,67 @@ async function reconcileHeadingIdentitiesForKbNote(kbRoot, text, options = {}) {
 		kbHeadingAllocator: kbAlloc
 	});
 	headingAllocCache.set(cacheKey, { next: kbAlloc.next, free: [...kbAlloc.free] });
-	void syncFileHeadingAllocatorFromUsedIds(kbRoot, file.fileNum, result.usedNonH0Ids).catch(err => {
+	void syncFileHeadingAllocatorFromUsedIds(kbRoot, file.fileNum, result.usedNonH0Ids, scopeKey).catch(err => {
 		console.error('[DRIP] sync heading allocator failed', err);
 	});
 	return { ...result, lockedFile: file };
+}
+
+/**
+ * Fill missing `@hN` lines without reminting existing ones or rebuilding the header.
+ * Used when a project is shared and when a project note is reprinted.
+ * @param {string} text
+ * @returns {{ text: string, changed: boolean }}
+ */
+function stampMissingHeadingIdentitiesInText(text) {
+	const normalized = String(text || '').replace(/\r\n/g, '\n');
+	const lines = normalized.split('\n');
+	const settings = getMetadataSettings();
+	const { nodes: allNodes } = collectHeadingSequenceValidated(lines, 0);
+	const nodes = allNodes.filter(node => /\S/.test(String(node.title || '').trim()));
+	const h0LineIndex = findH0HeadingLine(lines);
+	/** @type {Set<number>} */
+	const used = new Set();
+	for (const node of nodes) {
+		if (isH0HeadingNode(node, h0LineIndex)) continue;
+		if (!classifyPersistentHeadingTitle(node.title, settings).persistent) continue;
+		const attached = findHeadingIdentityForNode(lines, node);
+		const num = attached ? attached.parsed.headingNum : 0;
+		if (num > 0) used.add(num);
+	}
+	let nextNum = 1;
+	while (used.has(nextNum)) nextNum += 1;
+
+	/** @type {Map<number, string>} */
+	const insertByHeading = new Map();
+	for (const node of nodes) {
+		if (isH0HeadingNode(node, h0LineIndex)) {
+			if (!findHeadingIdentityForNode(lines, node)) {
+				insertByHeading.set(node.lineIndex, `${headingLineIndent(lines, node.lineIndex)}${formatHeadingIdentityLine(0)}`);
+			}
+			continue;
+		}
+		if (!classifyPersistentHeadingTitle(node.title, settings).persistent) continue;
+		if (findHeadingIdentityForNode(lines, node)) continue;
+		insertByHeading.set(
+			node.lineIndex,
+			`${headingLineIndent(lines, node.lineIndex)}${formatHeadingIdentityLine(nextNum)}`
+		);
+		used.add(nextNum);
+		nextNum += 1;
+		while (used.has(nextNum)) nextNum += 1;
+	}
+
+	const sorted = [...insertByHeading.keys()].sort((a, b) => b - a);
+	for (const headingLine of sorted) {
+		lines.splice(headingLine, 0, insertByHeading.get(headingLine));
+	}
+
+	const sepIdx = findSeparatorLineIndex(lines);
+	const topEnd = sepIdx >= 0 ? sepIdx : lines.length;
+	const topLines = writeHeadingsCountIntoTopLines(lines.slice(0, topEnd), used.size);
+	const nextText = [...topLines, ...lines.slice(topEnd)].join('\n');
+	return { text: nextText, changed: nextText !== normalized };
 }
 
 /**
@@ -1340,6 +1412,7 @@ module.exports = {
 	headingMetadataSignature,
 	reconcileHeadingIdentitiesInText,
 	reconcileHeadingIdentitiesForKbNote,
+	stampMissingHeadingIdentitiesInText,
 	isStructuredHeadingMetadataLine,
 	metaLinesForHash,
 	collectHeadingIdentityDiagnostics,

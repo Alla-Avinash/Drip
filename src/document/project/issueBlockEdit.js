@@ -364,9 +364,18 @@ function updateIssueBlockTextMd(text, issueId, patch) {
  * @returns {{ ok: true, text: string } | { ok: false, error: string }}
  */
 function updateIssueBlockText(text, issueId, patch, format) {
+	let next = patch;
+	if (patch && patch.attributes && Object.prototype.hasOwnProperty.call(patch.attributes, 'status')) {
+		const { withCompletedStamp } = require('./issueCompletedStamp');
+		const block = readIssueBlock(text, issueId, format);
+		next = {
+			...patch,
+			attributes: withCompletedStamp((block && block.attributes) || {}, patch.attributes)
+		};
+	}
 	return isMarkdownFormat(format)
-		? updateIssueBlockTextMd(text, issueId, patch)
-		: updateIssueBlockTextTxt(text, issueId, patch);
+		? updateIssueBlockTextMd(text, issueId, next)
+		: updateIssueBlockTextTxt(text, issueId, next);
 }
 
 /**
@@ -407,9 +416,46 @@ function appendIssueNoteText(text, issueId, note, format) {
 	return { ok: true, text: lines.join('\n') };
 }
 
+/**
+ * Replace the issue's own body (not nested sub-issues) so every peer writes the same text.
+ * @param {string} text
+ * @param {string} issueId
+ * @param {string} body
+ * @param {string} [format]
+ */
+function replaceIssueBodyText(text, issueId, body, format) {
+	const found = findIssueHeadingBlock(text, issueId, format);
+	if (!found) return { ok: false, error: `Issue ${issueId} not found in this file.` };
+	const lines = found.lines.slice();
+	const raw = String(body || '')
+		.replace(/\r\n/g, '\n')
+		.replace(/\s+$/, '');
+	const bodyLines = raw ? raw.split('\n') : [];
+
+	if (isMarkdownFormat(format)) {
+		let bodyStart = found.start + 1;
+		if (bodyStart < lines.length && isHeadingComment(lines[bodyStart])) bodyStart += 1;
+		const bodyEnd = ownContentEnd(found, bodyStart, format);
+		const chunk = bodyLines.length ? ['', ...bodyLines, ''] : [''];
+		lines.splice(bodyStart, Math.max(0, bodyEnd - bodyStart), ...chunk);
+		return { ok: true, text: lines.join('\n') };
+	}
+
+	const region = readMetaRegion(lines, found.start);
+	const bodyStart = region.lastMeta + 1;
+	const bodyEnd = ownContentEnd(found, bodyStart, format);
+	const headInd = '\t'.repeat(found.indent + 1);
+	const chunk = bodyLines.length
+		? ['', ...bodyLines.map(l => (l.trim() ? `${headInd}${l}` : '')), '']
+		: [''];
+	lines.splice(bodyStart, Math.max(0, bodyEnd - bodyStart), ...chunk);
+	return { ok: true, text: lines.join('\n') };
+}
+
 module.exports = {
 	readIssueBlock,
 	readIssueContent,
 	updateIssueBlockText,
-	appendIssueNoteText
+	appendIssueNoteText,
+	replaceIssueBodyText
 };

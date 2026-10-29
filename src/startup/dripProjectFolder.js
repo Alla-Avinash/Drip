@@ -13,7 +13,8 @@ const {
 	projectDisplayNameFromFolderName,
 	projectIndexFileName,
 	CONCEPTS_SUBFOLDER_NAME,
-	DECISIONS_SUBFOLDER_NAME
+	DECISIONS_SUBFOLDER_NAME,
+	ARCHIVE_SUBFOLDER_NAME
 } = require('../document/model/dripNoteProjectFolder.js');
 const { canPlaceProjectFolder } = require('../document/model/dripNoteKbFolderRules.js');
 const { buildNewNoteFile, writeTextFile } = require('../document/dripNoteKbOps.js');
@@ -21,6 +22,16 @@ const { allocateNextEntityNumber, indexNewNoteImmediately } = require('../indexi
 
 /** Prevent recursive create → watch → create loops. */
 const ensuringKeys = new Set();
+/** Join writes a full folder; do not scaffold an empty `_issues` over it. */
+let suppressEnsure = 0;
+
+function pauseProjectFolderEnsure() {
+	suppressEnsure += 1;
+}
+
+function resumeProjectFolderEnsure() {
+	suppressEnsure = Math.max(0, suppressEnsure - 1);
+}
 
 /**
  * @param {import('vscode').Uri} folderUri
@@ -36,15 +47,14 @@ async function isDirectoryUri(folderUri) {
 }
 
 /**
- * Create the two project-scoped subfolders (`_concepts`, `_decisions`) if missing.
- * These are the only places concept (c-N) and decision (d-N) notes may live in a project.
+ * Create the project-scoped subfolders (`_concepts`, `_decisions`, `_archive`) if missing.
  *
  * @param {import('vscode').Uri} folderUri
  * @returns {Promise<void>}
  */
 async function ensureProjectSpecialFolders(folderUri) {
 	if (!folderUri) return;
-	for (const name of [CONCEPTS_SUBFOLDER_NAME, DECISIONS_SUBFOLDER_NAME]) {
+	for (const name of [CONCEPTS_SUBFOLDER_NAME, DECISIONS_SUBFOLDER_NAME, ARCHIVE_SUBFOLDER_NAME]) {
 		const subUri = vscode.Uri.joinPath(folderUri, name);
 		try {
 			await vscode.workspace.fs.stat(subUri);
@@ -63,6 +73,7 @@ async function ensureProjectSpecialFolders(folderUri) {
  * @returns {Promise<import('vscode').Uri | undefined>}
  */
 async function ensureProjectIndexFile(folderUri, options = {}) {
+	if (suppressEnsure > 0) return undefined;
 	if (!folderUri) return undefined;
 	const folderName = path.basename(folderUri.fsPath);
 	if (!isDripProjectFolderName(folderName)) return undefined;
@@ -102,7 +113,7 @@ async function ensureProjectIndexFile(folderUri, options = {}) {
 		let n = 0;
 		if (kbRoot) {
 			try {
-				n = await allocateNextEntityNumber(kbRoot);
+				n = await allocateNextEntityNumber(kbRoot, noteUri);
 			} catch (err) {
 				console.error('[DRIP] allocate file id for project index', err);
 			}
@@ -218,5 +229,7 @@ module.exports = {
 	ensureProjectSpecialFolders,
 	ensureProjectIndexFile,
 	handleProjectFolderRename,
-	registerDripProjectFolderWatch
+	registerDripProjectFolderWatch,
+	pauseProjectFolderEnsure,
+	resumeProjectFolderEnsure
 };

@@ -4,9 +4,9 @@
  * Per-project metadata overrides.
  *
  * Project-scoped metadata (the `project`, `feature`, and `issue` types) can be
- * customized per project. Those overrides live in a single sidecar file at the
- * KB root — `.dripindex/settings-project.drip.json` — never inside the project
- * folder, so project directories stay clean and portable.
+ * customized per project. Solo projects keep those overrides in
+ * `.dripindex/settings-project.drip.json`. A shared project also writes them
+ * into its `.drip/` sidecar so they travel with the folder.
  *
  * The file is keyed by the project's folder prefix (e.g. `sample/kjh.p/`):
  *
@@ -121,6 +121,17 @@ async function saveProjectMetadataSettings(kbRoot, projectKey, overrides) {
 
 	await vscode.workspace.fs.writeFile(uri, Buffer.from(JSON.stringify(parsed, null, 2), 'utf8'));
 	overridesByProject[normalizeKey(projectKey)] = overrides || {};
+	try {
+		const { projectFolderUriFromPrefix, isProjectShared, writeMetadataFile } = require('../../../peer/projectSidecar');
+		const folderUri = projectFolderUriFromPrefix(kbRoot, projectKey);
+		if (await isProjectShared(folderUri)) {
+			await writeMetadataFile(folderUri, overrides || {});
+			const { recordLocalOperation, OP_TYPES } = require('../../../peer/projectRecord');
+			await recordLocalOperation(kbRoot, projectKey, OP_TYPES.METADATA_SET, { overrides: overrides || {} });
+		}
+	} catch {
+		/* sidecar write is best-effort */
+	}
 }
 
 /**

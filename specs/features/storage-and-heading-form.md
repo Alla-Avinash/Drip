@@ -35,6 +35,9 @@ If the note has no title, the user chooses between **Append** (the text is added
 
 - Edits the current heading's metadata (title, type, tags, status, etc.) in a form.
 - Works with project/feature/issue heading types (the form shows the relevant fields for that type).
+- The issue’s hidden unique id is never shown and never rewritten. Saving the form keeps that id on the block so a later save cannot look like a new issue.
+- The issue `team` field only appears once the project is shared. In a solo project it is hidden because teams do not exist there yet.
+- Role locks (read-only title/status/metadata) only apply in a shared project. In a solo project the form is always editable, since there is no role to gate against.
 - When editing via the form, the title/metadata is soft-locked in the editor.
 
 ## Flow (plain steps)

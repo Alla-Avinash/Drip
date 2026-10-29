@@ -93,6 +93,8 @@
 				// Feature names keep their original casing (they are real folder/file names,
 				// not enum values), so group/filter on the raw string rather than lowercase.
 				get = function (item) { return String((item && item.feature) || ''); };
+			} else if (id === 'team') {
+				get = function (item) { return String((item && item.team) || ''); };
 			} else if (id === 'deadline') {
 				get = deadlineOf;
 			} else if (id === 'issues') {

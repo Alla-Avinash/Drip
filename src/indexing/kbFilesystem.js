@@ -4,6 +4,8 @@ const path = require('path');
 const vscode = require('vscode');
 const { fileNameMatchesKbNote } = require('../document/model/dripNoteFileTypes.js');
 const { DAILY_NOTES_DIR } = require('../shared/constants');
+const { isHiddenProjectsHomeFolder } = require('../startup/projectsDrip');
+const { isDripProjectFolderName } = require('../document/model/dripNoteProjectFolder.js');
 
 function isDotImgRasterImage(name) {
 	return /\.(png|jpg|jpeg)$/i.test(name);
@@ -35,6 +37,15 @@ async function getKnowledgeBaseTreeChildren(rootUri, currentUri) {
 
 		if (type === vscode.FileType.Directory) {
 			if (isHiddenDailyNotesFolder(rootUri, currentUri, name)) {
+				continue;
+			}
+			if (isHiddenProjectsHomeFolder(rootUri, currentUri, name)) {
+				continue;
+			}
+			if (
+				isDripProjectFolderName(name) &&
+				path.resolve(rootUri.fsPath) === path.resolve(currentUri.fsPath)
+			) {
 				continue;
 			}
 			items.push({
@@ -254,7 +265,7 @@ function isHardExcludedKbRelativePath(relativePath) {
 		return false;
 	}
 	const parts = normalized.split('/').filter(Boolean);
-	if (parts.some(p => String(p || '') === '.dripindex')) {
+	if (parts.some(p => String(p || '') === '.dripindex' || String(p || '') === '.drip')) {
 		return true;
 	}
 	if (parts.some(p => String(p || '').toLowerCase().endsWith('.driplock'))) {

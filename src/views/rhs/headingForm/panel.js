@@ -330,11 +330,157 @@ async function syncHeadingFormFromEditor(editor, line, opts = {}) {
 		if (opts.reveal) await session.openHeadingSidebar();
 		else await session.waitForWebview(800);
 	}
+	await attachIssueTalk(payload, doc.uri);
 	await session.postToForm({ type: 'headingFormLoad', payload });
 	if (opts.reveal && session.getWebview()) {
 		// Already opened above when needed; ensure visible without stealing caret again.
 		session.markOpened();
 	}
+}
+
+async function projectContextForDoc(docUri) {
+	const { getHeadingFormKbRoot } = require('./headingFormKb');
+	const kbRoot = getHeadingFormKbRoot();
+	if (!kbRoot || !docUri) return null;
+	const { projectFolderPrefixForPath, readProjectRecord, projectFolderUriFromPrefix } = require('../../../peer/projectSidecar');
+	const prefix = projectFolderPrefixForPath(kbRoot.fsPath, docUri.fsPath);
+	if (!prefix) return null;
+	const folderUri = projectFolderUriFromPrefix(kbRoot, prefix);
+	const rec = await readProjectRecord(folderUri);
+	return { kbRoot, prefix, folderUri, rec };
+}
+
+async function attachIssueTalk(payload, docUri) {
+	if (!payload || payload.typeId !== 'issue') return payload;
+	const uid = String((payload.attributes && payload.attributes.uid) || '').trim();
+	const ctx = await projectContextForDoc(docUri);
+	const shared = !!(ctx && ctx.rec && ctx.rec.shared);
+	const tdef = (payload.types || []).find(t => String(t.id || '').toLowerCase() === 'issue');
+	if (shared) {
+		const names = (ctx.rec.teams || []).map(t => t.name).filter(Boolean);
+		if (tdef && tdef.attributes && tdef.attributes.team) {
+			tdef.attributes.team = {
+				...tdef.attributes.team,
+				values: names,
+				required: names.length > 0
+			};
+		}
+		try {
+			const me = await require('../../../peer/peerIdentity').ensurePeerIdentity();
+			payload.talkCaps = require('../../../peer/projectRoles').memberCaps(ctx.rec, me.peerId);
+		} catch {
+			payload.talkCaps = { chatWrite: true };
+		}
+	} else {
+		// Solo (not shared) project: teams do not apply and there is no role to
+		// gate against, so hide the team field and give the local user full access.
+		if (tdef && tdef.attributes) delete tdef.attributes.team;
+		payload.talkCaps = { chatWrite: true, issueEdit: true, issueStatus: true, issueDelete: true };
+	}
+	if (uid && ctx) {
+		try {
+			payload.talk = await require('../../../peer/projectChat').readRoom(ctx.folderUri, 'issue', uid, ctx.rec);
+		} catch {
+			payload.talk = { messages: [] };
+		}
+	} else {
+		payload.talk = { messages: [] };
+	}
+	return payload;
+}
+
+async function headingTalkAction(message, kind) {
+	const { getHeadingFormKbRoot } = require('./headingFormKb');
+	const kbRoot = getHeadingFormKbRoot();
+	const uri = vscode.Uri.parse(String(message.documentUri || ''));
+	if (!kbRoot || !uri.fsPath) return;
+	const ctx = await projectContextForDoc(uri);
+	if (!ctx) return;
+	const uid = String(message.uid || '');
+	const me = await require('../../../peer/peerIdentity').ensurePeerIdentity();
+	if (ctx.rec && ctx.rec.shared) {
+		const { hasCap, CAPS } = require('../../../peer/projectRoles');
+		if (!hasCap(ctx.rec, me.peerId, CAPS.CHAT_WRITE)) {
+			void vscode.window.showWarningMessage('Your role cannot talk on this issue.');
+			return;
+		}
+	}
+	const chat = require('../../../peer/projectChat');
+	let data = { messages: [] };
+	if (kind === 'send') {
+		const issueKey = String(message.issueEntityId || '');
+		const sent = await chat.appendIssueMessage(ctx.folderUri, ctx.rec, uid, String(message.text || ''), me, issueKey);
+		data = sent.issueData;
+		if (ctx.rec && ctx.rec.shared) {
+			const { recordLocalOperation } = require('../../../peer/projectRecord');
+			const opTypes = require('../../../peer/projectOp').OP_TYPES;
+			if (data.messages.length) {
+				const last = data.messages[data.messages.length - 1];
+				await recordLocalOperation(kbRoot, ctx.prefix, opTypes.CHAT_APPEND, {
+					room: 'issue',
+					id: uid,
+					message: last
+				});
+			}
+			// Team mentions fan out as separate messages in each team's talk room.
+			for (const f of sent.fanout) {
+				if (f && f.message) {
+					await recordLocalOperation(kbRoot, ctx.prefix, opTypes.CHAT_APPEND, {
+						room: 'team',
+						id: f.teamId,
+						message: f.message,
+						grants: f.grants,
+						participants: f.participants
+					});
+				}
+			}
+		}
+	} else if (kind === 'clear') {
+		data = await chat.clearRoom(ctx.folderUri, 'issue', uid);
+		if (ctx.rec && ctx.rec.shared) {
+			await require('../../../peer/projectRecord').recordLocalOperation(kbRoot, ctx.prefix, require('../../../peer/projectOp').OP_TYPES.CHAT_CLEAR, {
+				room: 'issue',
+				id: uid
+			});
+		}
+	} else if (kind === 'save') {
+		if (ctx.rec && ctx.rec.shared) {
+			const { hasCap, CAPS } = require('../../../peer/projectRoles');
+			if (!hasCap(ctx.rec, me.peerId, CAPS.ISSUE_EDIT)) {
+				void vscode.window.showWarningMessage('Your role cannot save talk onto the issue note.');
+				return;
+			}
+		}
+		data = await chat.readRoom(ctx.folderUri, 'issue', uid, ctx.rec);
+		const lines = (data.messages || []).map(m => `${m.name || m.author}: ${m.text}`).filter(Boolean);
+		if (!lines.length) {
+			void vscode.window.showInformationMessage('Nothing in talk to save.');
+			return;
+		}
+		const issueId = String(message.issueEntityId || '');
+		if (!issueId) return;
+		const text = Buffer.from(await vscode.workspace.fs.readFile(uri)).toString('utf8');
+		const { appendIssueNoteText } = require('../../../document/project/issueBlockEdit');
+		const { noteFormatForPath } = require('../../../document/model/dripNoteFileTypes.js');
+		const fmt = noteFormatForPath(uri.fsPath) === '.d.md' ? 'drip-md' : 'drip-txt';
+		const next = appendIssueNoteText(text, issueId, `From talk:\n${lines.join('\n')}`, fmt);
+		if (next && next.ok) {
+			const { markExpectedDiskWrite } = require('../../../shared/documentEditGuard');
+			markExpectedDiskWrite(uri);
+			await vscode.workspace.fs.writeFile(uri, Buffer.from(next.text, 'utf8'));
+			data = await chat.clearRoom(ctx.folderUri, 'issue', uid);
+			if (ctx.rec && ctx.rec.shared) {
+				const { recordLocalOperation, OP_TYPES } = require('../../../peer/projectRecord');
+				await recordLocalOperation(kbRoot, ctx.prefix, OP_TYPES.ISSUE_BODY_APPEND, {
+					uid,
+					issueKey: issueId,
+					note: `From talk:\n${lines.join('\n')}`
+				});
+				await recordLocalOperation(kbRoot, ctx.prefix, OP_TYPES.CHAT_CLEAR, { room: 'issue', id: uid });
+			}
+		}
+	}
+	await session.postToForm({ type: 'headingFormTalk', messages: data.messages || [] });
 }
 
 async function requestHeadingFormFlush() {
@@ -408,6 +554,15 @@ class DripHeadingFormWebviewProvider {
 						if (id) await vscode.env.clipboard.writeText(id);
 						break;
 					}
+					case 'headingFormTalkSend':
+						await headingTalkAction(message, 'send');
+						break;
+					case 'headingFormTalkClear':
+						await headingTalkAction(message, 'clear');
+						break;
+					case 'headingFormTalkSave':
+						await headingTalkAction(message, 'save');
+						break;
 					case 'headingFormAutosave':
 					case 'headingFormApply':
 						await applyHeadingFormModelFromMessage(message.model || {});
@@ -430,6 +585,19 @@ class DripHeadingFormWebviewProvider {
 							);
 						}
 						if (!editor) break;
+						try {
+							const ctx = await projectContextForDoc(editor.document.uri);
+							if (ctx && ctx.rec && ctx.rec.shared) {
+								const me = await require('../../../peer/peerIdentity').ensurePeerIdentity();
+								const { hasCap, CAPS } = require('../../../peer/projectRoles');
+								if (!hasCap(ctx.rec, me.peerId, CAPS.ISSUE_DELETE)) {
+									void vscode.window.showWarningMessage('Your role cannot delete this heading.');
+									break;
+								}
+							}
+						} catch {
+							/* role check is best-effort */
+						}
 						const pick = await vscode.window.showWarningMessage(
 							'Delete this persistent heading and its metadata?',
 							{ modal: true },
@@ -437,6 +605,19 @@ class DripHeadingFormWebviewProvider {
 							'Cancel'
 						);
 						if (pick !== 'Delete') break;
+						try {
+							const { getHeadingFormKbRoot } = require('./headingFormKb');
+							const kbRoot = getHeadingFormKbRoot();
+							if (kbRoot) {
+								await require('../../../peer/projectHandEdit').synthesizeHandEditsOnSave(
+									kbRoot,
+									editor.document.uri,
+									editor.document.getText()
+								);
+							}
+						} catch {
+							/* snapshot seed is optional */
+						}
 						const start = Number(model.identityLine >= 0 ? model.identityLine : model.headingLine);
 						const end = Number(model.lockEndExclusive);
 						if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) break;
@@ -446,6 +627,19 @@ class DripHeadingFormWebviewProvider {
 								eb.delete(new vscode.Range(start, 0, end, 0));
 							});
 						});
+						try {
+							const { getHeadingFormKbRoot } = require('./headingFormKb');
+							const kbRoot = getHeadingFormKbRoot();
+							if (kbRoot) {
+								await require('../../../peer/projectHandEdit').synthesizeHandEditsOnSave(
+									kbRoot,
+									editor.document.uri,
+									editor.document.getText()
+								);
+							}
+						} catch (err) {
+							console.error('[DRIP] record heading-form delete', err);
+						}
 						await session.closeHeadingSidebar();
 						break;
 					}

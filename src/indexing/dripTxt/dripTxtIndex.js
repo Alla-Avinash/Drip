@@ -767,11 +767,22 @@ async function createOrUpdateIndexForFolder(kbRoot, folderUri, options) {
 }
 
 /**
- * Allocate the next shared file entity number from index.drip (persisted immediately).
+ * Allocate the next file entity number. Notes inside a `.p` folder use that
+ * project's own `@fN` sequence; everything else uses the knowledge-base pool.
  * @param {import('vscode').Uri} kbRoot
+ * @param {import('vscode').Uri} [noteUri]
  * @returns {Promise<number>}
  */
-async function allocateNextEntityNumber(kbRoot) {
+async function allocateNextEntityNumber(kbRoot, noteUri) {
+	if (noteUri) {
+		try {
+			const { allocateFileNumberForNote } = require('../../document/project/projectFileIds');
+			const n = await allocateFileNumberForNote(kbRoot, noteUri);
+			if (n != null) return n;
+		} catch (err) {
+			console.error('[DRIP] project file id allocate', err);
+		}
+	}
 	const { allocateNextFileEntityNumber, initEmptyDripIndexFile } = require('../dripIndexDb');
 	await initEmptyDripIndexFile(kbRoot);
 	return allocateNextFileEntityNumber(kbRoot);

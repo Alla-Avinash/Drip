@@ -79,11 +79,62 @@ async function rewriteNotePreferringEditor(uri, transformText) {
 	});
 }
 
+/**
+ * Read the open editor first so a change is applied on top of what is on screen
+ * (including typing that is not saved yet). Disk is only used when the file is not open.
+ * @param {import('vscode').Uri} uri
+ * @returns {Promise<string>}
+ */
+async function readNoteTextPreferEditor(uri) {
+	const doc = findOpenTextDocument(uri);
+	if (doc) return doc.getText().replace(/\r\n/g, '\n');
+	if (!uri) return '';
+	try {
+		return (await readTextFile(uri)).replace(/\r\n/g, '\n');
+	} catch {
+		return '';
+	}
+}
+
+/**
+ * Put this text in the open editor (then save) so VS Code does not ask to overwrite
+ * a newer file on disk. Writes the file directly when it is not open.
+ * @param {import('vscode').Uri} uri
+ * @param {string} text
+ */
+async function replaceOpenNoteOrWriteDisk(uri, text) {
+	const vscode = require('vscode');
+	const { markExpectedDiskWrite } = require('../shared/documentEditGuard');
+	const next = String(text || '').replace(/\r\n/g, '\n');
+	markExpectedDiskWrite(uri);
+	const doc = findOpenTextDocument(uri);
+	if (!doc) {
+		await writeTextFile(uri, next);
+		return;
+	}
+	await runGuardedDocumentEdit(async () => {
+		const before = doc.getText().replace(/\r\n/g, '\n');
+		if (before !== next) {
+			const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length));
+			const we = new vscode.WorkspaceEdit();
+			we.replace(doc.uri, fullRange, next);
+			await vscode.workspace.applyEdit(we);
+		}
+		const open = findOpenTextDocument(uri) || doc;
+		if (open.isDirty) {
+			await open.save();
+		}
+	});
+}
+
 /** Storage "AI" button: how many folder / file / heading suggestions to show. */
 const AI_SUGGESTION_LIMIT = 4;
 
 module.exports = {
 	kbPathSegments,
 	AI_SUGGESTION_LIMIT,
-	rewriteNotePreferringEditor
+	rewriteNotePreferringEditor,
+	readNoteTextPreferEditor,
+	replaceOpenNoteOrWriteDisk,
+	findOpenTextDocument
 };

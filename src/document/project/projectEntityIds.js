@@ -264,6 +264,28 @@ async function allocateNextIssueEntityId(kbRootUri, projectFolderPrefix) {
 		for (const r of reserved) {
 			if (r > max) max = r;
 		}
+		// Shared projects never reuse a deleted number — bump a sidecar high-water instead.
+		try {
+			const { projectFolderUriFromPrefix, isProjectShared, readProjectRecord, writeProjectRecord } = require('../../peer/projectSidecar');
+			const folderUri = projectFolderUriFromPrefix(kbRootUri, projectFolderPrefix);
+			if (await isProjectShared(folderUri)) {
+				const rec = await readProjectRecord(folderUri);
+				const high = rec && rec.highWater ? Math.floor(Number(rec.highWater.issue) || 0) : 0;
+				if (high > max) max = high;
+				const nShared = max + 1;
+				if (rec) {
+					rec.highWater = rec.highWater || {};
+					rec.highWater.issue = nShared;
+					await writeProjectRecord(folderUri, rec);
+				}
+				reserved.add(nShared);
+				writeAlloc(handle.db, key, { nextIssue: nShared + 1, nextFeature: cur.nextFeature });
+				await handle.save();
+				return formatIssueEntityId(nShared);
+			}
+		} catch {
+			/* solo path below */
+		}
 		const n = max + 1;
 		reserved.add(n);
 

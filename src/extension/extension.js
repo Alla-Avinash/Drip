@@ -1,7 +1,8 @@
 'use strict';
 
-const { activate } = require('./activate');
+const { activate, deactivate } = require('./activate');
 
 module.exports = {
-	activate
+	activate,
+	deactivate
 };

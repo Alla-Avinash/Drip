@@ -2,7 +2,8 @@
 
 ## Run and test commands
 
-- **F5 (recommended):** open the `extensions/drip` folder in VS Code and press F5. The `preLaunchTask` builds the webview assets (`dist/`) first, then launches the Extension Development Host. The build never touches KB storage.
+- **F5 (recommended):** open the `extensions/drip` folder in VS Code and press F5. The `preLaunchTask` builds the webview assets (`dist/`) first, then launches the Extension Development Host. The build never touches KB storage. This window is **Peer A** (your normal identity).
+- **Two people on one PC:** from VS Code, pick **Run Extension (DRIP) — two peers** in Run and Debug. That starts Peer A (F5) and a second, isolated **VS Code** (**Peer B**) with its own user-data folder, so DRIP treats them as two people. You can also start Peer B alone (**Run Extension (DRIP) — Peer B (isolated)**, the **Launch Peer B** task, or `npm run launch:peer-b`). Peer B always opens VS Code, not Cursor. See **Local two-peer testing**.
 - **Whole editor from source (VS Code repo root):** `$env:VSCODE_SKIP_PRELAUNCH = "1"; .\scripts\code.bat`
 
 - Debug logs: in the Extension Development Host, **Help → Toggle Developer Tools**, then filter the console for `[DRIP]`.
@@ -10,8 +11,9 @@
 - Lint: `npm run lint`
 - Type check: `npm run compile-web`
 - Embedding benchmark: `npm run bench:embeddings` (add `--real` or `--all` for heavier runs)
+- Peer sync selftest (no UI): `npm run selftest:peer-sync` — two temp folders exchange a create (and an assign) over localhost.
 
-There are no automated tests — the user verifies behavior manually in the Extension Development Host.
+Two-window checks are still done by hand in Peer A / Peer B. The selftest only proves the create/assign path without an editor.
 
 ## Entry point
 

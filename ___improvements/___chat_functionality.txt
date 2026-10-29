@@ -1,0 +1,42 @@
+
+
+introducing chat functionality to individual issues  
+
+keeping the chat to a minimum and having 
+    to write the notes section with the issue rather than keeping information in the chat itself 
+    this just increases the chat but looses the context, so the chat has to be cleared and the note be updated evertime.. 
+
+i want to have notifications for a user with tagged chats so that the person can literally know to respond to these chats 
+
+these chats and notifications be similar to how slack works 
+    as their notifications center is too good for people.. 
+
+
+
+-------------------------------
+other things 
+-------------------------------
+
+- two people edit the same issue body
+    then, "need to have some text on how linear keeps track of who updated what.."
+    this keep the project audit trackable and tracibility and can enforce strict updation logs to make note of who is changing what 
+
+- security how is this application secure, can't other people corrupt their own project operations to introduce some conflicts between different files
+    they can also frame other people as if they had added something int he project but in truth they haven't added anything like a malicious chats or other things.. 
+
+- implementing RABC and have different roles to the different people 
+
+
+------------------------------------------------
+problem with the chat
+------------------------------------------------
+
+if we have individual dm chats then the chat will live on every peer in the network 
+so there won't be any security where only the intended person see's this particular message
+but it can also mean others in the network can see the dm between 2 other people... 
+
+
+
+
+
+

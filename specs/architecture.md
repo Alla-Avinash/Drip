@@ -13,11 +13,11 @@ Document data and project data live in two SQLite files under `.dripindex/`:
 - `index.drip` — the shared `files` registry (every note), document headings (concept/task), tags, relations, and embeddings. Global search reads only this file, so project headings never surface in it.
 - `projects.drip` — projects, features, issues, and project headings. It is opened only when the Project View (or a project operation) needs it.
 
-The two files share one `@fN` file-id sequence (minted by `index.drip`; `projects.drip` only records ids, since SQLite foreign keys cannot cross files). This gives fast sorting, filtering, and backlink lookups without reparsing the whole KB.
+`index.drip` mints `@fN` for knowledge-base notes. Each project folder mints its own `@fN` sequence (written in the file, remembered in the sidecar). `projects.drip` records those ids; it does not mint them. If a project `@fN` and a knowledge-base `@fN` collide in the local `files` table, the index may use a different row id for the project note — the file is not rewritten. Heading-number memory is keyed the same way (knowledge-base file vs project folder + `@fN`). Once a project is shared, reconcile refreshes the local index only and does not rewrite those files. This keeps project files identical across peers without changing how ordinary notes get ids.
 
 ### 3. Stable, hidden IDs for identity
 
-Files carry a file ID and headings carry heading IDs; projects and features carry entity IDs (`f-N`), and issues carry entity IDs (`i-N`). These survive renames, moves, and restructuring, so links keep pointing at the right thing.
+Knowledge-base files carry `@fN` unique in this knowledge base. Project files carry a project-owned `@fN` (same number on every peer) plus a hidden unique id that peers share. Headings carry heading IDs. Features and issues carry a visible Linear-style key (`f-N`, `i-N`) plus a hidden unique id that never changes — the visible key can be reminted if two people mint the same number offline. A shared project also has a hidden project id that survives folder renames. These survive moves and restructuring, so links keep pointing at the right thing.
 
 ### 4. Incremental parsing and reconciliation
 
@@ -63,6 +63,22 @@ Source files are named by which note format they serve, so a developer can tell 
 
 When one component holds logic for both formats, its files are split into `dripMd/` and `dripTxt/` subfolders; shared `dripNote*` files stay at the component root. The VS Code language id `dripnote` and scope `source.dripnote` (which apply to `.d.txt` only) keep their names — only the grammar *file* is `dripTxt.tmLanguage.json`.
 
+### 13. A project folder is the collaboration unit
+
+Every `.p` folder lives under `.drip.project/` at the knowledge-base root (hidden from the Knowledge Base tree; shown in the Projects sidebar). A project starts solo. Sharing is opt-in and only that `.p` folder — plus its `.drip/` sidecar (project id, members, tags, metadata overrides, operation log) — is the shared world. The rest of the knowledge base, the two SQLite indexes, embeddings, drafts, and secrets stay on the machine. There is no central DRIP server. The admin who shares must sign in with GitHub; that account is the recoverable owner.
+
+### 14. Operations are the exchange unit; indexes stay local
+
+Peers exchange discrete, signed operations — not live keystrokes, not database rows, not a git merge. A create names the file it was written in and carries enough of the issue (title, fields, body) for the other machine to write the same block. A move names the destination. Each operation is applied to those project files (all or nothing), the touched file is reprinted into a strict shape (same line breaks, same heading order by hidden id, one blank line between headings), then the local indexes are rebuilt from those files. Reprint never moves an issue into another file. The log is only a short recent queue: an admin folds old lines into the current folder so the changelog does not grow forever. A peer who missed the folded slice asks for that folder instead of a replay.
+
+### 15. Internet sharing uses a relay, not a DRIP server
+
+Two members first try a direct TCP path (same LAN or this machine). When that cannot be opened, they send the same snapshot and operations through a public MQTT relay as encrypted blobs. The relay introduces the two machines and forwards bytes; it is not an issue database. The invite secret is the encryption key. GitHub stays owner identity only.
+
+### 16. Two-peer local test uses a second app, not a second profile
+
+A second editor window (or a named profile) still shares Secret Storage, so both windows are the same DRIP person. Local sharing tests start a second VS Code with its own user-data folder. That is the only isolation that gives the guest a new id and a new signing key without overwriting the owner. The F5 Extension Host cannot take a custom user-data folder, so Peer A stays the debug window and Peer B is a real second VS Code process. See Local two-peer testing.
+
 ## Module layout
 
 ```
@@ -75,11 +91,12 @@ src/
   ingest/         deciding where a captured note should go
   integrations/mcp/  local MCP server + tool catalog
   llm/            chat memory and the OpenAI-compatible client
+  peer/           local identity, project sidecar, operations, share/sync, internet relay
   retrieval/      retriever query, quick open, embeddings benchmark
   shared/         constants, utilities, edit guards
   startup/        KB selection, settings, daily notes, drafts, github backup, startup check
   state/          session state (DripState + documentFileOps helpers + tagGraphState mixin)
   views/          editor services (dripMdEditor/ + dripTxt/), lhs (KB/projects/retriever), rhs (storage/heading/chat), composer, storage, tags (graph panels), settings
-scripts/          build-webview.mjs (esbuild bundle → dist/)
+scripts/          build-webview.mjs (esbuild bundle → dist/); launch-peer-b.mjs (isolated second editor for sharing tests)
 dist/             compiled webview assets (git-ignored, flat *.js/*.css)
 ```

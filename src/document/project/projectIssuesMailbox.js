@@ -45,6 +45,7 @@ const {
 	isMarkdownFormat,
 	formatFromPath,
 	findIssueHeadingBlock,
+	uidFromIssueBlock,
 	dedentToRoot,
 	appendIssueToInbox,
 	appendSubIssueUnderParent,
@@ -52,7 +53,9 @@ const {
 	insertSiblingAfterIssue,
 	appendBlockUnderHeading,
 	insertSiblingBeforeHeading,
-	insertSiblingAfterHeading
+	insertSiblingAfterHeading,
+	headingPathAboveIssue,
+	headingNumForIssue
 } = require('./issueInboxLayout');
 const { convertIssueBlockLines } = require('./issueBlockFormat');
 const {
@@ -89,7 +92,7 @@ async function ensureProjectIssuesFile(projectFolderUri, options = {}) {
 	let n = 0;
 	if (kbRoot) {
 		try {
-			n = await allocateNextEntityNumber(kbRoot);
+			n = await allocateNextEntityNumber(kbRoot, noteUri);
 		} catch (err) {
 			console.error('[DRIP] allocate file id for _issues', err);
 		}
@@ -138,25 +141,31 @@ function formatNewIssueBlock(opts) {
 	const tabs = Math.max(0, Math.floor(Number(opts.indentTabs) || 0));
 	const ind = '\t'.repeat(tabs);
 	const parentId = opts.parentIssueId ? normalizeIssueEntityId(opts.parentIssueId) : null;
+	const uid = String(opts.uid || '').trim();
+	const headingNum = Math.max(0, Math.floor(Number(opts.headingNum) || 0));
 	// Durable id lives in the type prefix: `# .i-12 Fix login`
 	// Type marker one tab under the heading; attributes one tab under the marker.
-	const lines = [
+	const lines = [];
+	if (headingNum > 0) lines.push(`${ind}@h${headingNum}`);
+	lines.push(
 		`${ind}# .${issueId}${rest ? ` ${rest}` : ' '}`,
-		`${ind}\t.issue`,
-		`${ind}\t\tstatus: to-do`,
-		`${ind}\t\tpriority: medium`
-	];
+		`${ind}\t.issue`
+	);
+	if (uid) lines.push(`${ind}\t\tuid: ${uid}`);
+	lines.push(`${ind}\t\tstatus: to-do`, `${ind}\t\tpriority: medium`);
 	if (parentId) {
 		lines.push(`${ind}\t\t${ISSUE_PARENT_META_KEY}: ${parentId}`);
 	}
+	const team = String(opts.team || '').trim();
+	if (team) lines.push(`${ind}\t\tteam: ${team}`);
 	lines.push('');
 	return lines.join('\n');
 }
 
 /**
- * Try to write a sub-issue as the last indented child of its parent heading
- * (parent's own file first, via the index; then `_issues.d.txt`). No `parent:` line — the
- * indentation carries the link.
+ * Place a block under a parent heading in that parent's file. Used only when the
+ * user explicitly picks "under this issue" (Storage move). Create/assign never
+ * call this — a sub-issue stays in its feature or project inbox.
  *
  * @returns {Promise<import('vscode').Uri | null>} file written, or null when the parent heading was not found
  */
@@ -195,49 +204,86 @@ async function writeSubIssueUnderParent(kbRootUri, projectFolderUri, prefix, par
 
 /**
  * Create an issue from Project View.
- * - Root issue → last child of `# _inbox` in `_issues.d.txt`.
- * - Sub-issue → indented under its parent heading (wherever it lives in the project).
- *   Falls back to `# _inbox` + `parent: i-N` only if the parent heading can't be found.
+ * Lands in this project's `_issues.d.txt` inbox, or in `opts.targetUri` when
+ * the issue is created inside a feature file. A parent is only a `parent: i-N`
+ * link — the new issue is not moved into another feature just because the parent
+ * lives there.
  *
  * @param {import('vscode').Uri} kbRootUri
  * @param {import('vscode').Uri} projectFolderUri
- * @param {{ title?: string, parentIssueId?: string | null, context?: import('vscode').ExtensionContext }} opts
+ * @param {{ title?: string, parentIssueId?: string | null, context?: import('vscode').ExtensionContext, targetUri?: import('vscode').Uri }} opts
  * @returns {Promise<{ issueId: string, uri: import('vscode').Uri }>}
  */
 async function createIssueInProjectInbox(kbRootUri, projectFolderUri, opts = {}) {
 	const rel = path.relative(kbRootUri.fsPath, projectFolderUri.fsPath).replace(/\\/g, '/');
 	const prefix = rel.endsWith('/') ? rel : `${rel}/`;
 	const issueId = await allocateNextIssueEntityId(kbRootUri, prefix);
+	const { newIssueUid } = require('../../peer/projectHiddenIds');
+	const uid = newIssueUid();
 	const parentId = normalizeIssueEntityId(opts.parentIssueId || '') || null;
-
-	/** @type {import('vscode').Uri | null} */
-	let writtenUri = null;
-	if (parentId) {
-		writtenUri = await writeSubIssueUnderParent(
-			kbRootUri,
-			projectFolderUri,
-			prefix,
-			parentId,
-			newIssueBlockLines({ issueId, title: opts.title })
-		);
+	let team = String((opts.attributes && opts.attributes.team) || opts.team || '').trim();
+	if (!team) {
+		try {
+			const rec = await require('../../peer/projectSidecar').readProjectRecord(projectFolderUri);
+			if (rec && rec.shared) {
+				const me = await require('../../peer/peerIdentity').ensurePeerIdentity();
+				const { memberTeamIds, teamById } = require('../../peer/projectTeams');
+				const ids = memberTeamIds(rec, me.peerId);
+				if (ids.length === 1) {
+					const only = teamById(rec, ids[0]);
+					if (only) team = only.name;
+				}
+			}
+		} catch {
+			/* solo / no teams */
+		}
 	}
-	if (!writtenUri) {
-		const issuesUri = await ensureProjectIssuesFile(projectFolderUri, {
+
+	let destUri = opts.targetUri;
+	if (!destUri) {
+		destUri = await ensureProjectIssuesFile(projectFolderUri, {
 			kbRoot: kbRootUri,
 			context: opts.context
 		});
-		if (!issuesUri) throw new Error('Could not create _issues.d.txt');
-		const text = await readTextFile(issuesUri);
-		const block = newIssueBlockLines({ issueId, title: opts.title, parentIssueId: parentId });
-		await writeTextFile(issuesUri, appendIssueToInbox(text, block));
-		writtenUri = issuesUri;
 	}
+	if (!destUri) throw new Error('Could not create the issue file');
+	const text = await readTextFile(destUri);
+	const fmt = formatFromPath(destUri.fsPath);
+	const block = convertIssueBlockLines(
+		newIssueBlockLines({ issueId, title: opts.title, parentIssueId: parentId, uid, team }),
+		'drip-txt',
+		fmt
+	);
+	const { reprintProjectIssueFileAtPath } = require('./projectIssuesReprint');
+	await writeTextFile(destUri, reprintProjectIssueFileAtPath(appendIssueToInbox(text, block, undefined, fmt), destUri.fsPath));
+	const writtenUri = destUri;
 	try {
 		await indexNewNoteImmediately(kbRootUri, writtenUri, opts.context);
 	} catch (err) {
 		console.error('[DRIP] reindex after issue create', err);
 	}
-	return { issueId, uri: writtenUri };
+	try {
+		const { recordLocalOperation, OP_TYPES } = require('../../peer/projectRecord');
+		const writtenText = await readTextFile(writtenUri);
+		await recordLocalOperation(kbRootUri, prefix, OP_TYPES.ISSUE_CREATE, {
+			uid,
+			issueKey: issueId,
+			title: opts.title || '',
+			parentIssueId: parentId,
+			rel: path.relative(projectFolderUri.fsPath, writtenUri.fsPath).replace(/\\/g, '/'),
+			headingPath: headingPathAboveIssue(writtenText, issueId, formatFromPath(writtenUri.fsPath)) || '',
+			headingNum: headingNumForIssue(writtenText, issueId, formatFromPath(writtenUri.fsPath)) || 0,
+			body: String(opts.body || ''),
+			attributes: Object.assign(
+				{},
+				opts.attributes && typeof opts.attributes === 'object' ? opts.attributes : {},
+				team ? { team } : {}
+			)
+		});
+	} catch (err) {
+		console.error('[DRIP] record issue create', err);
+	}
+	return { issueId, uri: writtenUri, uid };
 }
 
 /**
@@ -282,6 +328,7 @@ async function moveIssueToFeatureMailbox(kbRootUri, projectFolderUri, featureUri
 	let issuesText = await readTextFile(issuesUri);
 	let found = findIssueHeadingBlock(issuesText, id);
 	if (!found) throw new Error(`Issue ${id} not found in _issues.d.txt`);
+	const uid = uidFromIssueBlock(found.lines.slice(found.start, found.end));
 
 	// Outline parent is lost once the block leaves this file; keep it as `parent: i-N`.
 	const outlineParent = findNearestOutlineAncestorIssueId(found.lines.join('\n'), found.start);
@@ -313,7 +360,7 @@ async function moveIssueToFeatureMailbox(kbRootUri, projectFolderUri, featureUri
 		try {
 			mailboxText = await readTextFile(target.mailboxUri);
 		} catch {
-			const n = kbRootUri ? await allocateNextEntityNumber(kbRootUri).catch(() => 0) : 0;
+			const n = kbRootUri ? await allocateNextEntityNumber(kbRootUri, target.mailboxUri).catch(() => 0) : 0;
 			mailboxText = buildNewNoteFile(
 				{ title: 'inbox', content: '', metadataFilename: 'inbox' },
 				{ fileEntityNumber: n }
@@ -338,7 +385,41 @@ async function moveIssueToFeatureMailbox(kbRootUri, projectFolderUri, featureUri
 		console.error('[DRIP] reindex after issue move', err);
 	}
 
+	await recordIssueMoveIfShared(kbRootUri, projectFolderUri, uid, id, { kind: 'feature', featureUri }, options);
 	return { issueId: id, mailboxUri: target.mailboxUri };
+}
+
+/**
+ * When a parent is assigned to a feature, also assign its children that still
+ * sit in the project inbox. Children already in another feature stay there.
+ *
+ * @param {import('vscode').Uri} kbRootUri
+ * @param {import('vscode').Uri} projectFolderUri
+ * @param {import('vscode').Uri} featureUri
+ * @param {string} parentIssueId
+ * @param {{ context?: import('vscode').ExtensionContext }} [options]
+ */
+async function moveInboxLinkedChildrenToFeature(kbRootUri, projectFolderUri, featureUri, parentIssueId, options = {}) {
+	const parentKey = normalizeIssueEntityId(parentIssueId);
+	if (!parentKey) return;
+	const { projectFolderPrefixForPath } = require('../../peer/projectSidecar');
+	const prefix = projectFolderPrefixForPath(kbRootUri.fsPath, projectFolderUri.fsPath);
+	if (!prefix) return;
+	const { listProjectChildrenFromIndex } = require('../../indexing/projectViewQuery');
+	const { issues } = await listProjectChildrenFromIndex(kbRootUri, prefix);
+	const kids = (issues || []).filter(
+		i =>
+			i &&
+			i.inProjectInbox &&
+			normalizeIssueEntityId(i.parentIssueKey || '') === parentKey &&
+			normalizeIssueEntityId(i.issueKey || '') !== parentKey
+	);
+	for (const child of kids) {
+		const childId = normalizeIssueEntityId(child.issueKey);
+		if (!childId) continue;
+		await moveIssueToFeatureMailbox(kbRootUri, projectFolderUri, featureUri, childId, options);
+		await moveInboxLinkedChildrenToFeature(kbRootUri, projectFolderUri, featureUri, childId, options);
+	}
 }
 
 /**
@@ -455,6 +536,27 @@ async function appendIssueBlockToTarget(kbRootUri, projectFolderUri, target, blo
 		return target.fileUri;
 	}
 
+	if (target.kind === 'archive') {
+		const dest = target.fileUri;
+		if (!dest) throw new Error('Archive destination is missing.');
+		let destText = '';
+		try {
+			destText = await readTextFile(dest);
+		} catch {
+			const { resolveArchiveDest } = require('./projectIssueArchive');
+			await resolveArchiveDest(kbRootUri, projectFolderUri, relInsideProject(projectFolderUri, dest));
+			destText = await readTextFile(dest);
+		}
+		const fmt = formatFromPath(dest.fsPath);
+		const fmtBlock = convertIssueBlockLines(blockLines, src, fmt);
+		const lines = destText.replace(/\r\n/g, '\n').split('\n');
+		while (lines.length && !String(lines[lines.length - 1]).trim()) lines.pop();
+		lines.push('', ...fmtBlock, '');
+		let next = lines.join('\n');
+		await writeTextFile(dest, next.endsWith('\n') ? next : next + '\n');
+		return dest;
+	}
+
 	if (target.kind === 'file') {
 		// File-level placement: put the issue at the top of the body (first heading) or at the
 		// very bottom of the file, with no heading nesting — so there is no hierarchy problem.
@@ -481,7 +583,7 @@ async function appendIssueBlockToTarget(kbRootUri, projectFolderUri, target, blo
 		try {
 			mailboxText = await readTextFile(t.mailboxUri);
 		} catch {
-			const n = kbRootUri ? await allocateNextEntityNumber(kbRootUri).catch(() => 0) : 0;
+			const n = kbRootUri ? await allocateNextEntityNumber(kbRootUri, t.mailboxUri).catch(() => 0) : 0;
 			mailboxText = buildNewNoteFile(
 				{ title: 'inbox', content: '', metadataFilename: 'inbox' },
 				{ fileEntityNumber: n }
@@ -549,6 +651,16 @@ async function moveIssueBlock(kbRootUri, sourceUri, projectFolderUri, target, is
 		after.shift();
 	}
 	const remaining = before.concat(after).join('\n');
+	const uid = uidFromIssueBlock(found.lines.slice(found.start, found.end));
+
+	if (
+		target.kind === 'archive' &&
+		target.fileUri &&
+		sourceUri.fsPath.replace(/\\/g, '/').toLowerCase() ===
+			target.fileUri.fsPath.replace(/\\/g, '/').toLowerCase()
+	) {
+		return { issueId: id, mailboxUri: target.fileUri };
+	}
 
 	// Append to the destination FIRST: if it throws (e.g. "has a parent" guard, or the target
 	// heading/issue isn't found), the issue is never removed from its source file.
@@ -564,7 +676,129 @@ async function moveIssueBlock(kbRootUri, sourceUri, projectFolderUri, target, is
 		console.error('[DRIP] reindex after issue move', err);
 	}
 
+	await recordIssueMoveIfShared(kbRootUri, projectFolderUri, uid, id, target, options);
 	return { issueId: id, mailboxUri: targetUri };
+}
+
+/**
+ * Relative destination so another machine can apply the same move.
+ * @param {import('vscode').Uri} projectFolderUri
+ * @param {import('vscode').Uri} [uri]
+ */
+function relInsideProject(projectFolderUri, uri) {
+	if (!uri) return '';
+	return path.relative(projectFolderUri.fsPath, uri.fsPath).replace(/\\/g, '/');
+}
+
+function joinProjectRel(projectFolderUri, rel) {
+	const parts = String(rel || '')
+		.replace(/\\/g, '/')
+		.split('/')
+		.filter(Boolean);
+	return parts.length ? vscode.Uri.joinPath(projectFolderUri, ...parts) : projectFolderUri;
+}
+
+/**
+ * @param {import('vscode').Uri} projectFolderUri
+ * @param {{ kind: string, featureUri?: import('vscode').Uri, fileUri?: import('vscode').Uri, issueId?: string, headingPath?: string, position?: string }} target
+ */
+function serializeMoveTarget(projectFolderUri, target) {
+	if (!target || target.kind === 'inbox') return { kind: 'inbox' };
+	if (target.kind === 'feature') {
+		return { kind: 'feature', rel: relInsideProject(projectFolderUri, target.featureUri) };
+	}
+	if (target.kind === 'issue') {
+		return {
+			kind: 'issue',
+			issueId: target.issueId,
+			position: target.position || 'under',
+			rel: relInsideProject(projectFolderUri, target.fileUri)
+		};
+	}
+	if (target.kind === 'heading') {
+		return {
+			kind: 'heading',
+			headingPath: target.headingPath,
+			position: target.position || 'under',
+			rel: relInsideProject(projectFolderUri, target.fileUri)
+		};
+	}
+	if (target.kind === 'file') {
+		return {
+			kind: 'file',
+			position: target.position === 'top' ? 'top' : 'bottom',
+			rel: relInsideProject(projectFolderUri, target.fileUri)
+		};
+	}
+	if (target.kind === 'archive') {
+		return { kind: 'archive', rel: relInsideProject(projectFolderUri, target.fileUri) };
+	}
+	return { kind: 'inbox' };
+}
+
+/**
+ * @param {import('vscode').Uri} projectFolderUri
+ * @param {{ kind?: string, rel?: string, issueId?: string, headingPath?: string, position?: string }} t
+ */
+function deserializeMoveTarget(projectFolderUri, t) {
+	if (!t || t.kind === 'inbox') return { kind: 'inbox' };
+	if (t.kind === 'feature') {
+		return { kind: 'feature', featureUri: joinProjectRel(projectFolderUri, t.rel) };
+	}
+	if (t.kind === 'issue') {
+		return {
+			kind: 'issue',
+			issueId: t.issueId,
+			position: t.position === 'before' || t.position === 'after' ? t.position : 'under',
+			fileUri: t.rel ? joinProjectRel(projectFolderUri, t.rel) : undefined
+		};
+	}
+	if (t.kind === 'heading') {
+		return {
+			kind: 'heading',
+			headingPath: t.headingPath,
+			position: t.position === 'before' || t.position === 'after' ? t.position : 'under',
+			fileUri: joinProjectRel(projectFolderUri, t.rel)
+		};
+	}
+	if (t.kind === 'file') {
+		return {
+			kind: 'file',
+			position: t.position === 'top' ? 'top' : 'bottom',
+			fileUri: joinProjectRel(projectFolderUri, t.rel)
+		};
+	}
+	if (t.kind === 'archive') {
+		return { kind: 'archive', fileUri: joinProjectRel(projectFolderUri, t.rel) };
+	}
+	return { kind: 'inbox' };
+}
+
+/**
+ * @param {import('vscode').Uri} kbRootUri
+ * @param {import('vscode').Uri} projectFolderUri
+ * @param {string} uid
+ * @param {string} issueKey
+ * @param {object} target
+ * @param {{ skipOpRecord?: boolean, removeParent?: boolean }} [options]
+ */
+async function recordIssueMoveIfShared(kbRootUri, projectFolderUri, uid, issueKey, target, options) {
+	if (options && options.skipOpRecord) return;
+	if (!uid || !kbRootUri) return;
+	try {
+		const { projectFolderPrefixForPath } = require('../../peer/projectSidecar');
+		const prefix = projectFolderPrefixForPath(kbRootUri.fsPath, projectFolderUri.fsPath);
+		if (!prefix) return;
+		const { recordLocalOperation, OP_TYPES } = require('../../peer/projectRecord');
+		await recordLocalOperation(kbRootUri, prefix, OP_TYPES.ISSUE_MOVE, {
+			uid,
+			issueKey,
+			target: serializeMoveTarget(projectFolderUri, target),
+			removeParent: !!(options && options.removeParent)
+		});
+	} catch (err) {
+		console.error('[DRIP] record issue move', err);
+	}
 }
 
 module.exports = {
@@ -575,6 +809,9 @@ module.exports = {
 	findIssueHeadingBlock,
 	resolveFeatureMailboxTarget,
 	moveIssueToFeatureMailbox,
+	moveInboxLinkedChildrenToFeature,
 	moveIssueBlock,
+	serializeMoveTarget,
+	deserializeMoveTarget,
 	parseIssueTitleEntityId
 };

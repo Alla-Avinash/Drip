@@ -11,6 +11,9 @@
 				<button class="navBtn" data-panel="update">Update</button>
 				<button class="navBtn" data-panel="kb-types">KB Metadata</button>
 				<button class="navBtn" data-panel="project-types">Project Metadata</button>
+				<button class="navBtn" data-panel="account">Account</button>
+				<button class="navBtn" data-panel="join-project">Join a Project</button>
+				<button class="navBtn" data-panel="project-sharing">Project Sharing</button>
 				<button class="navBtn" data-panel="relations">Tags & Relations</button>
 				<button class="navBtn" data-panel="metadata">Markdown</button>
 				<button class="navBtn" data-panel="doccoloring">Doc Coloring</button>
@@ -39,6 +42,17 @@
 						</tbody>
 					</table>
 					<p class="meta" style="margin-top:8px;">You set the default new-note type (and which extensions appear in the KB) in <strong>Knowledge Base</strong>.</p>
+				</div>
+
+				<div class="card">
+					<h3 style="margin-top:0;">Reading a <code>.d.txt</code> note</h3>
+					<p class="meta">Two simple rules make every <code>.d.txt</code> note searchable and structured: persistent headings and tab indentation.</p>
+					<ul class="about-steps">
+						<li><strong>Persistent headings start with <code># .</code>.</strong> A heading like <code># .concept My idea</code> is stored in DRIP's index, so it is searchable and browsable (unlike a plain <code>#</code> heading).</li>
+						<li><strong>Tabs mark the hierarchy.</strong> A heading nested under another is indented one more <kbd>Tab</kbd>; its metadata and body sit indented under it.</li>
+						<li><strong>Typing <code># .</code> then a space (or a type shortcut like <code># .c</code>) opens the RHS sidebar.</strong> There you enter the heading text and choose its metadata type (concept, task, issue, decision). Plain <code>#</code> headings without the dot edit directly in the file.</li>
+					</ul>
+					<p class="meta" style="margin-top:8px;">See <strong>Editor</strong> to choose whether <code># .</code> headings edit in the RHS sidebar or directly in the file.</p>
 				</div>
 
 				<div class="card">
@@ -170,6 +184,82 @@
 						<button id="btn-save-project-metadata">Save Project Metadata</button>
 						<button id="btn-reset-project-metadata" class="secondary">Revert</button>
 					</div>
+				</div>
+			</section>
+
+			<section id="panel-account" class="panel">
+				<h3>Account</h3>
+				<p class="meta">This machine has one identity. Every shared project uses it. Sign in with GitHub to use that name. Sign out to use the guest PC name instead.</p>
+				<div class="card">
+					<h3 style="margin-top:0;">Who you are</h3>
+					<p class="meta" id="account-identity-line">—</p>
+					<p class="meta" id="account-pc-row">PC name: <strong id="account-pc-name">—</strong></p>
+					<p class="meta">Unique id: <code id="account-peer-id">—</code></p>
+					<p class="meta" id="account-pc-hint">Other people see the PC name while you are signed out. Sign in with GitHub and they see only that GitHub name.</p>
+					<div class="actions" id="account-pc-actions">
+						<button type="button" data-share-action="changeName">Change PC name</button>
+					</div>
+				</div>
+				<div class="card">
+					<h3 style="margin-top:0;">GitHub</h3>
+					<p class="meta" id="account-github-status">Not signed in</p>
+					<p class="meta" id="account-github-hint">Sign in once with the DRIP GitHub app (profile only). Sharing a project uses this same login. Sign out to go back to the guest PC name on this machine.</p>
+					<div class="actions">
+						<button type="button" data-share-action="linkGithub" id="account-btn-github-in">Sign in with GitHub</button>
+						<button type="button" class="secondary" data-share-action="switchGithub" id="account-btn-github-switch">Sign in with another account</button>
+						<button type="button" class="secondary" data-share-action="signOutGithub" id="account-btn-github-out">Sign out of GitHub</button>
+					</div>
+				</div>
+				<div class="card">
+					<h3 style="margin-top:0;">Use on another PC</h3>
+					<p class="meta">Your identity — the unique id, signing key, and chat keys — lives only on this PC. To be the same person on a second computer, export it here and import it there. (If you are signed in with GitHub, you can instead just sign in with that same GitHub account on the other PC.)</p>
+					<p class="meta" id="account-identity-file-hint">Keep the identity file private: anyone with it can act as you on a shared project.</p>
+					<div class="actions">
+						<button type="button" data-share-action="exportIdentity">Export identity file…</button>
+						<button type="button" class="secondary" data-share-action="importIdentity">Import identity file…</button>
+					</div>
+				</div>
+			</section>
+
+			<section id="panel-join-project" class="panel">
+				<h3>Join a Project</h3>
+				<p class="meta">Work in a shared project with other people. Paste the invite you got from that project's admin to ask to join.</p>
+				<div class="card">
+					<h3 style="margin-top:0;">Join a new project</h3>
+					<p class="meta">Paste the project invite to ask to join. The admin sees your name (GitHub if you are signed in, otherwise the guest PC name) and decides whether to admit you, and which role and teams you get.</p>
+					<label class="row" style="align-items:center;">
+						<span style="min-width:8em;">Invite</span>
+						<input id="share-join-code" type="text" placeholder="Invite code" style="flex:1; padding:4px 6px; background:var(--vscode-input-background); color:var(--vscode-input-foreground); border:1px solid var(--vscode-input-border); border-radius:4px;">
+					</label>
+					<div class="actions" style="margin-top:8px;">
+						<button type="button" data-share-action="joinProject">Join project</button>
+					</div>
+				</div>
+				<div class="card">
+					<h3 style="margin-top:0;">Account on this PC</h3>
+					<p class="meta">You join as the single account in <strong>Account</strong>.</p>
+					<p class="meta" id="share-identity-line">—</p>
+					<p class="meta" id="share-identity-hint">Sign in with GitHub in Account to show only that name. Sign out to show the guest PC name.</p>
+				</div>
+			</section>
+
+			<section id="panel-project-sharing" class="panel">
+				<h3>Project Sharing</h3>
+				<p class="meta">A project starts solo on this machine. Sharing is optional — only that project folder is shared, and the rest of the knowledge base stays private. There is no DRIP server.</p>
+				<div class="card">
+					<label class="row" style="align-items:center;">
+						<span style="min-width:8em;">Select project</span>
+						<select id="share-project-select" style="flex:1; max-width:18em; padding:4px 6px; background:var(--vscode-dropdown-background); color:var(--vscode-dropdown-foreground); border:1px solid var(--vscode-dropdown-border); border-radius:4px;"></select>
+					</label>
+					<p class="meta">Choose a project to see only that project’s share settings.</p>
+				</div>
+				<div id="share-project-body"></div>
+				<div class="card">
+					<h3 style="margin-top:0;">Account on this PC</h3>
+					<p class="meta">This project uses the single account in <strong>Account</strong>.</p>
+					<p class="meta" id="share-identity-line">—</p>
+					<p class="meta" id="share-identity-hint">Sign in with GitHub in Account to show only that name. Sign out to show the guest PC name.</p>
+					<p class="meta" id="share-identity-mismatch" style="display:none;">This PC is not a member of this shared project. If you used this project on another computer, open <strong>Account → Import identity file</strong> (or sign in with the same GitHub account) so you are recognized as the same person.</p>
 				</div>
 			</section>
 

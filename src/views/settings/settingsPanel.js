@@ -19,6 +19,8 @@ const { invalidateKbNoteExtensionsCache } = require('../../document/model/dripNo
 
 /** @type {import('vscode').WebviewPanel | null} */
 let settingsPanel = null;
+/** @type {{ state?: object, context?: import('vscode').ExtensionContext, projectKey?: string }} */
+let settingsHost = {};
 
 function getOpenSettingsPanel() {
 	return settingsPanel;
@@ -111,8 +113,50 @@ async function postDripSettingsValuesToWebview(webview, dripState, extensionCont
 		projectMetadataOverrides,
 		githubBackupStatus,
 		llmStatus,
-		mcpStatus: await require('../../integrations/mcp/mcpBridge').getMcpStatus()
+		mcpStatus: await require('../../integrations/mcp/mcpBridge').getMcpStatus(),
+		peerIdentity: await readPeerIdentityForSettings()
 	});
+}
+
+async function readPeerIdentityForSettings() {
+	try {
+		const me = await require('../../peer/peerIdentity').ensurePeerIdentity();
+		return {
+			displayName: me.displayName || '',
+			peerId: me.peerId || '',
+			githubLogin: me.githubLogin || '',
+			githubId: me.githubId || ''
+		};
+	} catch {
+		return { displayName: '', peerId: '' };
+	}
+}
+
+async function postProjectShareToWebview(webview, state, projectKey) {
+	settingsHost.state = state;
+	settingsHost.projectKey = String(projectKey || '');
+	const kbRoot =
+		(state.getVerifiedKnowledgeBaseRoot && state.getVerifiedKnowledgeBaseRoot()) ||
+		state.getKnowledgeBaseRoot();
+	const prefix = String(projectKey || '');
+	if (!kbRoot || !prefix) {
+		await webview.postMessage({ type: 'projectShareState', projectKey: prefix, shareState: null });
+		return;
+	}
+	const { shareStateForWebview } = require('../../peer/projectShareCommands');
+	const shareState = await shareStateForWebview(kbRoot, prefix);
+	await webview.postMessage({ type: 'projectShareState', projectKey: prefix, shareState });
+}
+
+/**
+ * Refresh the open Share settings page after a join, remove, or start/stop.
+ * @param {string} [folderPrefix]
+ */
+function refreshOpenProjectShare(folderPrefix) {
+	if (!settingsPanel) return;
+	const key = String(folderPrefix || settingsHost.projectKey || '');
+	if (!key || !settingsHost.state) return;
+	void postProjectShareToWebview(settingsPanel.webview, settingsHost.state, key);
 }
 
 /**
@@ -345,6 +389,54 @@ function wireSettingsWebviewMessageHandler(webview, state, context) {
 					await webview.postMessage({ type: 'llmTestResult', profileId, ...result });
 				}
 				break;
+				case 'requestProjectShare':
+					await postProjectShareToWebview(webview, state, message.projectKey);
+					break;
+				case 'projectShareAction': {
+					const kbRoot =
+						(state.getVerifiedKnowledgeBaseRoot && state.getVerifiedKnowledgeBaseRoot()) ||
+						state.getKnowledgeBaseRoot();
+					const { runProjectShareAction } = require('../../peer/projectShareCommands');
+					const action = String(message.action || '');
+					const prefix = String(message.projectKey || '');
+					const result = await runProjectShareAction(kbRoot, prefix, action, {
+						title: String(message.projectTitle || ''),
+						peerId: String(message.peerId || ''),
+						inviteCode: String(message.inviteCode || ''),
+						mailboxRepo: String(message.mailboxRepo || ''),
+						teamName: String(message.teamName || ''),
+						teamId: String(message.teamId || ''),
+						memberRole: String(message.memberRole || ''),
+						leadPeerId: String(message.leadPeerId || ''),
+						guestName: String(message.guestName || ''),
+						accessCode: String(message.accessCode || ''),
+						accessRole: String(message.accessRole || ''),
+						teamIds: Array.isArray(message.teamIds) ? message.teamIds.map(String) : []
+					});
+					await webview.postMessage({
+						type: 'peerIdentity',
+						peerIdentity: await readPeerIdentityForSettings()
+					});
+					if (action === 'joinProject') {
+						await postDripSettingsValuesToWebview(webview, state, context);
+						if (result && result.folderPrefix) {
+							await webview.postMessage({
+								type: 'showPanel',
+								panel: 'project-sharing',
+								projectKey: result.folderPrefix,
+								projectTitle: result.title || ''
+							});
+						}
+					} else if (prefix && kbRoot) {
+						await postProjectShareToWebview(webview, state, prefix);
+					}
+					try {
+						require('../lhs/projects/panel').refreshProjectViewIfShown();
+					} catch {
+						/* Project View may not be open */
+					}
+					break;
+				}
 				case 'saveProjectMetadata': {
 					const kbRoot = state.getKnowledgeBaseRoot();
 					if (!kbRoot) {
@@ -369,6 +461,7 @@ function wireSettingsWebviewMessageHandler(webview, state, context) {
 function createOrShowSettingsPanel(context, state, panelId, projectKey, projectTitle) {
 	const column = vscode.window.activeTextEditor?.viewColumn || vscode.ViewColumn.One;
 	if (settingsPanel) {
+		settingsHost = { state, context, projectKey: String(projectKey || settingsHost.projectKey || '') };
 		settingsPanel.reveal(column, false);
 		if (panelId) {
 			void settingsPanel.webview.postMessage({
@@ -395,6 +488,7 @@ function createOrShowSettingsPanel(context, state, panelId, projectKey, projectT
 		initialProject: projectKey,
 		initialProjectTitle: projectTitle
 	});
+	settingsHost = { state, context, projectKey: String(projectKey || '') };
 	wireSettingsWebviewMessageHandler(settingsPanel.webview, state, context);
 	const mcpBridge = require('../../integrations/mcp/mcpBridge');
 	const panelWebview = settingsPanel.webview;
@@ -404,6 +498,7 @@ function createOrShowSettingsPanel(context, state, panelId, projectKey, projectT
 	settingsPanel.onDidDispose(() => {
 		mcpStatusSub.dispose();
 		settingsPanel = null;
+		settingsHost = {};
 	});
 	return settingsPanel;
 }
@@ -437,6 +532,7 @@ function registerSettingsThemeSync(context) {
 module.exports = {
 	createOrShowSettingsPanel,
 	getOpenSettingsPanel,
+	refreshOpenProjectShare,
 	postDripSettingsValuesToWebview,
 	postDocThemeColors,
 	registerSettingsThemeSync

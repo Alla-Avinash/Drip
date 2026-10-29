@@ -10,6 +10,37 @@
 	/** @type {{ features: any[], issues: any[] }} */
 	let detail = { features: [], issues: [] };
 	let detailLoading = false;
+	/** @type {{ shared?: boolean, status?: string, members?: any[], role?: string, teams?: any[], defaultTeamId?: string, myTeamIds?: string[], canViewAllTeams?: boolean, caps?: any }} */
+	let shareState = { shared: false, status: 'solo', members: [], role: '', teams: [], myTeamIds: [], caps: {} };
+	/** 'mine' (my teams) | 'none' (no filter) | team id */
+	let teamScope = 'mine';
+
+	// Unified chat modal state.
+	let chatOpen = false;
+	/** @type {any[]} */
+	let chatRooms = [];
+	/** @type {any[]} */
+	let chatMentions = [];
+	/** @type {{ peerId?: string, name?: string, mentionTokens?: string[] }} */
+	let chatMe = {};
+	let chatActiveRoom = { room: 'project', id: '', label: 'Project talk' }; // or { room: 'mentions' }
+	/** @type {any[]} */
+	let chatMessages = [];
+	let chatTotalUnread = 0;
+	/** @type {any[]} */
+	let chatPeople = [];
+	/** @type {any[]} */
+	let chatIssues = [];
+	/** @type {any[]} */
+	let chatTeams = [];
+	let chatMentionsReadAt = '';
+	/** @type {HTMLElement | null} */
+	let chatEl = null;
+
+	// DM search (start a new direct message) and @/# autocomplete state.
+	let chatDmSearchOpen = false;
+	let chatDmQuery = '';
+	let chatAutocomplete = { open: false, start: -1, prefix: '', matches: [], index: 0 };
 
 	/** Per-project tags for the Tags popover. */
 	/** @type {any[]} */
@@ -17,6 +48,12 @@
 	let tagsPopoverOpen = false;
 	/** @type {HTMLElement | null} */
 	let tagsPopoverEl = null;
+
+	/** Online presence popover (People / Teams). */
+	let onlinePopoverOpen = false;
+	let onlinePopoverTab = 'people'; // 'people' | 'teams'
+	/** @type {HTMLElement | null} */
+	let onlinePopoverEl = null;
 
 	// Field schema from the host (enum values read from DRIP settings).
 	let schema = { project: { fields: [] }, issue: { fields: [] } };
@@ -618,6 +655,7 @@
 			menuButton('filter', 'Filter', filterCount) +
 			menuButton('display', 'Display', displayOff) +
 			menuButton('groupsort', 'Sort', gsActive ? 1 : 0) +
+			'<button type="button" class="ghost" id="btnJoinProject">Join new Project</button>' +
 			(anyActive
 				? '<button type="button" class="ghost clear-btn" id="clearAll">Clear</button>'
 				: '') +
@@ -1279,6 +1317,13 @@
 				clearAllFilters();
 			});
 		}
+		const joinBtn = document.getElementById('btnJoinProject');
+		if (joinBtn) {
+			joinBtn.addEventListener('click', function (e) {
+				e.stopPropagation();
+				vscode.postMessage({ type: 'joinProject' });
+			});
+		}
 	}
 
 	// Close menus when clicking outside the toolbar.
@@ -1339,12 +1384,15 @@
 			return;
 		}
 		const parentIssueId = compose.parentIssueId || '';
+		const teamSel = document.getElementById('composeTeam');
+		const team = teamSel ? String(teamSel.value || '') : '';
 		compose = null;
 		vscode.postMessage({
 			type: 'createIssue',
 			folderPrefix: selectedPrefix,
 			parentIssueId: parentIssueId || undefined,
-			title: title
+			title: title,
+			team: team
 		});
 		detailLoading = true;
 		render();
@@ -1362,6 +1410,19 @@
 			'</label>' +
 			'<div class="compose-row">' +
 			'<input type="text" id="composeTitle" placeholder="Short problem statement" autocomplete="off" />' +
+			(shareTeams().length
+				? '<select id="composeTeam"><option value="">No team</option>' +
+					shareTeams()
+						.filter(function (t) {
+							return shareState.canViewAllTeams || (shareState.myTeamIds || []).indexOf(t.id) !== -1;
+						})
+						.map(function (t) {
+							const sel = t.id === mySingleTeamId() ? ' selected' : '';
+							return '<option value="' + esc(t.name) + '"' + sel + '>' + esc(t.name) + '</option>';
+						})
+						.join('') +
+					'</select>'
+				: '') +
 			'<div class="compose-actions">' +
 			'<button type="button" id="composeSubmit">Create</button>' +
 			'<button type="button" class="ghost" id="composeCancel">Cancel</button>' +
@@ -1439,13 +1500,23 @@
 	 */
 	function renderIssueRow(issue, depth, inFeature, guideHtml) {
 		const ikey = esc(issue.issueKey || '');
-		const actionBtn = inFeature
-			? '<button type="button" class="ghost issue-btn issue-move" data-ikey="' +
-			  ikey +
-			  '" title="Move to a feature, project issues, or under another issue (opens Storage)">Move</button>'
-			: '<button type="button" class="ghost issue-btn issue-assign" data-ikey="' +
-			  ikey +
-			  '" title="Move to a feature or under another issue (opens Storage)">Assign</button>';
+		const caps = shareCaps();
+		const actionBtn =
+			caps.issueMove === false
+				? ''
+				: inFeature
+					? '<button type="button" class="ghost issue-btn issue-move" data-ikey="' +
+					  ikey +
+					  '" title="Move to a feature, project issues, or under another issue (opens Storage)">Move</button>'
+					: '<button type="button" class="ghost issue-btn issue-assign" data-ikey="' +
+					  ikey +
+					  '" title="Move to a feature or under another issue (opens Storage)">Assign</button>';
+		const subBtn =
+			caps.issueCreate === false
+				? ''
+				: '<button type="button" class="ghost issue-btn issue-sub" data-ikey="' +
+				  ikey +
+				  '" title="New sub-issue">Sub</button>';
 
 		// Top-level roots sit flush with no connector; nested rows get a CSS tree guide.
 		const isTree = guideHtml !== '';
@@ -1477,9 +1548,7 @@
 			esc(issue.status || '') +
 			'</span>' +
 			actionBtn +
-			'<button type="button" class="ghost issue-btn issue-sub" data-ikey="' +
-			ikey +
-			'" title="New sub-issue">Sub</button>' +
+			subBtn +
 			'</div>'
 		);
 	}
@@ -1739,6 +1808,42 @@
 	 * "Project issues" for the inbox), and refresh the `feature` enum's values so the
 	 * issues-view group/column/row/filter lists show the real, sorted feature names.
 	 */
+	function shareTeams() {
+		return Array.isArray(shareState.teams) ? shareState.teams : [];
+	}
+
+	/** The team a new issue defaults to: the creator's one team, or none. */
+	function mySingleTeamId() {
+		const mine = Array.isArray(shareState.myTeamIds) ? shareState.myTeamIds : [];
+		return mine.length === 1 ? mine[0] : '';
+	}
+
+	function shareCaps() {
+		return shareState.caps && typeof shareState.caps === 'object' ? shareState.caps : {};
+	}
+
+	function scopedIssues(list) {
+		const teams = shareTeams();
+		if (!teams.length || teamScope === 'none') return list || [];
+		if (teamScope === 'mine') {
+			// Mix of every issue in a team this person belongs to.
+			const mine = Array.isArray(shareState.myTeamIds) ? shareState.myTeamIds : [];
+			const names = teams
+				.filter(function (t) { return mine.indexOf(t.id) !== -1; })
+				.map(function (t) { return String(t.name || '').toLowerCase(); });
+			if (!names.length) return list || [];
+			return (list || []).filter(function (i) {
+				return names.indexOf(String(i.team || '').trim().toLowerCase()) !== -1;
+			});
+		}
+		const t = teams.find(function (x) { return x.id === teamScope; });
+		if (!t) return list || [];
+		const name = String(t.name || '').toLowerCase();
+		return (list || []).filter(function (i) {
+			return String(i.team || '').trim().toLowerCase() === name;
+		});
+	}
+
 	function enrichIssuesWithFeature() {
 		const features = detail.features || [];
 		const issues = detail.issues || [];
@@ -1772,6 +1877,10 @@
 				.filter(Boolean)
 				.sort(function (a, b) { return a.toLowerCase().localeCompare(b.toLowerCase()); });
 		}
+		const teamField = DF ? DF.fieldById(issueFields, 'team') : undefined;
+		if (teamField) {
+			teamField.values = shareTeams().map(function (t) { return t.name; }).filter(Boolean);
+		}
 	}
 
 	// ---- issues view (flat, searchable browser for one project's issues) ----
@@ -1803,7 +1912,7 @@
 	}
 
 	function searchOnlyIssues() {
-		let list = (detail.issues || []).slice();
+		let list = scopedIssues(detail.issues || []).slice();
 		const q = issuesQuery.trim().toLowerCase();
 		if (q) {
 			list = list.filter(function (i) {
@@ -2249,6 +2358,24 @@
 		);
 	}
 
+	function shareHeaderHtml() {
+		if (!shareState || !shareState.shared) {
+			return '<span class="meta share-status" title="This project is only on this machine">solo</span>';
+		}
+		const status = String(shareState.status || 'shared');
+		if (shareState.sharingActive) {
+			const online = Number(shareState.onlineCount || 0);
+			return (
+				'<button type="button" class="online-pill" id="btnOnline" title="' +
+				esc(status) +
+				'">' +
+				esc(online + ' online') +
+				'</button>'
+			);
+		}
+		return '<span class="meta share-status" title="' + esc(status) + '">sharing stopped</span>';
+	}
+
 	/** Shared detail header (back / title / Overview / Tags / Features-Issues switch / New issue). */
 	function detailHeaderHtml(title) {
 		return (
@@ -2257,9 +2384,16 @@
 			'<h2>' +
 			esc(title) +
 			'</h2>' +
-			'<button type="button" class="ghost" id="btnProjectSettings" title="Project settings">\u2699</button>' +
+			'<button type="button" class="ghost" id="btnProjectSettings" title="Project metadata and share settings">\u2699</button>' +
+			shareHeaderHtml() +
 			'<button type="button" class="ghost" id="btnOverview">Overview</button>' +
 			'<button type="button" class="ghost" id="btnTags">Tags</button>' +
+			(shareState.shared
+				? '<button type="button" class="ghost chat-btn" id="btnChat">Chat' +
+					(chatTotalUnread ? '<span class="chat-badge">' + chatTotalUnread + '</span>' : '') +
+					'</button>'
+				: '') +
+			teamSwitcherHtml() +
 			'<div class="detail-switch">' +
 			'<button type="button" class="vs-btn' +
 			(detailView === 'features' ? ' active' : '') +
@@ -2268,9 +2402,25 @@
 			(detailView === 'issues' ? ' active' : '') +
 			'" data-detail-view="issues">Issues</button>' +
 			'</div>' +
-			'<button type="button" id="btnNewIssue">New issue</button>' +
+			(shareCaps().issueCreate !== false
+				? '<button type="button" id="btnNewIssue">New issue</button>'
+				: '') +
 			'</div>'
 		);
+	}
+
+	function teamSwitcherHtml() {
+		const teams = shareTeams();
+		if (!teams.length) return '';
+		let html = '<span class="team-filter"><span class="team-filter-label">Team</span>';
+		html += '<select id="teamScope" class="team-scope" title="Filter issues by team">';
+		html += '<option value="mine"' + (teamScope === 'mine' ? ' selected' : '') + '>My Teams</option>';
+		teams.forEach(function (t) {
+			html += '<option value="' + esc(t.id) + '"' + (teamScope === t.id ? ' selected' : '') + '>' + esc(t.name) + '</option>';
+		});
+		html += '<option value="none"' + (teamScope === 'none' ? ' selected' : '') + '>None</option>';
+		html += '</select></span>';
+		return html;
 	}
 
 	function bindDetailHeader() {
@@ -2281,7 +2431,7 @@
 		const btnProjectSettings = document.getElementById('btnProjectSettings');
 		if (btnProjectSettings)
 			btnProjectSettings.addEventListener('click', function () {
-				vscode.postMessage({ type: 'openProjectSettings', folderPrefix: selectedPrefix, title: selectedTitle });
+				vscode.postMessage({ type: 'openProjectShare', folderPrefix: selectedPrefix, title: selectedTitle });
 			});
 		const btnOverview = document.getElementById('btnOverview');
 		if (btnOverview)
@@ -2294,6 +2444,13 @@
 				e.stopPropagation();
 				toggleTagsPopover();
 			});
+		const btnOnline = document.getElementById('btnOnline');
+		if (btnOnline) {
+			btnOnline.addEventListener('click', function (e) {
+				e.stopPropagation();
+				toggleOnlinePopover();
+			});
+		}
 		root.querySelectorAll('.vs-btn').forEach(function (btn) {
 			btn.addEventListener('click', function (e) {
 				e.stopPropagation();
@@ -2301,6 +2458,20 @@
 				renderProjectDetail();
 			});
 		});
+		const scope = document.getElementById('teamScope');
+		if (scope) {
+			scope.addEventListener('change', function () {
+				teamScope = String(scope.value || 'mine');
+				renderProjectDetail();
+			});
+		}
+		const btnChat = document.getElementById('btnChat');
+		if (btnChat) {
+			btnChat.addEventListener('click', function (e) {
+				e.stopPropagation();
+				toggleChat();
+			});
+		}
 	}
 
 	function bindIssuesToolbar() {
@@ -2536,7 +2707,7 @@
 		}
 
 		const features = detail.features || [];
-		const issues = detail.issues || [];
+		const issues = scopedIssues(detail.issues || []);
 		const hasQuery = String(issueQuery || '').trim() !== '';
 		const inbox = filterIssuesByQuery(issues.filter(function (i) {
 			return i.inProjectInbox;
@@ -2665,6 +2836,614 @@
 		});
 		bindIssues(root);
 		bindIssueActions();
+	}
+
+	// ---- unified chat modal ----
+
+	function ensureChatEl() {
+		if (chatEl) return chatEl;
+		chatEl = document.createElement('div');
+		chatEl.id = 'dripChat';
+		chatEl.className = 'chat-overlay';
+		chatEl.style.display = 'none';
+		document.body.appendChild(chatEl);
+		chatEl.addEventListener('click', function (e) {
+			if (e.target === chatEl) closeChat();
+		});
+		document.addEventListener('keydown', function (e) {
+			if (e.key === 'Escape' && chatOpen) closeChat();
+		});
+		// Dismiss the DM search when the click lands outside it and outside its "+".
+		// Deferred a tick so the native click (e.g. picking a channel) lands first.
+		document.addEventListener('mousedown', function (e) {
+			if (!chatDmSearchOpen) return;
+			const t = e.target;
+			if (!t || !t.closest) return;
+			if (t.closest('.chat-dm-search') || t.closest('#chatNewDm')) return;
+			chatDmSearchOpen = false;
+			chatDmQuery = '';
+			setTimeout(function () {
+				renderChat();
+			}, 0);
+		});
+		return chatEl;
+	}
+
+	function toggleChat() {
+		if (chatOpen) closeChat();
+		else openChat();
+	}
+
+	function openChat() {
+		chatOpen = true;
+		ensureChatEl();
+		chatActiveRoom = { room: 'project', id: '', label: 'Project talk' };
+		renderChat();
+		vscode.postMessage({ type: 'loadChatOverview', folderPrefix: selectedPrefix });
+		vscode.postMessage({ type: 'openChatRoom', folderPrefix: selectedPrefix, room: 'project', id: '' });
+	}
+
+	function closeChat() {
+		chatOpen = false;
+		if (chatEl) chatEl.style.display = 'none';
+	}
+
+	function openChatRoom(room) {
+		chatActiveRoom = room;
+		chatMessages = [];
+		chatDmSearchOpen = false;
+		chatDmQuery = '';
+		chatAutocomplete = { open: false, start: -1, prefix: '', matches: [], index: 0 };
+		renderChat();
+		vscode.postMessage({
+			type: 'openChatRoom',
+			folderPrefix: selectedPrefix,
+			room: room.room,
+			id: room.id || ''
+		});
+	}
+
+	function chatCanWrite() {
+		return shareCaps().chatWrite !== false;
+	}
+
+	/** Escape, then wrap `@name` / `#name` tokens so they read as clickable mentions. */
+	function highlightMentions(text) {
+		let s = esc(String(text == null ? '' : text));
+		s = s.replace(/([@#][a-zA-Z0-9][a-zA-Z0-9._-]{0,40})/g, '<span class="mention-token">$1</span>');
+		return s;
+	}
+
+	function unreadMentionCount() {
+		const cutoff = String(chatMentionsReadAt || '');
+		return (chatMentions || []).filter(function (m) {
+			return String(m.createdAt || '') > cutoff;
+		}).length;
+	}
+
+	function mentionHtml(m) {
+		// Issue mentions open that issue's chat when clicked.
+		const issueAttrs = m.room === 'issue'
+			? ' data-room="issue" data-id="' + esc(m.issueUid || '') + '" data-label="' + esc(m.issueKey || m.issueUid || '') + '" data-issue-key="' + esc(m.issueKey || '') + '"'
+			: '';
+		return (
+			'<div class="chat-mention' +
+			(m.room === 'issue' ? ' chat-mention-issue' : '') +
+			'"' + issueAttrs + '><span class="chat-mention-where">' +
+			esc(m.roomLabel || '') +
+			'</span><div class="chat-msg"><span class="chat-who">' +
+			esc(m.name || '') +
+			'</span> <span class="chat-text">' +
+			highlightMentions(m.text) +
+			'</span>' +
+			(m.createdAt ? '<span class="chat-time">' + esc(formatChatTime(m.createdAt)) + '</span>' : '') +
+			'</div></div>'
+		);
+	}
+
+	/** Names for the @ / # autocomplete, matching the typed prefix and query. */
+	function mentionCandidates(prefix, query) {
+		const q = String(query || '').toLowerCase();
+		const out = [];
+		(chatPeople || []).forEach(function (p) {
+			const token = prefix === '@' ? (p.at || '') : (p.hash || '');
+			if (!token) return;
+			if (!q || token.toLowerCase().indexOf(q) !== -1) {
+				out.push({ token: token, name: p.name || '' });
+			}
+		});
+		// Teams can be mentioned only inside an issue chat.
+		if (prefix === '@' && chatActiveRoom.room === 'issue') {
+			(chatTeams || []).forEach(function (t) {
+				const token = String(t.token || '');
+				if (!token) return;
+				if (!q || token.toLowerCase().indexOf(q) !== -1) {
+					out.push({ token: token, name: 'Team: ' + (t.name || '') });
+				}
+			});
+		}
+		return out;
+	}
+
+	/** The partial `@foo` / `#bar` word right before the caret, if any. */
+	function activeMentionToken(input) {
+		const value = String(input.value || '');
+		const pos = typeof input.selectionStart === 'number' ? input.selectionStart : value.length;
+		const before = value.slice(0, pos);
+		const m = before.match(/([@#][a-zA-Z0-9._-]*)$/);
+		if (!m) return null;
+		return { start: pos - m[0].length, token: m[0], prefix: m[0][0] };
+	}
+
+	function renderMentionMenu() {
+		const menu = document.getElementById('chatMentionMenu');
+		if (!menu) return;
+		if (!chatAutocomplete.open || !chatAutocomplete.matches.length) {
+			menu.style.display = 'none';
+			menu.innerHTML = '';
+			return;
+		}
+		menu.style.display = '';
+		menu.innerHTML = chatAutocomplete.matches
+			.map(function (s, i) {
+				return (
+					'<div class="chat-mention-item' +
+					(i === chatAutocomplete.index ? ' active' : '') +
+					'" data-i="' +
+					i +
+					'"><span class="mention-token">' +
+					esc(s.token) +
+					'</span> <span class="chat-mention-name">' +
+					esc(s.name) +
+					'</span></div>'
+				);
+			})
+			.join('');
+	}
+
+	function chooseMention(sel) {
+		const input = document.getElementById('chatInput');
+		if (!input) return;
+		const value = String(input.value || '');
+		const pos = typeof input.selectionStart === 'number' ? input.selectionStart : value.length;
+		const start = chatAutocomplete.start >= 0 ? chatAutocomplete.start : pos;
+		input.value = value.slice(0, start) + sel.token + ' ' + value.slice(pos);
+		chatAutocomplete = { open: false, start: -1, prefix: '', matches: [], index: 0 };
+		renderMentionMenu();
+		input.focus();
+		const cursor = start + sel.token.length + 1;
+		try {
+			input.setSelectionRange(cursor, cursor);
+		} catch (e) {
+			/* ignore */
+		}
+	}
+
+	function renderDmResults() {
+		const box = document.getElementById('chatDmResults');
+		if (!box) return;
+		const q = String(chatDmQuery || '').trim().toLowerCase();
+		const results = (chatPeople || []).filter(function (p) {
+			return !q || String(p.name || '').toLowerCase().indexOf(q) !== -1;
+		});
+		if (!results.length) {
+			box.innerHTML = '<div class="meta">No one matches.</div>';
+			return;
+		}
+		box.innerHTML = results
+			.map(function (p) {
+				return (
+					'<div class="chat-dm-result" data-dm-id="' +
+					esc(p.dmId || '') +
+					'" data-label="' +
+					esc(p.name || '') +
+					'">' +
+					esc(p.name || '') +
+					'</div>'
+				);
+			})
+			.join('');
+	}
+
+	function renderChat() {
+		const el = ensureChatEl();
+		if (!chatOpen) {
+			el.style.display = 'none';
+			return;
+		}
+		el.style.display = '';
+		const canWrite = chatCanWrite();
+
+		// Sidebar rooms.
+		let sidebar = '<div class="chat-sidebar">';
+		sidebar += '<div class="chat-section">Channels</div>';
+		chatRooms.forEach(function (r) {
+			if (r.room === 'project') {
+				sidebar += chatChannelHtml('project', 'Project talk', r);
+			}
+		});
+		const teamRooms = chatRooms.filter(function (r) { return r.room === 'team'; });
+		if (teamRooms.length) {
+			sidebar += '<div class="chat-section">Teams</div>';
+			teamRooms.forEach(function (r) {
+				sidebar += chatChannelHtml(r.room, r.label, r);
+			});
+		}
+		if (chatIssues.length) {
+			sidebar += '<div class="chat-section">Issues</div>';
+			chatIssues.forEach(function (r) {
+				sidebar += issueChannelHtml(r);
+			});
+		}
+		// The DM section header always shows so the "+" to start a DM stays reachable.
+		sidebar +=
+			'<div class="chat-section chat-section-dm"><span>Direct messages</span>' +
+			'<button type="button" id="chatNewDm" title="New direct message">+</button></div>';
+		const dmRooms = chatRooms.filter(function (r) { return r.room === 'dm'; });
+		dmRooms.forEach(function (r) {
+			sidebar += chatChannelHtml(r.room, r.label, r);
+		});
+		if (chatDmSearchOpen) {
+			sidebar +=
+				'<div class="chat-dm-search"><input type="text" id="chatDmSearch" placeholder="Find a person\u2026" autocomplete="off" value="' +
+				esc(chatDmQuery) +
+				'" /><div id="chatDmResults" class="chat-dm-results"></div></div>';
+		}
+		const mentionsUnread = unreadMentionCount();
+		sidebar +=
+			'<div class="chat-section">Mentions</div>' +
+			'<div class="chat-channel' +
+			(chatActiveRoom.room === 'mentions' ? ' active' : '') +
+			'" data-room="mentions"><span class="chat-channel-label">Mentions</span>' +
+			(mentionsUnread ? '<span class="chat-badge">' + mentionsUnread + '</span>' : '') +
+			'</div>';
+		sidebar += '</div>';
+
+		// Main panel.
+		let main = '';
+		if (chatActiveRoom.room === 'mentions') {
+			const cutoff = String(chatMentionsReadAt || '');
+			const unread = (chatMentions || []).filter(function (m) {
+				return String(m.createdAt || '') > cutoff;
+			});
+			const read = (chatMentions || []).filter(function (m) {
+				return String(m.createdAt || '') <= cutoff;
+			});
+			main = '<div class="chat-main"><div class="chat-title">Mentions</div><div class="chat-messages">';
+			if (!chatMentions.length) {
+				main += '<p class="meta">No mentions yet. Tag someone with @name or #name.</p>';
+			} else {
+				if (unread.length) {
+					main += '<div class="chat-mentions-group-title">Unread</div>' + unread.map(mentionHtml).join('');
+				}
+				if (read.length) {
+					main += '<div class="chat-mentions-group-title">Read</div>' + read.map(mentionHtml).join('');
+				}
+			}
+			main += '</div></div>';
+		} else {
+			const placeholder = chatMe && Array.isArray(chatMe.mentionTokens) && chatMe.mentionTokens.length
+				? 'Message… ' + chatMe.mentionTokens[0]
+				: 'Message… @name';
+			const lines = renderMessageLines(chatMessages || []);
+			main =
+				'<div class="chat-main"><div class="chat-title">' +
+				esc(chatActiveRoom.label || '') +
+				'</div><div class="chat-messages">' +
+				(lines || '<p class="meta">No messages yet.</p>') +
+				'</div>' +
+				(canWrite
+					? '<div class="chat-compose"><div class="chat-input-wrap">' +
+						'<input type="text" id="chatInput" placeholder="' +
+						esc(placeholder) +
+						'" autocomplete="off" />' +
+						'<div id="chatMentionMenu" class="chat-mention-menu"></div></div>' +
+						'<button type="button" id="chatSend">Send</button>' +
+						'<button type="button" class="ghost" id="chatClear">Clear</button></div>'
+					: '') +
+				'</div>';
+		}
+
+		el.innerHTML =
+			'<div class="chat-card">' +
+			'<div class="chat-head"><strong>Chat</strong><span class="chat-head-actions">' +
+			'<button type="button" id="chatClose">\u00d7</button></span></div>' +
+			'<div class="chat-body">' + sidebar + main + '</div>' +
+			'</div>';
+		bindChat();
+		if (chatDmSearchOpen) renderDmResults();
+	}
+
+	function chatChannelHtml(room, label, r) {
+		const active =
+			chatActiveRoom.room === room && String(chatActiveRoom.id || '') === String(r.id || '');
+		return (
+			'<div class="chat-channel' +
+			(active ? ' active' : '') +
+			'" data-room="' +
+			esc(room) +
+			'" data-id="' +
+			esc(r.id || '') +
+			'" data-label="' +
+			esc(label) +
+			'"><span class="chat-channel-label">' +
+			esc(label) +
+			'</span>' +
+			(r.unread ? '<span class="chat-badge">' + r.unread + '</span>' : '') +
+			'</div>'
+		);
+	}
+
+	/** An issue-chat row in the sidebar, titled by its visible i-N key. */
+	function issueChannelHtml(r) {
+		const label = String(r.issueKey || r.id || '');
+		const active =
+			chatActiveRoom.room === 'issue' && String(chatActiveRoom.id || '') === String(r.id || '');
+		return (
+			'<div class="chat-channel' +
+			(active ? ' active' : '') +
+			'" data-room="issue" data-id="' +
+			esc(r.id || '') +
+			'" data-label="' +
+			esc(label) +
+			'" data-issue-key="' +
+			esc(r.issueKey || '') +
+			'"><span class="chat-channel-label">#' +
+			esc(label) +
+			'</span>' +
+			(r.unread ? '<span class="chat-badge">' + r.unread + '</span>' : '') +
+			'</div>'
+		);
+	}
+
+	/** Short wall-clock time for a message (e.g. "10:45 AM"). */
+	function formatChatTime(iso) {
+		const d = new Date(iso);
+		if (Number.isNaN(d.getTime())) return '';
+		return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+	}
+
+	/** "Today" / "Yesterday" / a long date, for the day divider ribbons. */
+	function chatDayLabel(iso) {
+		const d = new Date(iso);
+		if (Number.isNaN(d.getTime())) return '';
+		const sameDay = function (a, b) {
+			return (
+				a.getFullYear() === b.getFullYear() &&
+				a.getMonth() === b.getMonth() &&
+				a.getDate() === b.getDate()
+			);
+		};
+		const today = new Date();
+		const yesterday = new Date();
+		yesterday.setDate(yesterday.getDate() - 1);
+		if (sameDay(d, today)) return 'Today';
+		if (sameDay(d, yesterday)) return 'Yesterday';
+		return d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+	}
+
+	/** Timestamp + (for my own messages) a sent/read tick, in one meta row. */
+	function chatMetaHtml(m) {
+		const time = m && m.createdAt ? formatChatTime(m.createdAt) : '';
+		const isMine = !!(
+			m && m.author && chatMe && chatMe.peerId && m.author === chatMe.peerId
+		);
+		const tick = isMine
+			? m.readBy && m.readBy.length
+				? '<span class="chat-tick chat-tick-read" title="Read">\u2713\u2713</span>'
+				: '<span class="chat-tick" title="Sent">\u2713</span>'
+			: '';
+		if (!time && !tick) return '';
+		return '<span class="chat-meta">' + (time ? '<span class="chat-time">' + esc(time) + '</span>' : '') + tick + '</span>';
+	}
+
+	/** Messages with a day-divider ribbon inserted when the date changes. */
+	function renderMessageLines(messages) {
+		let out = '';
+		let lastDay = '';
+		for (const m of messages || []) {
+			const iso = m && m.createdAt ? String(m.createdAt) : '';
+			const day = iso ? iso.slice(0, 10) : '';
+			if (day && day !== lastDay) {
+				out += '<div class="chat-day">' + esc(chatDayLabel(iso)) + '</div>';
+				lastDay = day;
+			}
+			out += chatMessageHtml(m);
+		}
+		return out;
+	}
+
+	/** One chat message; team-chat rows that reference an issue are clickable. */
+	function chatMessageHtml(m) {
+		const meta = chatMetaHtml(m);
+		if (m && m.refIssueUid) {
+			return (
+				'<div class="chat-msg chat-msg-ref" data-issue-id="' +
+				esc(m.refIssueUid) +
+				'" data-issue-key="' +
+				esc(m.refIssueKey || '') +
+				'"><span class="chat-who">' +
+				esc(m.name || m.author || '') +
+				'</span> <span class="chat-text">' +
+				highlightMentions(m.text) +
+				'</span> <span class="chat-msg-goto">\u2192 #' +
+				esc(m.refIssueKey || m.refIssueUid) +
+				'</span>' + meta + '</div>'
+			);
+		}
+		return (
+			'<div class="chat-msg"><span class="chat-who">' +
+			esc(m.name || m.author || '') +
+			'</span> <span class="chat-text">' +
+			highlightMentions(m.text) +
+			'</span>' + meta + '</div>'
+		);
+	}
+
+	function bindChat() {
+		const close = document.getElementById('chatClose');
+		if (close) close.addEventListener('click', closeChat);
+		const newDm = document.getElementById('chatNewDm');
+		if (newDm) {
+			newDm.addEventListener('click', function () {
+				chatDmSearchOpen = !chatDmSearchOpen;
+				chatDmQuery = '';
+				renderChat();
+				if (chatDmSearchOpen) {
+					const s = document.getElementById('chatDmSearch');
+					if (s) s.focus();
+				}
+			});
+		}
+		const dmSearch = document.getElementById('chatDmSearch');
+		if (dmSearch) {
+			dmSearch.addEventListener('input', function () {
+				chatDmQuery = dmSearch.value;
+				renderDmResults();
+			});
+		}
+		const dmResults = document.getElementById('chatDmResults');
+		if (dmResults) {
+			dmResults.addEventListener('mousedown', function (e) {
+				const item = e.target && e.target.closest ? e.target.closest('.chat-dm-result') : null;
+				if (!item) return;
+				e.preventDefault();
+				openChatRoom({
+					room: 'dm',
+					id: item.getAttribute('data-dm-id') || '',
+					label: item.getAttribute('data-label') || ''
+				});
+			});
+		}
+		document.querySelectorAll('.chat-channel').forEach(function (ch) {
+			ch.addEventListener('click', function () {
+				const room = ch.getAttribute('data-room') || 'project';
+				if (room === 'mentions') {
+					openChatRoom({ room: 'mentions', id: '', label: 'Mentions' });
+					return;
+				}
+				openChatRoom({
+					room: room,
+					id: ch.getAttribute('data-id') || '',
+					label: ch.getAttribute('data-label') || '',
+					issueKey: ch.getAttribute('data-issue-key') || ''
+				});
+			});
+		});
+		// A team-chat message that points at an issue opens that issue's chat.
+		document.querySelectorAll('.chat-msg-ref').forEach(function (ref) {
+			ref.addEventListener('click', function () {
+				openChatRoom({
+					room: 'issue',
+					id: ref.getAttribute('data-issue-id') || '',
+					label: ref.getAttribute('data-issue-key') || ref.getAttribute('data-issue-id') || '',
+					issueKey: ref.getAttribute('data-issue-key') || ''
+				});
+			});
+		});
+		// An issue mention in the Mentions list opens that issue's chat.
+		document.querySelectorAll('.chat-mention-issue').forEach(function (ref) {
+			ref.addEventListener('click', function () {
+				openChatRoom({
+					room: 'issue',
+					id: ref.getAttribute('data-id') || '',
+					label: ref.getAttribute('data-label') || '',
+					issueKey: ref.getAttribute('data-issue-key') || ''
+				});
+			});
+		});
+		const send = document.getElementById('chatSend');
+		const input = document.getElementById('chatInput');
+		const sendFn = function () {
+			if (!input) return;
+			const text = String(input.value || '').trim();
+			if (!text) return;
+			vscode.postMessage({
+				type: 'sendChat',
+				folderPrefix: selectedPrefix,
+				room: chatActiveRoom.room,
+				id: chatActiveRoom.id || '',
+				issueKey: chatActiveRoom.issueKey || '',
+				text: text
+			});
+			input.value = '';
+			chatAutocomplete = { open: false, start: -1, prefix: '', matches: [], index: 0 };
+			renderMentionMenu();
+		};
+		if (send) send.addEventListener('click', sendFn);
+		if (input) {
+			input.addEventListener('input', function () {
+				const am = activeMentionToken(input);
+				if (am) {
+					const matches = mentionCandidates(am.prefix, am.token.slice(1));
+					chatAutocomplete = {
+						open: matches.length > 0,
+						start: am.start,
+						prefix: am.prefix,
+						matches: matches,
+						index: 0
+					};
+				} else {
+					chatAutocomplete = { open: false, start: -1, prefix: '', matches: [], index: 0 };
+				}
+				renderMentionMenu();
+			});
+			input.addEventListener('keydown', function (e) {
+				if (chatAutocomplete.open) {
+					if (e.key === 'ArrowDown') {
+						e.preventDefault();
+						chatAutocomplete.index = (chatAutocomplete.index + 1) % chatAutocomplete.matches.length;
+						renderMentionMenu();
+						return;
+					}
+					if (e.key === 'ArrowUp') {
+						e.preventDefault();
+						chatAutocomplete.index =
+							(chatAutocomplete.index - 1 + chatAutocomplete.matches.length) % chatAutocomplete.matches.length;
+						renderMentionMenu();
+						return;
+					}
+					if (e.key === 'Enter' || e.key === 'Tab') {
+						e.preventDefault();
+						const sel = chatAutocomplete.matches[chatAutocomplete.index];
+						if (sel) chooseMention(sel);
+						return;
+					}
+					if (e.key === 'Escape') {
+						e.preventDefault();
+						chatAutocomplete = { open: false, start: -1, prefix: '', matches: [], index: 0 };
+						renderMentionMenu();
+						return;
+					}
+				}
+				if (e.key === 'Enter') {
+					e.preventDefault();
+					sendFn();
+				}
+			});
+		}
+		const menu = document.getElementById('chatMentionMenu');
+		if (menu) {
+			menu.addEventListener('mousedown', function (e) {
+				const item = e.target && e.target.closest ? e.target.closest('.chat-mention-item') : null;
+				if (!item) return;
+				e.preventDefault();
+				const i = Number(item.getAttribute('data-i') || '0');
+				const sel = chatAutocomplete.matches[i];
+				if (sel) chooseMention(sel);
+			});
+		}
+		const clear = document.getElementById('chatClear');
+		if (clear) {
+			clear.addEventListener('click', function () {
+				vscode.postMessage({
+					type: 'clearChat',
+					folderPrefix: selectedPrefix,
+					room: chatActiveRoom.room,
+					id: chatActiveRoom.id || ''
+				});
+			});
+		}
 	}
 
 	/**
@@ -2897,12 +3676,150 @@
 		});
 	}
 
+	// ---- online presence popover (People / Teams) ----
+
+	function ensureOnlinePopoverEl() {
+		if (onlinePopoverEl) return onlinePopoverEl;
+		onlinePopoverEl = document.createElement('div');
+		onlinePopoverEl.id = 'dripOnlinePopover';
+		onlinePopoverEl.className = 'online-popover';
+		onlinePopoverEl.style.display = 'none';
+		document.body.appendChild(onlinePopoverEl);
+		onlinePopoverEl.addEventListener('click', function (e) {
+			if (e.target === onlinePopoverEl) closeOnlinePopover();
+		});
+		document.addEventListener('keydown', function (e) {
+			if (e.key === 'Escape' && onlinePopoverOpen) closeOnlinePopover();
+		});
+		return onlinePopoverEl;
+	}
+
+	function toggleOnlinePopover() {
+		if (onlinePopoverOpen) closeOnlinePopover();
+		else openOnlinePopover();
+	}
+
+	function openOnlinePopover() {
+		onlinePopoverOpen = true;
+		ensureOnlinePopoverEl();
+		renderOnlinePopover();
+	}
+
+	function closeOnlinePopover() {
+		onlinePopoverOpen = false;
+		if (onlinePopoverEl) onlinePopoverEl.style.display = 'none';
+	}
+
+	function teamNameById(id) {
+		const teams = Array.isArray(shareState.teams) ? shareState.teams : [];
+		const t = teams.find(function (x) { return x.id === id; });
+		return t ? String(t.name || t.id) : '';
+	}
+
+	function memberTeamNames(member) {
+		const ids = Array.isArray(member.teamIds) ? member.teamIds : [];
+		return ids
+			.map(function (id) { return teamNameById(id); })
+			.filter(Boolean);
+	}
+
+	function renderOnlinePopover() {
+		const el = ensureOnlinePopoverEl();
+		if (!onlinePopoverOpen) {
+			el.style.display = 'none';
+			return;
+		}
+		el.style.display = '';
+		const members = Array.isArray(shareState.members) ? shareState.members : [];
+		const teams = Array.isArray(shareState.teams) ? shareState.teams : [];
+
+		let html =
+			'<div class="online-popover-card">' +
+			'<div class="online-popover-head"><span>Who\'s here</span><button type="button" id="onlinePopClose">\u00d7</button></div>' +
+			'<div class="online-popover-tabs">' +
+			'<button type="button" id="onlineTabPeople" class="' +
+			(onlinePopoverTab === 'people' ? 'active' : '') +
+			'">People</button>' +
+			'<button type="button" id="onlineTabTeams" class="' +
+			(onlinePopoverTab === 'teams' ? 'active' : '') +
+			'">Teams</button>' +
+			'</div>' +
+			'<div class="online-popover-body">';
+
+		if (onlinePopoverTab === 'teams') {
+			if (!teams.length) {
+				html += '<div class="muted-block">No teams.</div>';
+			} else {
+				html += '<ul class="online-teams-list">';
+				teams.forEach(function (t) {
+					const onlineCount = members.filter(function (m) {
+						return m.online && (Array.isArray(m.teamIds) ? m.teamIds : []).indexOf(t.id) !== -1;
+					}).length;
+					html +=
+						'<li><span class="online-team-name">' +
+						esc(t.name) +
+						'</span><span class="online-team-count">' +
+						onlineCount +
+						' online</span></li>';
+				});
+				html += '</ul>';
+			}
+		} else {
+			if (!members.length) {
+				html += '<div class="muted-block">No members.</div>';
+			} else {
+				const sorted = members.slice().sort(function (a, b) {
+					if (!!b.online !== !!a.online) return b.online ? 1 : -1;
+					return String(a.displayName || '').toLowerCase().localeCompare(String(b.displayName || '').toLowerCase());
+				});
+				html += '<ul class="online-people-list">';
+				sorted.forEach(function (m) {
+					const names = memberTeamNames(m);
+					html +=
+						'<li><span class="online-dot' +
+						(m.online ? ' on' : '') +
+						'"></span><span class="online-person-name">' +
+						esc(m.displayName || m.peerId || 'peer') +
+						'</span>' +
+						(names.length ? '<span class="online-person-teams">' + esc(names.join(', ')) + '</span>' : '') +
+						'</li>';
+				});
+				html += '</ul>';
+			}
+		}
+
+		html += '</div></div>';
+		el.innerHTML = html;
+		bindOnlinePopover();
+	}
+
+	function bindOnlinePopover() {
+		const close = document.getElementById('onlinePopClose');
+		if (close) close.addEventListener('click', closeOnlinePopover);
+		const tabPeople = document.getElementById('onlineTabPeople');
+		const tabTeams = document.getElementById('onlineTabTeams');
+		if (tabPeople) {
+			tabPeople.addEventListener('click', function () {
+				onlinePopoverTab = 'people';
+				renderOnlinePopover();
+			});
+		}
+		if (tabTeams) {
+			tabTeams.addEventListener('click', function () {
+				onlinePopoverTab = 'teams';
+				renderOnlinePopover();
+			});
+		}
+	}
+
 	function goBack() {
 		selectedPrefix = '';
 		selectedTitle = '';
 		detail = { features: [], issues: [] };
 		projectTags = [];
 		closeTagsPopover();
+		closeOnlinePopover();
+		closeChat();
 		detailLoading = false;
 		compose = null;
 		issueQuery = '';
@@ -2944,11 +3861,42 @@
 			}
 			render();
 		}
+		if (msg.type === 'chatOverview') {
+			const overview = msg.overview || {};
+			chatRooms = Array.isArray(overview.rooms) ? overview.rooms : [];
+			chatIssues = Array.isArray(overview.issues) ? overview.issues : [];
+			chatTeams = Array.isArray(overview.teams) ? overview.teams : [];
+			chatMentions = Array.isArray(overview.mentions) ? overview.mentions : [];
+			chatPeople = Array.isArray(overview.people) ? overview.people : [];
+			chatMentionsReadAt = String(overview.mentionsReadAt || '');
+			chatMe = overview.me || {};
+			const roomUnread = chatRooms.reduce(function (sum, r) {
+				return sum + (r.unread ? Number(r.unread) : 0);
+			}, 0);
+			const issueUnread = chatIssues.reduce(function (sum, r) {
+				return sum + (r.unread ? Number(r.unread) : 0);
+			}, 0);
+			chatTotalUnread = roomUnread + issueUnread;
+			if (chatOpen) renderChat();
+			else if (selectedPrefix) renderProjectDetail();
+		}
+		if (msg.type === 'chatRoom') {
+			if (
+				chatActiveRoom.room === String(msg.room || '') &&
+				String(chatActiveRoom.id || '') === String(msg.id || '')
+			) {
+				chatMessages = msg.messages || [];
+				if (chatOpen) renderChat();
+			}
+		}
 		if (msg.type === 'projectDetail') {
 			detail = { features: msg.features || [], issues: msg.issues || [] };
+			shareState = msg.share || { shared: false, status: 'solo', members: [], role: '', teams: [], myTeamIds: [], caps: {} };
 			selectedPrefix = msg.folderPrefix || selectedPrefix;
 			detailLoading = false;
 			compose = null;
+			closeChat();
+			closeOnlinePopover();
 			enrichIssuesWithFeature();
 			if (selectedPrefix) {
 				const match = projects.find(function (p) {
@@ -2957,6 +3905,17 @@
 				if (match) selectedTitle = match.title || selectedTitle;
 			}
 			render();
+			if (shareState.shared) {
+				vscode.postMessage({ type: 'loadChatOverview', folderPrefix: selectedPrefix });
+			} else {
+				chatRooms = [];
+				chatIssues = [];
+				chatTeams = [];
+				chatMentions = [];
+				chatPeople = [];
+				chatMentionsReadAt = '';
+				chatTotalUnread = 0;
+			}
 		}
 		if (msg.type === 'projectTagsState') {
 			projectTags = msg.tags || [];

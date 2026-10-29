@@ -15,6 +15,9 @@ interface Window {
 			update: document.getElementById('panel-update'),
 			'kb-types': document.getElementById('panel-kb-types'),
 			'project-types': document.getElementById('panel-project-types'),
+			account: document.getElementById('panel-account'),
+			'join-project': document.getElementById('panel-join-project'),
+			'project-sharing': document.getElementById('panel-project-sharing'),
 			relations: document.getElementById('panel-relations'),
 			metadata: document.getElementById('panel-metadata'),
 			doccoloring: document.getElementById('panel-doccoloring'),
@@ -36,6 +39,8 @@ interface Window {
 		const metadataTypesListEl = document.getElementById('metadata-types-list');
 		const fileLevelTypesListEl = document.getElementById('file-level-types-list');
 		const projectSelectEl = document.getElementById('project-select');
+		const shareProjectSelectEl = document.getElementById('share-project-select');
+		const shareProjectBodyEl = document.getElementById('share-project-body');
 		const projectMetadataHintEl = document.getElementById('project-metadata-hint');
 		const projectMetadataHeadingEl = document.getElementById('project-metadata-heading');
 		const optTemplateEnabled = document.getElementById('opt-template-enabled');
@@ -60,6 +65,10 @@ interface Window {
 		var projectOverrides = {};
 		var selectedProjectKey = String(window.__dripSettingsInit.initialProject || '');
 		var selectedProjectTitle = String(window.__dripSettingsInit.initialProjectTitle || '');
+		var selectedShareProjectKey = String(window.__dripSettingsInit.initialProject || '');
+		var selectedShareProjectTitle = String(window.__dripSettingsInit.initialProjectTitle || '');
+		var currentShareState = null;
+		var peerIdentity = { displayName: '', peerId: '', githubLogin: '', githubId: '' };
 		var projectOverrideState = [];
 		var relationsState = [];
 		var metadataMarksState = [];
@@ -129,6 +138,21 @@ interface Window {
 				title: 'Project View',
 				where: 'Command: Open Project View',
 				body: 'A board of projects, features, and issues. Browse what is done and what still needs work, and drill into any issue\u2019s details.'
+			},
+			{
+				title: 'Account',
+				where: 'DRIP Settings → Account',
+				body: 'This PC has one identity. Sign in with GitHub and people see only that GitHub name. Sign out and they see the guest PC name. The unique id stays on this machine.'
+			},
+			{
+				title: 'Join a Project',
+				where: 'DRIP Settings → Join a Project',
+				body: 'Paste a project invite to ask to join. The admin sees your name, admits you, and picks your role and teams.'
+			},
+			{
+				title: 'Project Sharing',
+				where: 'DRIP Settings → Project Sharing, or the gear on a project in Project View',
+				body: 'A project starts solo. Share it to let other people in. Only admins see invite, rotate, teams, and mailbox settings.'
 			},
 			{
 				title: 'Tags Graph',
@@ -374,7 +398,7 @@ interface Window {
 		var BUILTIN_ATTRIBUTE_KEYS = {
 			concept: ['domain', 'status'],
 			task: ['status', 'priority', 'deadline', 'category'],
-			issue: ['status', 'priority', 'deadline', 'category', 'parent', 'decision', 'concept'],
+			issue: ['status', 'priority', 'deadline', 'completed', 'category', 'feature', 'team', 'parent', 'decision', 'concept'],
 			decision: ['status', 'category', 'superseded-by', 'concept'],
 			project: ['status', 'priority', 'deadline'],
 			feature: ['category']
@@ -719,6 +743,548 @@ interface Window {
 			renderProjectMetadataPanel();
 		}
 
+		function fillProjectSelect(selectEl, includeDefault, wantKey) {
+			if (!selectEl) return '';
+			selectEl.innerHTML = '';
+			if (includeDefault) {
+				var optDefault = document.createElement('option');
+				optDefault.value = '';
+				optDefault.textContent = 'standard template';
+				selectEl.appendChild(optDefault);
+			} else {
+				var optEmpty = document.createElement('option');
+				optEmpty.value = '';
+				optEmpty.textContent = 'select a project…';
+				selectEl.appendChild(optEmpty);
+			}
+			for (var i = 0; i < projectsList.length; i++) {
+				var p = projectsList[i] || {};
+				var o = document.createElement('option');
+				o.value = String(p.folderPrefix || '');
+				o.textContent = String(p.title || p.folderPrefix || '');
+				selectEl.appendChild(o);
+			}
+			var want = wantKey || '';
+			var found = false;
+			for (var j = 0; j < selectEl.options.length; j++) {
+				if (selectEl.options[j].value === want) {
+					selectEl.selectedIndex = j;
+					found = true;
+					break;
+				}
+			}
+			if (!found) {
+				selectEl.selectedIndex = 0;
+				return '';
+			}
+			return want;
+		}
+
+		function renderShareIdentity() {
+			var name = peerIdentity.displayName || '—';
+			var id = String(peerIdentity.peerId || '');
+			var linked = !!peerIdentity.githubLogin;
+			var ghName = linked ? '@' + String(peerIdentity.githubLogin).replace(/^@/, '') : '';
+
+			var shareLines = document.querySelectorAll('#share-identity-line');
+			var shareHints = document.querySelectorAll('#share-identity-hint');
+			var shareLineText = linked ? 'Signed in as ' + ghName : 'PC name: ' + name;
+			var shareHintText = linked
+				? 'Other people see only this GitHub name. Sign out in Account to use the guest PC name instead.'
+				: 'Other people see this PC name. Sign in with GitHub in Account to use only that name.';
+			for (var si = 0; si < shareLines.length; si++) shareLines[si].textContent = shareLineText;
+			for (var hi = 0; hi < shareHints.length; hi++) shareHints[hi].textContent = shareHintText;
+
+			var identityEl = document.getElementById('account-identity-line');
+			var pcRow = document.getElementById('account-pc-row');
+			var pcHint = document.getElementById('account-pc-hint');
+			var pcActions = document.getElementById('account-pc-actions');
+			var pcEl = document.getElementById('account-pc-name');
+			var idEl = document.getElementById('account-peer-id');
+			var ghEl = document.getElementById('account-github-status');
+			var hintEl = document.getElementById('account-github-hint');
+			var inBtn = document.getElementById('account-btn-github-in');
+			var switchBtn = document.getElementById('account-btn-github-switch');
+			var outBtn = document.getElementById('account-btn-github-out');
+			if (identityEl) identityEl.textContent = linked ? 'Signed in as ' + ghName : 'Guest on this PC: ' + name;
+			if (pcEl) pcEl.textContent = name;
+			if (idEl) idEl.textContent = id || '—';
+			if (pcRow) pcRow.style.display = linked ? 'none' : '';
+			if (pcHint) pcHint.style.display = linked ? 'none' : '';
+			if (pcActions) pcActions.style.display = linked ? 'none' : '';
+			if (ghEl) ghEl.textContent = linked ? 'Signed in as ' + ghName : 'Not signed in';
+			if (hintEl) {
+				hintEl.textContent = linked
+					? 'This GitHub name is what people see on every shared project. Sign out to show the guest PC name instead, or switch to another GitHub account.'
+					: 'Sign in once with the DRIP GitHub app (profile only). After that, people see only the GitHub name — not the PC name.';
+			}
+			if (inBtn) inBtn.style.display = linked ? 'none' : '';
+			if (switchBtn) switchBtn.style.display = linked ? '' : 'none';
+			if (outBtn) outBtn.style.display = linked ? '' : 'none';
+
+			// When the selected project is shared but this PC's identity is not
+			// one of its members, this is likely a second computer: nudge the
+			// user to import their identity (or sign in with the same GitHub).
+			var mismatchEl = document.getElementById('share-identity-mismatch');
+			if (mismatchEl) {
+				var st = currentShareState;
+				var members = (st && Array.isArray(st.members)) ? st.members : [];
+				var isMember = !!(peerIdentity.peerId && members.some(function (m) {
+					return m && String(m.peerId) === String(peerIdentity.peerId);
+				}));
+				var show = !!(st && st.shared && !st.waitingAdmit && peerIdentity.peerId && !isMember);
+				mismatchEl.style.display = show ? '' : 'none';
+			}
+		}
+
+		function requestShareState() {
+			if (!selectedShareProjectKey) {
+				currentShareState = null;
+				renderProjectSharingPanel();
+				return;
+			}
+			vscode.postMessage({ type: 'requestProjectShare', projectKey: selectedShareProjectKey });
+		}
+
+		function shareActionButton(action, label, secondary, peerId, extraAttr) {
+			return '<button type="button"' + (secondary ? ' class="secondary"' : '') +
+				' data-share-action="' + escapeHtml(action) + '"' +
+				(peerId ? ' data-peer-id="' + escapeHtml(peerId) + '"' : '') +
+				(extraAttr ? extraAttr : '') +
+				'>' + escapeHtml(label) + '</button>';
+		}
+
+		var ROLE_ORDER = ['admin', 'member', 'updater', 'viewer'];
+
+		function memberName(m) {
+			return String((m && (m.displayName || m.peerId)) || '');
+		}
+
+		function memberInitial(m) {
+			var n = memberName(m).trim();
+			return n ? n.charAt(0).toUpperCase() : '?';
+		}
+
+		function teamIdsOf(m) {
+			return Array.isArray(m && m.teamIds) ? m.teamIds.map(String) : [];
+		}
+
+		function renderTeamsCard(st) {
+			var teams = Array.isArray(st.teams) ? st.teams : [];
+			var members = Array.isArray(st.members) ? st.members : [];
+			var html = '<div class="card"><h3 style="margin-top:0;">Teams</h3>';
+			html += '<p class="meta">A team groups people for mentions and the Team filter — it is not a folder, and new issues can stay unassigned. Everyone is on at least one team; deleting a team removes people who are not on any other team.</p>';
+			if (st.role === 'admin') {
+				html += '<div class="team-create">';
+				html += '<input id="share-team-name" type="text" placeholder="New team name" autocomplete="off" spellcheck="false" />';
+				html += shareActionButton('createTeam', 'Create team', false, '');
+				html += '</div>';
+			}
+			if (!teams.length) {
+				html += '<p class="meta">No teams yet.</p>';
+				html += '</div>';
+				return html;
+			}
+			html += '<div class="team-list">';
+			for (var ti = 0; ti < teams.length; ti++) {
+				var t = teams[ti] || {};
+				var tid = String(t.id);
+				var onTeamMembers = members.filter(function (m) { return teamIdsOf(m).indexOf(tid) !== -1; });
+				var lead = members.find(function (m) { return String(m.peerId) === String(t.leadPeerId); });
+				html += '<div class="team-row">';
+				html += '<div class="team-head">';
+				html += '<div class="team-name">';
+				html += '<span class="team-badge">' + escapeHtml((t.name || t.id || '?').charAt(0).toUpperCase()) + '</span>';
+				html += '<div class="team-text"><div class="team-title">' + escapeHtml(t.name || t.id) + '</div>';
+				html += '<div class="team-sub">' + onTeamMembers.length + ' member' + (onTeamMembers.length === 1 ? '' : 's') +
+					(lead ? ' · Lead: ' + escapeHtml(memberName(lead)) : '') + '</div></div>';
+				html += '</div>';
+				if (st.role === 'admin') {
+					html += '<div class="team-controls">';
+					html += '<label class="team-lead"><span>Lead</span>';
+					html += '<select data-share-change="setTeamLead" data-team-id="' + escapeHtml(t.id) + '">';
+					html += '<option value="">No lead</option>';
+					for (var li = 0; li < members.length; li++) {
+						var lm = members[li] || {};
+						html += '<option value="' + escapeHtml(lm.peerId || '') + '"' +
+							(lm.peerId === t.leadPeerId ? ' selected' : '') + '>' +
+							escapeHtml(memberName(lm)) + '</option>';
+					}
+					html += '</select></label>';
+					html += shareActionButton('deleteTeam', 'Delete', true, '', ' data-team-id="' + escapeHtml(t.id) + '"');
+					html += '</div>';
+				} else {
+					html += '<div class="team-names">' + (onTeamMembers.length ? onTeamMembers.map(function (m) { return memberName(m); }).map(escapeHtml).join(', ') : 'No one assigned yet') + '</div>';
+				}
+				html += '</div>';
+				if (st.role === 'admin') {
+					html += '<div class="team-members">';
+					if (!onTeamMembers.length) html += '<span class="empty">No one on this team yet</span>';
+					for (var mj = 0; mj < onTeamMembers.length; mj++) {
+						var mm = onTeamMembers[mj] || {};
+						html += '<span class="chip"><span class="chip-avatar">' + escapeHtml(memberInitial(mm)) + '</span>' + escapeHtml(memberName(mm)) +
+							'<button type="button" class="chip-x" data-share-action="toggleMemberTeam" data-team-id="' + escapeHtml(t.id) + '" data-peer-id="' + escapeHtml(mm.peerId || '') + '" title="Remove from team">×</button></span>';
+					}
+					html += '<button type="button" class="add-btn" data-add-member-team="' + escapeHtml(t.id) + '" title="Add a member to this team">+</button>';
+					html += '</div>';
+				}
+				html += '</div>';
+			}
+			html += '</div></div>';
+			return html;
+		}
+
+		function renderPeopleCard(st) {
+			var members = Array.isArray(st.members) ? st.members : [];
+			var teams = Array.isArray(st.teams) ? st.teams : [];
+			var html = '<div class="card"><h3 style="margin-top:0;">People &amp; access</h3>';
+			html += '<p class="meta">Set each person’s role and which teams they belong to. A viewer cannot talk or change fields; an updater can change status and talk.</p>';
+			if (!members.length) {
+				html += '<p class="meta">No members listed yet.</p></div>';
+				return html;
+			}
+			html += '<div class="people-list">';
+			for (var mi = 0; mi < members.length; mi++) {
+				var m = members[mi] || {};
+				var isYou = peerIdentity.peerId && String(m.peerId) === String(peerIdentity.peerId);
+				var online = !!m.online;
+				var myTeams = teamIdsOf(m);
+				html += '<div class="person-row">';
+				html += '<div class="person-top">';
+				html += '<div class="person-id">';
+				html += '<span class="person-avatar">' + escapeHtml(memberInitial(m)) + '</span>';
+				html += '<div class="person-name">';
+				html += '<div class="p-title"><span class="n">' + escapeHtml(memberName(m)) + '</span>' +
+					(isYou ? ' <span class="badge">you</span>' : '') +
+					' <span class="badge">' + (m.isGuest ? 'guest' : 'GitHub') + '</span>' +
+					' <span class="presence-dot ' + (online ? 'online' : 'offline') + '" title="' + (online ? 'online' : 'offline') + '"></span></div>';
+				html += '<div class="person-sub">' + (online ? 'Online now' : 'Offline') + '</div>';
+				html += '</div></div>';
+				html += '<select class="role-select" data-share-change="setMemberRole" data-peer-id="' + escapeHtml(m.peerId || '') + '">';
+				for (var rr = 0; rr < ROLE_ORDER.length; rr++) {
+					html += '<option value="' + ROLE_ORDER[rr] + '"' + (m.role === ROLE_ORDER[rr] ? ' selected' : '') + '>' + ROLE_ORDER[rr] + '</option>';
+				}
+				html += '</select>';
+				html += '</div>';
+				html += '<div class="person-teams">';
+				html += '<span class="teams-label">Teams</span>';
+				var assigned = [];
+				for (var ti = 0; ti < teams.length; ti++) {
+					if (myTeams.indexOf(String(teams[ti].id)) !== -1) assigned.push(teams[ti]);
+				}
+				for (var ai = 0; ai < assigned.length; ai++) {
+					var at = assigned[ai] || {};
+					html += '<span class="chip">' + escapeHtml(at.name || at.id) +
+						'<button type="button" class="chip-x" data-share-action="toggleMemberTeam" data-team-id="' + escapeHtml(at.id) + '" data-peer-id="' + escapeHtml(m.peerId || '') + '" title="Remove team">×</button></span>';
+				}
+				if (teams.length) {
+					html += '<button type="button" class="add-btn" data-add-team-to-peer="' + escapeHtml(m.peerId || '') + '" title="Add to a team">+</button>';
+				} else {
+					html += '<span class="person-sub">No teams yet — create one above.</span>';
+				}
+				html += '</div></div>';
+			}
+			html += '</div></div>';
+			return html;
+		}
+
+		// --- add-member / add-team pickers (a small searchable dropdown) ---
+
+		function closePicker() {
+			var p = document.getElementById('share-picker');
+			if (p) p.remove();
+		}
+
+		function openPicker(anchor, items, onPick) {
+			closePicker();
+			var rect = anchor.getBoundingClientRect();
+			var pop = document.createElement('div');
+			pop.id = 'share-picker';
+			pop.className = 'picker-popover';
+			pop.innerHTML = '<input class="picker-search" type="text" placeholder="Search…" autocomplete="off" spellcheck="false">' +
+				'<div class="picker-list"></div>';
+			document.body.appendChild(pop);
+			var input = pop.querySelector('.picker-search');
+			var list = pop.querySelector('.picker-list');
+			function render(q) {
+				var needle = String(q || '').toLowerCase();
+				list.innerHTML = '';
+				var shown = 0;
+				for (var i = 0; i < items.length; i++) {
+					var it = items[i];
+					if (needle && String(it.label).toLowerCase().indexOf(needle) === -1) continue;
+					shown++;
+					var row = document.createElement('button');
+					row.type = 'button';
+					row.className = 'picker-item';
+					row.innerHTML = escapeHtml(it.label) + (it.sub ? ' <span class="picker-sub">' + escapeHtml(it.sub) + '</span>' : '');
+					row.addEventListener('mousedown', function (e) {
+						e.preventDefault();
+						onPick(it);
+						closePicker();
+					});
+					list.appendChild(row);
+				}
+				if (!shown) {
+					var empty = document.createElement('div');
+					empty.className = 'picker-empty';
+					empty.textContent = 'No matches.';
+					list.appendChild(empty);
+				}
+			}
+			render('');
+			input.addEventListener('input', function () { render(input.value); });
+			input.addEventListener('keydown', function (e) { if (e.key === 'Escape') closePicker(); });
+			var popW = 240;
+			var left = rect.left;
+			if (left + popW > window.innerWidth - 8) left = window.innerWidth - popW - 8;
+			pop.style.left = Math.max(8, left) + 'px';
+			// Anchor directly to the button. Open below when it fits; otherwise
+			// open above, measured from the real popover height (no hardcoded gap).
+			var popH = pop.offsetHeight || 260;
+			if (rect.bottom + popH + 8 <= window.innerHeight) {
+				pop.style.top = (rect.bottom + 4) + 'px';
+			} else {
+				pop.style.top = Math.max(8, rect.top - popH - 4) + 'px';
+			}
+			input.focus();
+		}
+
+		function postToggleMemberTeam(peerId, teamId) {
+			vscode.postMessage({
+				type: 'projectShareAction',
+				action: 'toggleMemberTeam',
+				projectKey: selectedShareProjectKey,
+				projectTitle: selectedShareProjectTitle,
+				peerId: String(peerId || ''),
+				teamId: String(teamId || '')
+			});
+		}
+
+		function openMemberPicker(anchor, teamId) {
+			var st = currentShareState;
+			var members = Array.isArray(st && st.members) ? st.members : [];
+			var onTeam = members.filter(function (x) { return teamIdsOf(x).indexOf(teamId) !== -1; }).map(function (x) { return String(x.peerId); });
+			var items = [];
+			for (var i = 0; i < members.length; i++) {
+				var m = members[i] || {};
+				if (onTeam.indexOf(String(m.peerId)) !== -1) continue;
+				items.push({ label: memberName(m), sub: m.isGuest ? 'guest' : 'GitHub', peerId: String(m.peerId), teamId: teamId });
+			}
+			openPicker(anchor, items, function (it) { postToggleMemberTeam(it.peerId, it.teamId); });
+		}
+
+		function openTeamPicker(anchor, peerId) {
+			var st = currentShareState;
+			var teams = Array.isArray(st && st.teams) ? st.teams : [];
+			var members = Array.isArray(st && st.members) ? st.members : [];
+			var m = members.find(function (x) { return String(x.peerId) === String(peerId); });
+			var have = teamIdsOf(m);
+			var items = [];
+			for (var i = 0; i < teams.length; i++) {
+				var t = teams[i] || {};
+				if (have.indexOf(String(t.id)) !== -1) continue;
+				items.push({ label: String(t.name || t.id), sub: '', peerId: String(peerId), teamId: String(t.id) });
+			}
+			openPicker(anchor, items, function (it) { postToggleMemberTeam(it.peerId, it.teamId); });
+		}
+
+		function renderProjectSharingPanel() {
+			renderShareIdentity();
+			if (!shareProjectBodyEl) return;
+			if (!selectedShareProjectKey) {
+				shareProjectBodyEl.innerHTML = '<div class="card"><p class="meta">Select a project above to see its share settings.</p></div>';
+				return;
+			}
+			if (!currentShareState) {
+				shareProjectBodyEl.innerHTML = '<div class="card"><p class="meta">Loading share settings…</p></div>';
+				return;
+			}
+			var st = currentShareState;
+			var title = selectedShareProjectTitle || selectedProjectOptionTitle(selectedShareProjectKey) || selectedShareProjectKey;
+			var html = '';
+			html += '<div class="card">';
+			html += '<h3 style="margin-top:0;">' + escapeHtml(title) + '</h3>';
+			if (!st.shared) {
+				html += '<p class="meta">This project is only on this machine. Sharing lets other people work in this folder. The rest of the knowledge base stays private.</p>';
+				html += '<div class="actions">' + shareActionButton('share', 'Share this project', false, '') + '</div>';
+			} else {
+				html += '<p class="meta">Shared · ' + escapeHtml(st.status || 'waiting for a peer') + '</p>';
+				if (st.ownerGithubLogin) {
+					html += '<p class="meta">Owner: @' + escapeHtml(String(st.ownerGithubLogin).replace(/^@/, '')) + '</p>';
+				}
+				if (st.waitingAdmit) {
+					html += '<p class="meta">Waiting for the admin to admit you. They pick your role and teams.</p>';
+				} else if (st.role && st.role !== 'admin') {
+					html += '<p class="meta">Your role: ' + escapeHtml(st.role) + '.</p>';
+				}
+				if (st.role === 'admin') {
+					if (st.sharingActive) {
+						html += '<p class="meta">Sharing is on. Other people can receive your changes. ' +
+							escapeHtml(String(st.onlineCount || 0)) + ' online now.</p>';
+						html += '<p class="meta">The project invite is only a request. You admit each person and pick their role and teams. Make a new invite if you are getting too many requests.</p>';
+						html += '<div class="actions">' +
+							shareActionButton('copyInvite', 'Copy invite', false, '') +
+							shareActionButton('rotateInvite', 'Make a new invite', true, '') +
+							shareActionButton('reconnect', 'Reconnect now', true, '') +
+							shareActionButton('stopSharing', 'Stop sharing', true, '') +
+							'</div>';
+					} else {
+						html += '<p class="meta">Sharing is stopped. You can keep working on this PC. Nothing is sent until you start sharing again.</p>';
+						html += '<div class="actions">' + shareActionButton('startSharing', 'Start sharing', false, '') + '</div>';
+					}
+				} else if (st.canToggleSharing) {
+					if (st.sharingActive) {
+						html += '<p class="meta">' + escapeHtml(String(st.onlineCount || 0)) + ' online now.</p>';
+						html += '<div class="actions">' +
+							shareActionButton('reconnect', 'Reconnect now', true, '') +
+							shareActionButton('stopSharing', 'Stop sharing', true, '') +
+							'</div>';
+					} else {
+						html += '<p class="meta">Sharing is stopped. You can keep working on this PC. Nothing is sent until you start sharing again.</p>';
+						html += '<div class="actions">' + shareActionButton('startSharing', 'Start sharing', false, '') + '</div>';
+					}
+				} else if (st.sharingActive) {
+					html += '<p class="meta">' + escapeHtml(String(st.onlineCount || 0)) + ' online now.</p>';
+				}
+			}
+			html += '</div>';
+
+			if (st.shared) {
+				var members = Array.isArray(st.members) ? st.members : [];
+				var pending = Array.isArray(st.pendingJoiners) ? st.pendingJoiners : [];
+				var allTeams = Array.isArray(st.teams) ? st.teams : [];
+				if (st.role === 'admin') {
+					html += '<div class="card"><h3 style="margin-top:0;">Waiting to join</h3>';
+					html += '<p class="meta">These people used the project invite. Admit them and pick a role and at least one team. Make a new invite if you do not want more requests.</p>';
+					if (!pending.length) {
+						html += '<p class="meta">No one is waiting.</p>';
+					}
+					for (var pi = 0; pi < pending.length; pi++) {
+						var p = pending[pi] || {};
+						var kind = p.isGuest ? 'guest' : 'GitHub';
+						html += '<div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--vscode-widget-border, #444);">';
+						html += '<p style="margin:0 0 8px;"><strong>' + escapeHtml(p.displayName || p.peerId || 'someone') +
+							'</strong> · ' + escapeHtml(kind) + '</p>';
+						html += '<label class="row" style="align-items:center;margin:6px 0;"><span style="min-width:6em;">Role</span>';
+						html += '<select data-admit-role="1" data-peer-id="' + escapeHtml(p.peerId || '') + '">';
+						var admitRoles = ['viewer', 'updater', 'member', 'admin'];
+						for (var rr = 0; rr < admitRoles.length; rr++) {
+							html += '<option value="' + admitRoles[rr] + '"' + (admitRoles[rr] === 'member' ? ' selected' : '') + '>' +
+								admitRoles[rr] + '</option>';
+						}
+						html += '</select></label>';
+						html += '<p class="meta" style="margin-top:8px;">Teams</p>';
+						for (var ti = 0; ti < allTeams.length; ti++) {
+							var tm = allTeams[ti] || {};
+							html += '<label style="display:block;margin:4px 0;"><input type="checkbox" data-admit-team="1" data-peer-id="' +
+								escapeHtml(p.peerId || '') + '" value="' + escapeHtml(tm.id || '') + '" /> ' +
+								escapeHtml(tm.name || tm.id || '') + '</label>';
+						}
+						html += '<div class="actions" style="margin-top:8px;">' +
+							shareActionButton('admitJoiner', 'Admit', false, p.peerId || '') +
+							shareActionButton('declineJoiner', 'Decline', true, p.peerId || '') +
+							'</div></div>';
+					}
+					html += '</div>';
+
+					html += '<div class="card"><h3 style="margin-top:0;">Members</h3>';
+					if (!members.length) {
+						html += '<p class="meta">No members listed yet.</p>';
+					}
+					for (var mi = 0; mi < members.length; mi++) {
+						var m = members[mi] || {};
+						var isYou = peerIdentity.peerId && m.peerId === peerIdentity.peerId;
+						var mKind = m.isGuest ? 'guest' : 'GitHub';
+						var label = (m.displayName || m.peerId || 'member') + (isYou ? ' (you)' : '');
+						var live = m.online ? 'online' : 'offline';
+						html += '<div class="row" style="align-items:center;margin-top:8px;">';
+						html += '<span style="flex:1;">' + escapeHtml(label) + ' · ' + escapeHtml(mKind) +
+							' · ' + escapeHtml(m.role || '') + ' · ' + escapeHtml(live) + '</span>';
+						if (!isYou && m.peerId) {
+							html += shareActionButton('passAdmin', 'Pass admin', true, m.peerId);
+							html += shareActionButton('removeMember', 'Remove', true, m.peerId);
+						}
+						html += '</div>';
+					}
+					html += '<div class="actions" style="margin-top:12px;">' +
+						shareActionButton('removeGuests', 'Remove all guests', true, '') +
+						'</div>';
+					html += '</div>';
+				}
+
+				html += renderTeamsCard(st);
+
+				if (st.role === 'admin') {
+					html += renderPeopleCard(st);
+				}
+
+				if (st.role === 'admin') {
+					html += '<div class="card"><h3 style="margin-top:0;">Who can join</h3>';
+					if (st.allowGuests === false) {
+						html += '<p class="meta">Only people signed in with GitHub can ask to join. Existing guests stay until you remove them. You still admit each person.</p>';
+						html += '<div class="actions">' + shareActionButton('allowGuestsOn', 'Also allow guests', true, '') + '</div>';
+					} else {
+						html += '<p class="meta">GitHub users and guests (PC name) can ask to join. You still admit each person and pick their role.</p>';
+						html += '<div class="actions">' + shareActionButton('allowGuestsOff', 'GitHub users only', true, '') + '</div>';
+					}
+					html += '</div>';
+
+					html += '<div class="card"><h3 style="margin-top:0;">GitHub mailbox (recommended)</h3>';
+					html += '<p class="meta">Optional. A private GitHub repo that holds only this project’s signed change log — not the project files, and not a git merge. When it is set, DRIP pulls on open and pushes when you leave if you changed something, then asks anyone still online to pull. A few times a day stays well under GitHub limits.</p>';
+					if (st.mailboxRepo) {
+						html += '<p class="meta">This project uses <code>' + escapeHtml(st.mailboxRepo) + '</code>.</p>';
+						html += '<div class="actions">' +
+							shareActionButton('pullMailbox', 'Pull mailbox now', true, '') +
+							shareActionButton('pushMailbox', 'Save mailbox now', true, '') +
+							shareActionButton('clearMailboxRepo', 'Stop using mailbox', true, '') +
+							'</div>';
+					} else {
+						html += '<p class="meta">Create an empty private repo, then paste <code>owner/repo</code>.</p>';
+						html += '<input id="share-mailbox-repo" type="text" placeholder="my-team/shop-drip" autocomplete="off" spellcheck="false" />';
+						html += '<div class="actions" style="margin-top:8px;">' + shareActionButton('setMailboxRepo', 'Use this repo', false, '') + '</div>';
+					}
+					html += '</div>';
+
+					html += '<div class="card"><h3 style="margin-top:0;">Danger zone</h3>';
+					html += '<p class="meta">Convert this shared project back to a solo project. Everyone keeps their own copy and stops looking for the others. Members who are online now are told right away; members who are offline are told when they reconnect, or the next time they pull the GitHub mailbox if one is set. Offline members without a mailbox see the project as unreachable and can leave it themselves.</p>';
+					html += '<div class="actions">' + shareActionButton('unshareProject', 'Convert to solo project', true, '') + '</div>';
+					html += '</div>';
+				}
+
+				if (st.role !== 'admin') {
+					html += '<div class="card"><h3 style="margin-top:0;">Leave</h3>';
+					html += '<p class="meta">You keep a local solo copy. You will not get updates. You can ask to join again later with a project invite.</p>';
+					html += '<div class="actions">' + shareActionButton('leave', 'Leave this project', true, '') + '</div></div>';
+				}
+
+				var notices = Array.isArray(st.notices) ? st.notices : [];
+				if (notices.length) {
+					html += '<div class="card"><h3 style="margin-top:0;">Recent notices</h3>';
+					for (var ni = 0; ni < notices.length; ni++) {
+						var n = notices[ni];
+						var text = typeof n === 'string' ? n : (n && (n.message || n.text)) || '';
+						if (text) html += '<p class="meta">' + escapeHtml(text) + '</p>';
+					}
+					html += '</div>';
+				}
+			}
+			shareProjectBodyEl.innerHTML = html;
+		}
+
+		function rebuildShareProjectSelect() {
+			var next = fillProjectSelect(shareProjectSelectEl, false, selectedShareProjectKey);
+			if (!next) {
+				selectedShareProjectKey = '';
+				selectedShareProjectTitle = '';
+				currentShareState = null;
+			} else {
+				selectedShareProjectKey = next;
+				if (!selectedShareProjectTitle) selectedShareProjectTitle = selectedProjectOptionTitle(next);
+			}
+			requestShareState();
+		}
+
 		function collectProjectOverrideForSave() {
 			var override = {};
 			for (var i = 0; i < projectOverrideState.length; i++) {
@@ -980,6 +1546,9 @@ interface Window {
 					if (panelId === 'shortcuts') {
 						vscode.postMessage({ type: 'requestShortcuts' });
 					}
+					if (panelId === 'project-sharing') {
+						requestShareState();
+					}
 				});
 			})(navButtons[iNav]);
 		}
@@ -1075,7 +1644,12 @@ interface Window {
 			projectOverrides = message.projectMetadataOverrides && typeof message.projectMetadataOverrides === 'object'
 				? message.projectMetadataOverrides
 				: {};
+			peerIdentity = message.peerIdentity && typeof message.peerIdentity === 'object'
+				? message.peerIdentity
+				: { displayName: '', peerId: '' };
+			renderShareIdentity();
 			rebuildProjectSelect();
+			rebuildShareProjectSelect();
 			var tr = message.tagsRelationsConfig || {};
 			relationsState = Array.isArray(tr.relations) && tr.relations.length ? tr.relations : [
 				{ name: 'tags', description: 'Special default relation for tags.', locked: true },
@@ -1125,9 +1699,25 @@ interface Window {
 				if (message.projectKey != null) {
 					selectedProjectKey = String(message.projectKey || '');
 					selectedProjectTitle = String(message.projectTitle || '');
-					if (projectsList.length) rebuildProjectSelect();
+					selectedShareProjectKey = String(message.projectKey || '');
+					selectedShareProjectTitle = String(message.projectTitle || '');
+					if (projectsList.length) {
+						rebuildProjectSelect();
+						rebuildShareProjectSelect();
+					}
 				}
 				showPanel(message.panel);
+				if (message.panel === 'project-sharing') requestShareState();
+			} else if (message.type === 'projectShareState') {
+				if (String(message.projectKey || '') === selectedShareProjectKey) {
+					currentShareState = message.shareState || null;
+					renderProjectSharingPanel();
+				}
+			} else if (message.type === 'peerIdentity') {
+				peerIdentity = message.peerIdentity && typeof message.peerIdentity === 'object'
+					? message.peerIdentity
+					: { displayName: '', peerId: '' };
+				renderShareIdentity();
 			} else if (message.type === 'docThemeColors') {
 				docThemeColors = message.colors || null;
 				renderDocColoring();
@@ -1179,7 +1769,7 @@ interface Window {
 				'<label class="row" style="display:block;margin-top:8px;"><span>Name</span><input type="text" data-llm="name" value="' + escapeHtml(p.name || '') + '" autocomplete="off" spellcheck="false" /></label>' +
 				'<label class="row" style="display:block;margin-top:8px;"><span>Base URL (OpenAI-compatible)</span><input type="text" data-llm="base-url" value="' + escapeHtml(p.baseUrl || '') + '" placeholder="https://api.openai.com/v1" autocomplete="off" spellcheck="false" /></label>' +
 				'<label class="row" style="display:block;margin-top:8px;"><span>Model</span><input type="text" data-llm="model" value="' + escapeHtml(p.model || '') + '" placeholder="gpt-4o-mini" autocomplete="off" spellcheck="false" /></label>' +
-				'<label class="row" style="margin-top:8px;"><input type="checkbox" data-llm="enabled"' + (p.enabled ? ' checked' : '') + '><span>Enabled for Quick Capture</span></label>' +
+				'<label class="row" style="margin-top:8px;"><input type="checkbox" data-llm="enabled"' + (p.enabled ? ' checked' : '') + '><span>Enabled</span></label>' +
 				'<p class="meta" style="margin:8px 0 0 0;">API key: ' + (p.hasKey ? 'saved (Secret Storage)' : 'not set') + '</p>' +
 				'<p class="meta llm-test-status" data-llm="status" style="margin:4px 0 0 0;"></p>' +
 				'<label class="row" style="display:block;margin-top:8px;"><span>API key</span><input type="password" data-llm="api-key" placeholder="sk-…" autocomplete="off" spellcheck="false" /></label>' +
@@ -1514,6 +2104,93 @@ interface Window {
 				renderProjectMetadataPanel();
 			});
 		}
+		if (shareProjectSelectEl) {
+			shareProjectSelectEl.addEventListener('change', function () {
+				selectedShareProjectKey = String(shareProjectSelectEl.value || '');
+				selectedShareProjectTitle = selectedProjectOptionTitle(selectedShareProjectKey);
+				currentShareState = null;
+				requestShareState();
+			});
+		}
+		function postShareAction(ev) {
+			var btn = ev.target && ev.target.closest ? ev.target.closest('[data-share-action]') : null;
+			if (!btn) return;
+			var action = String(btn.getAttribute('data-share-action') || '');
+			if (!action) return;
+			var joinEl = document.getElementById('share-join-code');
+			var inviteCode = joinEl ? String(joinEl.value || '') : '';
+			if (action === 'joinProject' && joinEl) joinEl.value = '';
+			var mailboxEl = document.getElementById('share-mailbox-repo');
+			var teamNameEl = document.getElementById('share-team-name');
+			var peerId = String(btn.getAttribute('data-peer-id') || '');
+			var admitRole = '';
+			var admitTeams = [];
+			if (action === 'admitJoiner' && peerId) {
+				var roleSels = document.querySelectorAll('[data-admit-role]');
+				for (var rsi = 0; rsi < roleSels.length; rsi++) {
+					if (String(roleSels[rsi].getAttribute('data-peer-id') || '') === peerId) {
+						admitRole = String(roleSels[rsi].value || 'member');
+						break;
+					}
+				}
+				var teamBoxes = document.querySelectorAll('[data-admit-team]');
+				for (var tbi = 0; tbi < teamBoxes.length; tbi++) {
+					var box = teamBoxes[tbi];
+					if (String(box.getAttribute('data-peer-id') || '') !== peerId) continue;
+					if (box.checked || box.disabled) admitTeams.push(String(box.value || ''));
+				}
+			}
+			vscode.postMessage({
+				type: 'projectShareAction',
+				action: action,
+				projectKey: selectedShareProjectKey,
+				projectTitle: selectedShareProjectTitle,
+				peerId: peerId,
+				inviteCode: inviteCode,
+				mailboxRepo: mailboxEl ? String(mailboxEl.value || '') : '',
+				teamName: teamNameEl ? String(teamNameEl.value || '') : '',
+				teamId: String(btn.getAttribute('data-team-id') || ''),
+				leadPeerId: String(btn.getAttribute('data-lead-peer-id') || ''),
+				memberRole: admitRole || String(btn.getAttribute('data-member-role') || ''),
+				guestName: String(btn.getAttribute('data-guest-name') || ''),
+				teamIds: admitTeams
+			});
+		}
+		function postShareChange(ev) {
+			var el = ev.target && ev.target.closest ? ev.target.closest('[data-share-change]') : null;
+			if (!el) return;
+			var action = String(el.getAttribute('data-share-change') || '');
+			if (!action) return;
+			vscode.postMessage({
+				type: 'projectShareAction',
+				action: action,
+				projectKey: selectedShareProjectKey,
+				projectTitle: selectedShareProjectTitle,
+				peerId: String(el.getAttribute('data-peer-id') || el.value || ''),
+				teamId: String(el.getAttribute('data-team-id') || ''),
+				leadPeerId: action === 'setTeamLead' ? String(el.value || '') : '',
+				memberRole: action === 'setMemberRole' ? String(el.value || '') : ''
+			});
+		}
+		var sharePanelEl = document.getElementById('panel-project-sharing');
+		if (sharePanelEl) {
+			sharePanelEl.addEventListener('click', postShareAction);
+			sharePanelEl.addEventListener('change', postShareChange);
+			sharePanelEl.addEventListener('click', function (ev) {
+				var am = ev.target && ev.target.closest ? ev.target.closest('[data-add-member-team]') : null;
+				if (am) { openMemberPicker(am, String(am.getAttribute('data-add-member-team') || '')); return; }
+				var at = ev.target && ev.target.closest ? ev.target.closest('[data-add-team-to-peer]') : null;
+				if (at) { openTeamPicker(at, String(at.getAttribute('data-add-team-to-peer') || '')); return; }
+			});
+		}
+		document.addEventListener('mousedown', function (ev) {
+			var p = document.getElementById('share-picker');
+			if (p && !p.contains(ev.target)) closePicker();
+		});
+		var accountPanelEl = document.getElementById('panel-account');
+		if (accountPanelEl) accountPanelEl.addEventListener('click', postShareAction);
+		var joinProjectPanelEl = document.getElementById('panel-join-project');
+		if (joinProjectPanelEl) joinProjectPanelEl.addEventListener('click', postShareAction);
 		document.getElementById('btn-add-relation').addEventListener('click', function () {
 			relationsState.push({ name: 'new-relation', description: '', locked: false });
 			renderRelations();
@@ -1883,7 +2560,7 @@ interface Window {
 			});
 		}
 		if (llmProfilesEl) {
-			// The "Enabled for Quick Capture" checkbox carries data-llm="enabled", so a
+			// The "Enabled" checkbox carries data-llm="enabled", so a
 			// click on it also lands here. Don't swallow the toggle — only buttons need
 			// preventDefault; the checkbox is persisted by the change listener below.
 			llmProfilesEl.addEventListener('click', function (ev) {

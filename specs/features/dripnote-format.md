@@ -97,7 +97,7 @@ The application ships with a fixed, standard set of metadata types, split into t
 
 - `.project` (file-level) — `status`, `priority`, `deadline`
 - `.feature` (file-level) — `category` (enum)
-- `.issue` — `priority` (enum), `status` (enum), `deadline` (datetime), `category` (enum), a built-in `parent` (`i-N`) link, and `decision` / `concept` list links
+- `.issue` — `priority` (enum), `status` (enum), `deadline` (datetime), `completed` (datetime, stamped when status becomes completed), `category` (enum), `feature` (which feature it came from, written when archived), `team` (who owns the work, once the project has teams), a built-in `parent` (`i-N`) link, and `decision` / `concept` list links
 - `.concept` — `status` (enum), `domain` (enum)
 - `.decision` — `status` (enum), `category` (enum), a `superseded-by` link, and a `concept` link
 

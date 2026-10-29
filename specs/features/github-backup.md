@@ -31,6 +31,14 @@ DRIP can back up the whole knowledge base to a GitHub repository and restore it,
 
 - Open the GitHub web page for the configured remote.
 
+### Backup vs project sync
+
+GitHub backup is a whole-knowledge-base snapshot for disaster recovery. It is **not** how people on a shared project stay in sync.
+
+A shared project's source of truth is its files plus the operation log in its `.drip/` sidecar (see Project sharing and Project sync). Mixing a git merge of those files with the operation log forks the project, so a shared project is not merged through git. The backup can still include the folder as a snapshot.
+
+The project's tags and metadata overrides live inside that sidecar, so they travel with the project folder. They are not under `.dripindex/`, which backup skips.
+
 ## Flow (plain steps)
 
 1. User configures the remote URL/branch and (optionally) a PAT.

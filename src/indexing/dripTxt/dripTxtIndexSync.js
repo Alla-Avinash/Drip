@@ -590,6 +590,14 @@ function registerDripnoteIndexSync(context, state) {
 		if (!doc || doc.isClosed) return;
 
 		const kbRoot = state.getKnowledgeBaseRoot();
+		try {
+			const { isSharedProjectNote } = require('../../document/project/projectFileIds');
+			if (kbRoot && (await isSharedProjectNote(kbRoot, doc.uri))) {
+				return;
+			}
+		} catch {
+			/* keep the live repair if the shared check fails */
+		}
 		const key = doc.uri.toString();
 		let text = doc.getText().replace(/\r\n/g, '\n');
 
@@ -894,6 +902,13 @@ function registerDripnoteIndexSync(context, state) {
 			flushPendingHeadingIdAllocation(doc);
 			// Persist index.drip on save so Retriever (index-only reads) matches the file immediately.
 			indexQueue.scheduleNoteUpdate(doc.uri, { immediate: true });
+			if (isGuardedDocumentEditActive()) return;
+			const kbRoot = state.getKnowledgeBaseRoot && state.getKnowledgeBaseRoot();
+			if (kbRoot) {
+				void require('../../peer/projectHandEdit')
+					.synthesizeHandEditsOnSave(kbRoot, doc.uri, doc.getText())
+					.catch(err => console.error('[DRIP] shared-project save', err));
+			}
 		})
 	);
 
@@ -907,6 +922,11 @@ function registerDripnoteIndexSync(context, state) {
 						const text = doc.getText().replace(/\r\n/g, '\n');
 						headingIdPoolByUri.set(doc.uri.toString(), buildHeadingIdPoolFromText(text));
 						await ensureFileEntityCached(kbRoot, doc, text);
+						try {
+							require('../../peer/projectHandEdit').seedHandEditBaseline(doc.uri, text);
+						} catch {
+							/* baseline is optional until the first save */
+						}
 					}
 				}
 				await maybeReconcileHeadingIdentitiesOnOpen(doc);

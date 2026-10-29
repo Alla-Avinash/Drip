@@ -421,6 +421,7 @@ const ISSUE_TOOLS = [
 				throw new ToolError('Nothing to update: pass title, status, and/or priority.');
 			}
 			await editNote(ctx, uri, text => updateIssueBlockText(text, issueId, { title, attributes: fields }, formatFromPath(uri.fsPath)));
+			await recordIssueEdits(kb, project.folderPrefix, issueId, fields, title);
 			return { updated: issueId, file: relOf(kb, uri), changes: { ...(title != null ? { title } : {}), ...fields } };
 		}
 	},
@@ -437,10 +438,11 @@ const ISSUE_TOOLS = [
 		},
 		example: { project: 'Shop.p', issueId: 'i-4' },
 		async handler(args, ctx) {
-			const { issueId, uri } = await loadIssueContext(ctx, args);
+			const { kb, project, issueId, uri } = await loadIssueContext(ctx, args);
 			const allowed = allowedIssueValues(uri, 'status');
 			const done = allowed.includes('completed') ? 'completed' : allowed[allowed.length - 1] || 'completed';
 			await editNote(ctx, uri, text => updateIssueBlockText(text, issueId, { attributes: { status: done } }, formatFromPath(uri.fsPath)));
+			await recordIssueEdits(kb, project.folderPrefix, issueId, { status: done });
 			return { closed: issueId, status: done };
 		}
 	},
@@ -553,8 +555,12 @@ const ISSUE_TOOLS = [
 			}
 			const feature = resolveFeature(children.features, args.feature);
 			const featureUri = uriFromRel(kb, feature.folderPrefix || feature.path);
-			const { moveIssueToFeatureMailbox } = require('../../../document/project/projectIssuesMailbox');
-			const res = await moveIssueToFeatureMailbox(kb, uriFromRel(kb, project.folderPrefix), featureUri, issueId, {
+			const { moveIssueToFeatureMailbox, moveInboxLinkedChildrenToFeature } = require('../../../document/project/projectIssuesMailbox');
+			const projectUri = uriFromRel(kb, project.folderPrefix);
+			const res = await moveIssueToFeatureMailbox(kb, projectUri, featureUri, issueId, {
+				context: ctx.extensionContext
+			});
+			await moveInboxLinkedChildrenToFeature(kb, projectUri, featureUri, issueId, {
 				context: ctx.extensionContext
 			});
 			ctx.refreshUi();
@@ -620,5 +626,30 @@ const ISSUE_TOOLS = [
 		}
 	}
 ];
+
+/**
+ * @param {import('vscode').Uri} kb
+ * @param {string} folderPrefix
+ * @param {string} issueId
+ * @param {Record<string, string>} [fields]
+ * @param {string} [title]
+ */
+async function recordIssueEdits(kb, folderPrefix, issueId, fields, title) {
+	try {
+		const { findIssueInProject } = require('../../../peer/projectIssueLookup');
+		const { recordLocalOperation, OP_TYPES } = require('../../../peer/projectRecord');
+		const found = await findIssueInProject(kb, folderPrefix, { issueKey: issueId });
+		const uid = found && found.attributes && found.attributes.uid;
+		if (!uid) return;
+		const payload = { uid };
+		if (title != null) payload.title = title;
+		if (fields && Object.keys(fields).length) payload.attributes = fields;
+		if (payload.title != null || payload.attributes) {
+			await recordLocalOperation(kb, folderPrefix, OP_TYPES.ISSUE_UPDATE, payload);
+		}
+	} catch (err) {
+		console.error('[DRIP] record issue edits', err);
+	}
+}
 
 module.exports = { ISSUE_TOOLS };

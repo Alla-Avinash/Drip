@@ -11,9 +11,10 @@ const { getDefaultNewNoteExtension } = require('./dripNoteFileTypes.js');
 
 const PROJECT_FOLDER_EXT = '.p';
 
-/** Project-scoped subfolders: concepts (c-N) and decisions (d-N) live here. */
+/** Project-scoped subfolders: concepts (c-N), decisions (d-N), and archived issues. */
 const CONCEPTS_SUBFOLDER_NAME = '_concepts';
 const DECISIONS_SUBFOLDER_NAME = '_decisions';
+const ARCHIVE_SUBFOLDER_NAME = '_archive';
 
 /**
  * @param {string} folderBasename
@@ -142,6 +143,7 @@ module.exports = {
 	PROJECT_FOLDER_EXT,
 	CONCEPTS_SUBFOLDER_NAME,
 	DECISIONS_SUBFOLDER_NAME,
+	ARCHIVE_SUBFOLDER_NAME,
 	isDripProjectFolderName,
 	projectDisplayNameFromFolderName,
 	projectIndexFileName,

@@ -81,6 +81,43 @@
 		return marker || `.${id}`;
 	}
 
+	function formCaps() {
+		return (lastPayload && lastPayload.talkCaps) || {};
+	}
+
+	function canEditIssueField(key) {
+		const caps = formCaps();
+		if (caps.issueEdit !== false) return true;
+		if (caps.issueStatus) {
+			const k = String(key || '').toLowerCase();
+			return k === 'status' || k === 'deadline' || k === 'completed';
+		}
+		return false;
+	}
+
+	function applyRoleLocks() {
+		const caps = formCaps();
+		const canEdit = caps.issueEdit !== false;
+		if (titleEl) titleEl.disabled = !canEdit;
+		if (typeEl && !canEdit) typeEl.disabled = true;
+		if (deleteBtn) deleteBtn.hidden = caps.issueDelete === false;
+		if (addRelBtn && !canEdit) {
+			addRelBtn.disabled = true;
+			addRelBtn.style.opacity = '0.45';
+		}
+		if (tagsPickerHost) {
+			const inp = tagsPickerHost.querySelector('input');
+			if (inp) inp.disabled = !canEdit;
+		}
+		attrsEl.querySelectorAll('input, select').forEach(el => {
+			const key = el.getAttribute('data-key') || '';
+			el.disabled = !canEditIssueField(key);
+		});
+		formEl.querySelectorAll('.hf-rel-inline input, .hf-rel-inline select, .hf-rel-inline button').forEach(el => {
+			if (!canEdit) el.disabled = true;
+		});
+	}
+
 	function renderTypeOptions(selectedId, typeLocked) {
 		typeEl.innerHTML = '';
 		if (!typeLocked) {
@@ -290,6 +327,7 @@
 					sel.appendChild(o);
 				}
 				sel.value = val;
+				sel.disabled = !canEditIssueField(key);
 				wireSave(sel);
 				valWrap.appendChild(sel);
 			} else {
@@ -298,6 +336,7 @@
 				input.dataset.key = key;
 				if (kind === 'datetime') input.dataset.kind = 'datetime';
 				input.value = val;
+				input.disabled = !canEditIssueField(key);
 				input.placeholder =
 					(rule && rule.placeholder) ||
 					(kind === 'datetime'
@@ -454,6 +493,7 @@
 				closeDd();
 			}
 		});
+		if (!canEditIssueField(key)) input.disabled = true;
 		input.placeholder = info.options.length
 			? 'Optional — i-N from this project'
 			: 'No other issues in this project';
@@ -587,6 +627,12 @@
 			const low = String(n).toLowerCase();
 			return low !== 'tags' && !used.has(low);
 		});
+		if (formCaps().issueEdit === false) {
+			addRelBtn.disabled = true;
+			addRelBtn.style.opacity = '0.45';
+			addRelBtn.title = 'Your role cannot change relations.';
+			return;
+		}
 		addRelBtn.disabled = remaining.length === 0;
 		addRelBtn.style.opacity = remaining.length === 0 ? '0.45' : '';
 		addRelBtn.title =
@@ -711,6 +757,41 @@
 		}
 		filling = false;
 		lastSavedSig = contentSig(collectModel());
+		renderTalk(payload.talk || { messages: [] }, payload);
+		applyRoleLocks();
+	}
+
+	function renderTalk(talk, payload) {
+		const box = document.getElementById('hf-talk');
+		const body = document.getElementById('hf-talk-body');
+		if (!box || !body) return;
+		const isIssue = String((payload && payload.typeId) || '') === 'issue';
+		const uid = String((payload && payload.attributes && payload.attributes.uid) || '');
+		box.hidden = !(isIssue && uid);
+		if (box.hidden) return;
+		const canWrite = payload && payload.talkCaps && payload.talkCaps.chatWrite === false ? false : true;
+		const lines = (talk.messages || []).map(function (m) {
+			return '<div class="hf-talk-line"><span class="hf-talk-who">' +
+				escapeHtml(m.name || m.author || '') + '</span> ' + escapeHtml(m.text || '') + '</div>';
+		}).join('');
+		body.innerHTML = lines || '<p class="hf-muted">Scratch talk. Save useful text to the issue note, then clear.</p>';
+		const compose = document.querySelector('.hf-talk-compose');
+		const actions = document.querySelector('.hf-talk-actions');
+		if (compose) compose.hidden = !canWrite;
+		if (actions) actions.hidden = !canWrite;
+		const saveBtn = document.getElementById('hf-talk-save');
+		if (saveBtn) saveBtn.hidden = formCaps().issueEdit === false;
+	}
+
+	function escapeHtml(s) {
+		return String(s || '')
+			.replace(/&/g, '&amp;')
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;');
+	}
+
+	function issueUid() {
+		return String((lastPayload && lastPayload.attributes && lastPayload.attributes.uid) || '');
 	}
 
 	function collectModel() {
@@ -718,6 +799,10 @@
 		const tags = tagsPicker && typeof tagsPicker.getTags === 'function' ? tagsPicker.getTags() : [];
 		const typePrefix = shortcutPrefixForTypeId(typeId);
 		if (lastPayload) lastPayload.typePrefix = typePrefix;
+		const attributes = readAttrs();
+		const keepUid = lastPayload && lastPayload.attributes && lastPayload.attributes.uid;
+		if (keepUid && !attributes.uid) attributes.uid = String(keepUid);
+
 		return {
 			documentUri: lastPayload && lastPayload.documentUri,
 			headingLine: lastPayload && lastPayload.headingLine,
@@ -733,7 +818,7 @@
 			typeId,
 			titleDisplay: String(titleEl.value || '').trim(),
 			issueEntityId: lastPayload && lastPayload.issueEntityId,
-			attributes: readAttrs(),
+			attributes,
 			tags,
 			relations: readRelations(),
 			special: (lastPayload && lastPayload.special) || {}
@@ -754,6 +839,46 @@
 		scheduleSave();
 	});
 	addRelBtn.addEventListener('click', () => addRelationRow('', [], false));
+
+	const talkSend = document.getElementById('hf-talk-send');
+	const talkInput = document.getElementById('hf-talk-input');
+	const talkClear = document.getElementById('hf-talk-clear');
+	const talkSave = document.getElementById('hf-talk-save');
+	function sendTalk() {
+		const uid = issueUid();
+		const text = talkInput ? String(talkInput.value || '').trim() : '';
+		if (!uid || !text) return;
+		vscode.postMessage({ type: 'headingFormTalkSend', uid: uid, text: text, documentUri: lastPayload && lastPayload.documentUri });
+		if (talkInput) talkInput.value = '';
+	}
+	if (talkSend) talkSend.addEventListener('click', sendTalk);
+	if (talkInput) {
+		talkInput.addEventListener('keydown', ev => {
+			if (ev.key === 'Enter') {
+				ev.preventDefault();
+				sendTalk();
+			}
+		});
+	}
+	if (talkClear) {
+		talkClear.addEventListener('click', () => {
+			const uid = issueUid();
+			if (!uid) return;
+			vscode.postMessage({ type: 'headingFormTalkClear', uid: uid, documentUri: lastPayload && lastPayload.documentUri });
+		});
+	}
+	if (talkSave) {
+		talkSave.addEventListener('click', () => {
+			const uid = issueUid();
+			if (!uid) return;
+			vscode.postMessage({
+				type: 'headingFormTalkSave',
+				uid: uid,
+				issueEntityId: lastPayload && lastPayload.issueEntityId,
+				documentUri: lastPayload && lastPayload.documentUri
+			});
+		});
+	}
 
 	if (copyIdBtn) {
 		copyIdBtn.addEventListener('click', () => {
@@ -790,6 +915,11 @@
 		}
 		if (msg.type === 'headingFormLoad') {
 			fillForm(msg.payload || {});
+			return;
+		}
+		if (msg.type === 'headingFormTalk') {
+			if (lastPayload) lastPayload.talk = { messages: msg.messages || [] };
+			renderTalk({ messages: msg.messages || [] }, lastPayload || {});
 			return;
 		}
 		if (msg.type === 'headingFormFlush') {

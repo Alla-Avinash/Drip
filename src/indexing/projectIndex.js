@@ -387,6 +387,161 @@ function upsertIssueRow(db, row) {
 	);
 }
 
+/**
+ * Drop every index row for a project folder: note files in `index.drip`,
+ * plus the project / feature / issue rows in `projects.drip`.
+ * Call this before deleting the folder so Settings and Project View
+ * do not keep listing a project that is gone.
+ * @param {import('vscode').Uri} kbRootUri
+ * @param {import('vscode').Uri} folderUri
+ */
+async function removeProjectFolderFromIndexes(kbRootUri, folderUri) {
+	const vscode = require('vscode');
+	const { fileNameMatchesKbNote } = require('../document/model/dripNoteFileTypes.js');
+	const { removeFileFromDripIndex } = require('./dripIndexDb');
+	const { openDripProjectsDb } = require('./dripProjectDb');
+
+	const relFolder = path.relative(kbRootUri.fsPath, folderUri.fsPath).replace(/\\/g, '/');
+	const prefix = projectFolderPrefixFromPath(relFolder + '/');
+	if (!prefix) return;
+
+	const stack = [folderUri];
+	while (stack.length) {
+		const dir = stack.pop();
+		let entries = [];
+		try {
+			entries = await vscode.workspace.fs.readDirectory(dir);
+		} catch {
+			continue;
+		}
+		for (const [name, kind] of entries) {
+			const child = vscode.Uri.joinPath(dir, name);
+			if (kind === vscode.FileType.Directory) {
+				stack.push(child);
+				continue;
+			}
+			if (kind !== vscode.FileType.File || !fileNameMatchesKbNote(name)) continue;
+			const rel = path.relative(kbRootUri.fsPath, child.fsPath).replace(/\\/g, '/');
+			try {
+				await removeFileFromDripIndex(kbRootUri, rel);
+			} catch {
+				/* best-effort */
+			}
+		}
+	}
+
+	const handle = openDripProjectsDb(kbRootUri);
+	try {
+		const db = handle.db;
+		const like = prefix + '%';
+		let rows = [];
+		if (db.native) {
+			rows = db.native
+				.prepare(
+					`SELECT project_id AS projectId FROM projects WHERE folder_prefix = ? OR folder_prefix LIKE ?`
+				)
+				.all(prefix, like);
+		}
+		for (const r of rows || []) {
+			const pid = Number(r.projectId || r.project_id);
+			if (!pid) continue;
+			db.run(`DELETE FROM headings WHERE project_id = ?`, [pid]);
+			db.run(`DELETE FROM issue_metadata WHERE project_id = ?`, [pid]);
+			db.run(`DELETE FROM concepts WHERE project_id = ?`, [pid]);
+			db.run(`DELETE FROM decisions WHERE project_id = ?`, [pid]);
+		}
+		db.run(`DELETE FROM features WHERE folder_prefix = ? OR folder_prefix LIKE ?`, [prefix, like]);
+		db.run(`DELETE FROM projects WHERE folder_prefix = ? OR folder_prefix LIKE ?`, [prefix, like]);
+		await handle.save();
+	} finally {
+		handle.close();
+	}
+}
+
+/**
+ * After a join/import, put the new `.p` folder in `projects.drip` and index
+ * its notes so Settings and Project View list it immediately.
+ * @param {import('vscode').Uri} kbRootUri
+ * @param {import('vscode').Uri} folderUri
+ * @param {string} [title]
+ * @returns {Promise<string>} folder prefix used by the dropdown, or ''
+ */
+async function ensureJoinedProjectInIndex(kbRootUri, folderUri, title) {
+	const vscode = require('vscode');
+	const { fileNameMatchesKbNote } = require('../document/model/dripNoteFileTypes.js');
+	const { openDripProjectsDb } = require('./dripProjectDb');
+	const { indexNewNoteImmediately } = require('./dripTxt/dripTxtIndex.js');
+
+	const relFolder = path.relative(kbRootUri.fsPath, folderUri.fsPath).replace(/\\/g, '/');
+	const prefix = projectFolderPrefixFromPath(relFolder + '/');
+	if (!prefix) return '';
+
+	const handle = openDripProjectsDb(kbRootUri);
+	try {
+		ensureProjectRow(handle.db, prefix, { title: String(title || '').trim() });
+		await handle.save();
+	} finally {
+		handle.close();
+	}
+
+	const stack = [folderUri];
+	while (stack.length) {
+		const dir = stack.pop();
+		let entries = [];
+		try {
+			entries = await vscode.workspace.fs.readDirectory(dir);
+		} catch {
+			continue;
+		}
+		for (const [name, kind] of entries) {
+			if (name === '.drip') continue;
+			const child = vscode.Uri.joinPath(dir, name);
+			if (kind === vscode.FileType.Directory) {
+				stack.push(child);
+				continue;
+			}
+			if (kind !== vscode.FileType.File || !fileNameMatchesKbNote(name)) continue;
+			try {
+				await indexNewNoteImmediately(kbRootUri, child);
+			} catch {
+				/* best-effort */
+			}
+		}
+	}
+	return prefix;
+}
+
+/**
+ * Clear a project's issue→team rows. Called when a shared project converts back
+ * to solo: teams are a shared-project concept, so their index rows are dropped
+ * (the issue files themselves keep their leftover `team:` lines as unused labels).
+ * @param {import('vscode').Uri} kbRootUri
+ * @param {string} folderPrefix e.g. `sample/kjh.p/`
+ */
+async function clearProjectIssueTeams(kbRootUri, folderPrefix) {
+	const prefix = String(folderPrefix || '')
+		.replace(/\\/g, '/')
+		.replace(/\/+$/, '') + '/';
+	const { openDripProjectsDb } = require('./dripProjectDb');
+	const handle = openDripProjectsDb(kbRootUri);
+	try {
+		const db = handle.db;
+		let rows = [];
+		if (db.native) {
+			rows = db.native
+				.prepare(`SELECT project_id AS projectId FROM projects WHERE folder_prefix = ?`)
+				.all(prefix);
+		}
+		for (const r of rows || []) {
+			const pid = Number(r.projectId || r.project_id);
+			if (!pid) continue;
+			db.run(`DELETE FROM issue_teams WHERE project_id = ?`, [pid]);
+		}
+	} finally {
+		handle.close();
+	}
+}
+
 module.exports = {
 	projectFolderPrefixFromPath,
 	featureFolderPrefixFromPath,
@@ -399,5 +554,8 @@ module.exports = {
 	ensureFeatureRow,
 	resolveFeatureIdForFile,
 	issueKeyFromHeadingTitle,
-	upsertIssueRow
+	upsertIssueRow,
+	removeProjectFolderFromIndexes,
+	ensureJoinedProjectInIndex,
+	clearProjectIssueTeams
 };

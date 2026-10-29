@@ -10,6 +10,7 @@ const {
 	DRIP_OPEN_KB_EDITOR_COMMAND_ID,
 	DRIP_COMPONENTS_VIEW_ID,
 	DRIP_KB_VIEW_ID,
+	DRIP_PROJECTS_VIEW_ID,
 	DRIP_DRAFTS_VIEW_ID,
 	DRIP_RECENTS_VIEW_ID,
 	DRIP_OPEN_RECENT_FILE_COMMAND_ID,
@@ -65,7 +66,7 @@ const { noteFormatForPath } = require('../document/model/dripNoteFileTypes.js');
 const { runGuardedDocumentEdit } = require('../shared/documentEditGuard');
 const { createKbTreeDragDropController } = require('../views/lhs/knowledgebase/kbTreeDragDrop');
 const { registerDripSidebarViewBehavior } = require('../views/lhs/knowledgebase/dripSidebarViews');
-const { showKbNewMenu } = require('../views/lhs/knowledgebase/kbCreateMenu');
+const { showKbNewMenu, showProjectsNewMenu } = require('../views/lhs/knowledgebase/kbCreateMenu');
 
 /**
  * Resolve a folder/file Uri from a tree item, Uri, or `{ uri: string|Uri }` (quick-pick New menu).
@@ -115,7 +116,9 @@ const {
 	refreshRetrieverCatalogIfShown,
 	scheduleRetrieverCatalogRebuildIfShown
 } = require('../views/lhs/retriever/panel');
-const { DripProjectViewPanel, refreshProjectViewIfShown } = require('../views/lhs/projects/panel');
+	const { DripProjectViewPanel, refreshProjectViewIfShown } = require('../views/lhs/projects/panel');
+	const { bindPeerIdentityContext, ensurePeerIdentity } = require('../peer/peerIdentity');
+	const { registerProjectShareCommands } = require('../peer/projectShareCommands');
 const { DripChatWebviewProvider } = require('../views/rhs/chat/panel');
 const { runRetrieverHeadingQuickOpen } = require('../retrieval/retrieverQuickOpen');
 const { updateKnowledgeBase } = require('../startup/updateKnowledgeBase');
@@ -130,6 +133,9 @@ async function activate(context) {
 
 	const { initRhsStorageContexts } = require('../views/rhs/revealStorageOnly');
 	await initRhsStorageContexts();
+
+	bindPeerIdentityContext(context);
+	ensurePeerIdentity().catch(() => {});
 
 	await initializeMultiGraphStorage(context);
 	registerDripnoteTagCompletion(context);
@@ -154,6 +160,10 @@ async function activate(context) {
 	registerPersistentHeadingSoftLock(context);
 	registerDripProjectFolderWatch(context, state);
 	registerDripFeatureFolderWatch(context, state);
+	const runIssueArchiveSweepIfDue = require('../document/project/projectIssueArchive').registerIssueArchiveSweep(
+		context,
+		state
+	);
 	setHeadingFormExtensionContext(context);
 	setHeadingFormKbRootGetter(() => state.getKnowledgeBaseRoot && state.getKnowledgeBaseRoot());
 	registerHeadingFormAutoFlush(context);
@@ -161,6 +171,7 @@ async function activate(context) {
 	state.syncTagGraphCheckpointFromStorage();
 	const componentsTreeProvider = new DripTreeDataProvider(state, 'components');
 	const kbTreeProvider = new DripTreeDataProvider(state, 'knowledge');
+	const projectsTreeProvider = new DripTreeDataProvider(state, 'projects');
 	const draftsTreeProvider = new DripTreeDataProvider(state, 'drafts');
 	const recentsTreeProvider = new DripTreeDataProvider(state, 'recents');
 	const dailyNotesTreeProvider = new DripTreeDataProvider(state, 'dailyNotes');
@@ -171,6 +182,9 @@ async function activate(context) {
 			draftsTreeProvider.refresh();
 			recentsTreeProvider.refresh();
 			dailyNotesTreeProvider.refresh();
+		},
+		refreshProjects() {
+			projectsTreeProvider.refresh();
 		}
 	};
 	state.setDraftsRefreshListener(() => sidebarRefreshHub.refresh());
@@ -179,7 +193,15 @@ async function activate(context) {
 	// (or found missing/invalid), refresh the views that depend on the verified root.
 	registerStartupCheck(context, state, () => {
 		sidebarRefreshHub.refresh();
+		sidebarRefreshHub.refreshProjects();
 		refreshProjectViewIfShown();
+		const kb = state.getVerifiedKnowledgeBaseRoot && state.getVerifiedKnowledgeBaseRoot();
+		if (kb) {
+			require('../peer/projectShareCommands')
+				.resumeSharedProjectListeners(kb)
+				.catch(() => {});
+			runIssueArchiveSweepIfDue();
+		}
 	});
 	require('../integrations/mcp/mcpBridge').registerDripMcp(context, state, {
 		refreshUi: () => kbTreeProvider.refresh()
@@ -198,6 +220,12 @@ async function activate(context) {
 		refreshProjectViewIfShown();
 	}
 
+	/** Create / delete / join / rename — not the disk watcher. */
+	function refreshUiAndProjects() {
+		refreshUi();
+		sidebarRefreshHub.refreshProjects();
+	}
+
 	/** @type {ReturnType<typeof setTimeout> | undefined} */
 	let _kbFsRefreshTimer;
 
@@ -208,7 +236,7 @@ async function activate(context) {
 	 */
 	function onKnowledgeBaseFsEvent(uri) {
 		const rel = uri && kbRootFsRel(uri);
-		if (rel != null && isDripIndexArtifactPath(rel)) {
+		if (rel != null && (isDripIndexArtifactPath(rel) || isProjectSidecarPath(rel))) {
 			return;
 		}
 		clearTimeout(_kbFsRefreshTimer);
@@ -242,6 +270,12 @@ async function activate(context) {
 		return p === '.dripindex' || p.startsWith('.dripindex/');
 	}
 
+	/** Project `.drip/` sidecar (ops log, sync vector) — writing it must not reload Projects. */
+	function isProjectSidecarPath(rel) {
+		const p = String(rel || '').replace(/\\/g, '/');
+		return /(^|\/)\.drip(\/|$)/i.test(p);
+	}
+
 	const kbDragDropController = createKbTreeDragDropController(state, refreshUi);
 	const componentsTreeView = vscode.window.createTreeView(DRIP_COMPONENTS_VIEW_ID, {
 		treeDataProvider: componentsTreeProvider
@@ -252,6 +286,15 @@ async function activate(context) {
 		canSelectMany: true,
 		dragAndDropController: kbDragDropController
 	});
+	const projectsTreeView = vscode.window.createTreeView(DRIP_PROJECTS_VIEW_ID, {
+		treeDataProvider: projectsTreeProvider,
+		showCollapseAll: true,
+		canSelectMany: true,
+		dragAndDropController: kbDragDropController
+	});
+	context.subscriptions.push(
+		vscode.window.registerFileDecorationProvider(projectsTreeProvider.presenceDecorations)
+	);
 	const draftsTreeView = vscode.window.createTreeView(DRIP_DRAFTS_VIEW_ID, {
 		treeDataProvider: draftsTreeProvider
 	});
@@ -263,7 +306,7 @@ async function activate(context) {
 		showCollapseAll: true
 	});
 
-	context.subscriptions.push(componentsTreeView, kbTreeView, draftsTreeView, recentsTreeView, dailyNotesTreeView);
+	context.subscriptions.push(componentsTreeView, kbTreeView, projectsTreeView, draftsTreeView, recentsTreeView, dailyNotesTreeView);
 	registerDripSidebarViewBehavior(kbTreeView, componentsTreeView, context);
 
 	function isDripnoteDocument(doc) {
@@ -359,6 +402,24 @@ async function activate(context) {
 	registerGithubBackupCommands(context, state, {
 		refreshUi,
 		refreshProjectView: refreshProjectViewIfShown
+	});
+	registerProjectShareCommands(context, state, { refreshProjectView: refreshProjectViewIfShown });
+	try {
+		const { setPresenceChangeListener } = require('../peer/projectLanSync');
+		setPresenceChangeListener(() => {
+			projectsTreeProvider.refreshPresence();
+		});
+	} catch {
+		/* LAN presence is optional */
+	}
+	context.subscriptions.push({
+		dispose: () => {
+			try {
+				require('../peer/projectLanSync').stopAllLanListeners();
+			} catch {
+				/* ignore */
+			}
+		}
 	});
 
 	context.subscriptions.push(
@@ -522,14 +583,25 @@ async function activate(context) {
 					? selected.uri
 					: undefined);
 			await showKbNewMenu(folderUri);
-			refreshUi();
+			refreshUiAndProjects();
+		}),
+		vscode.commands.registerCommand('drip.showProjectsNewMenu', async item => {
+			const uri = uriFromCommandArg(item);
+			const selected = projectsTreeView.selection?.[0];
+			const folderUri =
+				uri ||
+				(selected?.uri
+					? selected.uri
+					: undefined);
+			await showProjectsNewMenu(folderUri);
+			refreshUiAndProjects();
 		}),
 		vscode.commands.registerCommand(DRIP_SELECT_KB_COMMAND_ID, async () => {
 			const pickedKb = await state.pickKnowledgeBaseFolder();
 			resetStartupCheckCache();
 			await runStartupCheck(context, state);
 			ensureKnowledgeBaseWatcher();
-			refreshUi();
+			refreshUiAndProjects();
 			if (pickedKb) {
 				state.syncTagGraphCheckpointFromStorage();
 				await postTagGraphStateToAll(state);
@@ -572,7 +644,7 @@ async function activate(context) {
 		vscode.commands.registerCommand('drip.createProjectFolder', async item => {
 			try {
 				await state.createProjectFolder(uriFromCommandArg(item));
-				refreshUi();
+				refreshUiAndProjects();
 			} catch (e) {
 				const msg = e instanceof Error ? e.message : String(e);
 				void vscode.window.showErrorMessage(msg);
@@ -581,7 +653,7 @@ async function activate(context) {
 		vscode.commands.registerCommand('drip.createFeatureFolder', async item => {
 			try {
 				await state.createFeatureFolder(uriFromCommandArg(item));
-				refreshUi();
+				refreshUiAndProjects();
 			} catch (e) {
 				const msg = e instanceof Error ? e.message : String(e);
 				void vscode.window.showErrorMessage(msg);
@@ -590,7 +662,7 @@ async function activate(context) {
 		vscode.commands.registerCommand('drip.createFeatureFile', async item => {
 			try {
 				await state.createFeatureFile(uriFromCommandArg(item));
-				refreshUi();
+				refreshUiAndProjects();
 			} catch (e) {
 				const msg = e instanceof Error ? e.message : String(e);
 				void vscode.window.showErrorMessage(msg);
@@ -605,7 +677,7 @@ async function activate(context) {
 			refreshUi();
 		}),
 		vscode.commands.registerCommand('drip.refreshTree', async () => {
-			refreshUi();
+			refreshUiAndProjects();
 		}),
 		vscode.commands.registerCommand(DRIP_OPEN_TODAY_DAILY_NOTE_COMMAND_ID, async () => {
 			const kbRoot = state.getKnowledgeBaseRoot();
@@ -632,23 +704,27 @@ async function activate(context) {
 		}),
 		vscode.commands.registerCommand('drip.renameItem', async item => {
 			await state.renameItem(item);
-			refreshUi();
+			refreshUiAndProjects();
 		}),
 		vscode.commands.registerCommand('drip.convertFolderToFeature', async item => {
 			await state.convertFolderToFeature(item);
-			refreshUi();
+			refreshUiAndProjects();
 		}),
 		vscode.commands.registerCommand('drip.deleteProject', async item => {
 			await state.deleteProject(item);
-			refreshUi();
+			refreshUiAndProjects();
+			const settings = getOpenSettingsPanel();
+			if (settings) {
+				await postDripSettingsValuesToWebview(settings.webview, state, context);
+			}
 		}),
 		vscode.commands.registerCommand('drip.deleteFeature', async item => {
 			await state.deleteFeature(item);
-			refreshUi();
+			refreshUiAndProjects();
 		}),
 		vscode.commands.registerCommand('drip.deleteItem', async item => {
 			await state.deleteItem(item);
-			refreshUi();
+			refreshUiAndProjects();
 		}),
 		vscode.commands.registerCommand('drip.createIndexHere', async () => {
 			const kbRoot = await state.ensureKnowledgeBaseRoot();
@@ -720,4 +796,21 @@ async function activate(context) {
 	ensureKnowledgeBaseWatcher();
 }
 
-module.exports = { activate };
+async function deactivate() {
+	try {
+		await require('../peer/projectRecord').flushPendingIssueUpdates();
+		await require('../peer/projectRecord').flushPendingHeadingUpdates();
+	} catch {
+		/* window is closing */
+	}
+	try {
+		await Promise.race([
+			require('../peer/projectMailbox').pushAllProjectMailboxesOnExit(),
+			new Promise((_, reject) => setTimeout(() => reject(new Error('mailbox push timed out')), 12000))
+		]);
+	} catch (err) {
+		console.error('[DRIP] mailbox push on exit', err);
+	}
+}
+
+module.exports = { activate, deactivate };

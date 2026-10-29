@@ -256,7 +256,7 @@ async function createNewNote(kbRoot, title, noteText, context) {
 		uri = vscode.Uri.joinPath(kbRoot, name);
 		n += 1;
 	}
-	const entity = await allocateNextEntityNumber(kbRoot);
+	const entity = await allocateNextEntityNumber(kbRoot, uri);
 	const text = buildNewNoteFile(
 		{ title: safeTitle, content: noteText, metadataFilename: safeTitle },
 		{ fileEntityNumber: entity }

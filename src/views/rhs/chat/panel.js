@@ -3,7 +3,7 @@
 const vscode = require('vscode');
 const { getDripChatHtml } = require('./chatHtml');
 const { runQuickCapture } = require('../../../capture/captureEngine');
-const { getLlmConfig, getLlmApiKey } = require('../../../llm/llmSettings');
+const { getLlmConfig, getLlmApiKey, onLlmSettingsChanged } = require('../../../llm/llmSettings');
 const { openChatMemoryFile, readChatMemoryItems, saveChatMemoryText } = require('../../../llm/chatMemory');
 const { DRIP_CHAT_VIEW_ID } = require('../../../shared/constants');
 
@@ -37,6 +37,22 @@ class DripChatWebviewProvider {
 		this.lastExchange = null;
 		/** Text waiting to be appended to the input once the view is ready. */
 		this.pendingInsert = '';
+		/** Re-read LLM config whenever profiles/enabled/key change so the view never keeps a stale "off" state. */
+		this._llmSettingsListener = onLlmSettingsChanged(() => this.refreshConfig());
+	}
+
+	/**
+	 * Re-post the current LLM config to the view if it is alive. Fires on LLM
+	 * settings changes and when the view becomes visible again.
+	 */
+	refreshConfig() {
+		if (!this.view) return;
+		void this.postConfig(this.view.webview);
+	}
+
+	/** Clean up the settings listener when the provider is disposed. */
+	dispose() {
+		this._llmSettingsListener.dispose();
 	}
 
 	/** Reveal the chat view in the RHS (used by the focus command / keybinding). */
@@ -73,6 +89,11 @@ class DripChatWebviewProvider {
 		w.html = getDripChatHtml(w);
 		webviewView.onDidDispose(() => {
 			if (this.view === webviewView) this.view = undefined;
+		});
+		// Re-check config when the view is shown again (the webview is retained,
+		// so its script does not reload and re-request config on its own).
+		webviewView.onDidChangeVisibility(() => {
+			if (webviewView.visible) this.refreshConfig();
 		});
 		w.onDidReceiveMessage(message => {
 			void this.onMessage(w, message);

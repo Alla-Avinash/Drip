@@ -25,6 +25,9 @@
 		"onCommand:drip.captureSelectionToComposer",
 		"onCommand:drip.selectKnowledgeBase",
 		"onCommand:drip.openDripSettingsView",
+		"onCommand:drip.projectShare.manage",
+		"onCommand:drip.joinProject",
+		"onView:drip.projects",
 		"onCommand:drip.github.pushBackup",
 		"onCommand:drip.github.pullBackup",
 		"onCommand:drip.github.initRepo",
@@ -88,6 +91,12 @@
 					"icon": "$(extensions)",
 					"visibility": "visible",
 					"initialSize": 5
+				},
+				{
+					"id": "drip.projects",
+					"name": "Projects",
+					"icon": "$(folder-library)",
+					"visibility": "visible"
 				},
 				{
 					"id": "drip.knowledgeBase",
@@ -203,6 +212,26 @@
 				"icon": "$(gear)"
 			},
 			{
+				"command": "drip.projectShare.manage",
+				"title": "Project sharing settings",
+				"category": "DRIP"
+			},
+			{
+				"command": "drip.peer.setDisplayName",
+				"title": "Set my display name",
+				"category": "DRIP"
+			},
+			{
+				"command": "drip.peer.exportIdentity",
+				"title": "Export my identity file",
+				"category": "DRIP"
+			},
+			{
+				"command": "drip.peer.importIdentity",
+				"title": "Import my identity file",
+				"category": "DRIP"
+			},
+			{
 				"command": "drip.github.configureRemote",
 				"title": "Configure GitHub backup remote",
 				"category": "DRIP"
@@ -303,6 +332,30 @@
 				"title": "New",
 				"category": "DRIP",
 				"icon": "$(add)"
+			},
+			{
+				"command": "drip.showProjectsNewMenu",
+				"title": "New",
+				"category": "DRIP",
+				"icon": "$(add)"
+			},
+			{
+				"command": "drip.joinProject",
+				"title": "Join new Project",
+				"category": "DRIP",
+				"icon": "$(link)"
+			},
+			{
+				"command": "drip.importProject",
+				"title": "Import project",
+				"category": "DRIP",
+				"icon": "$(cloud-download)"
+			},
+			{
+				"command": "drip.exportProject",
+				"title": "Export this project",
+				"category": "DRIP",
+				"icon": "$(cloud-upload)"
 			},
 			{
 				"command": "drip.ignorePath",
@@ -888,6 +941,10 @@
 			{
 				"id": "drip.kb.new",
 				"label": "New"
+			},
+			{
+				"id": "drip.projects.new",
+				"label": "New"
 			}
 		],
 		"menus": {
@@ -896,6 +953,21 @@
 					"command": "drip.openDripSettingsView",
 					"when": "view == drip.components",
 					"group": "navigation@99"
+				},
+				{
+					"command": "drip.showProjectsNewMenu",
+					"when": "view == drip.projects",
+					"group": "navigation@1"
+				},
+				{
+					"command": "drip.joinProject",
+					"when": "view == drip.projects",
+					"group": "navigation@2"
+				},
+				{
+					"command": "drip.refreshTree",
+					"when": "view == drip.projects",
+					"group": "navigation@4"
 				},
 				{
 					"command": "drip.showKbNewMenu",
@@ -961,10 +1033,6 @@
 					"group": "1@1"
 				},
 				{
-					"command": "drip.createProjectFolder",
-					"group": "1@2"
-				},
-				{
 					"command": "drip.createFeatureFolder",
 					"group": "1@3"
 				},
@@ -975,6 +1043,32 @@
 				{
 					"command": "drip.createNoteFile",
 					"group": "1@5"
+				}
+			],
+			"drip.projects.new": [
+				{
+					"command": "drip.createProjectFolder",
+					"group": "1@1"
+				},
+				{
+					"command": "drip.joinProject",
+					"group": "1@2"
+				},
+				{
+					"command": "drip.importProject",
+					"group": "1@3"
+				},
+				{
+					"command": "drip.createFeatureFolder",
+					"group": "1@4"
+				},
+				{
+					"command": "drip.createFeatureFile",
+					"group": "1@5"
+				},
+				{
+					"command": "drip.createNoteFile",
+					"group": "1@6"
 				}
 			],
 			"editor/context": [
@@ -988,6 +1082,11 @@
 				{
 					"submenu": "drip.kb.new",
 					"when": "view == drip.knowledgeBase",
+					"group": "0_new@1"
+				},
+				{
+					"submenu": "drip.projects.new",
+					"when": "view == drip.projects",
 					"group": "0_new@1"
 				},
 				{
@@ -1022,42 +1121,47 @@
 				},
 				{
 					"command": "drip.copyPath",
-					"when": "view == drip.knowledgeBase && (viewItem == dripKbRoot || viewItem == dripFolder || viewItem == dripFolderInProject || viewItem == dripFolderInProjectBlocked || viewItem == dripFolderInFeature || viewItem == dripProjectFolder || viewItem == dripFeatureFolder || viewItem == dripNoteFile || viewItem == dripNoteFileInProject || viewItem == dripNoteFileInFeature || viewItem == dripFolderIndexNote || viewItem == dripFeatureFile || viewItem == dripIgnoreFile || viewItem == dripImageFile)",
+					"when": "(view == drip.knowledgeBase || view == drip.projects) && (viewItem == dripKbRoot || viewItem == dripFolder || viewItem == dripFolderInProject || viewItem == dripFolderInProjectBlocked || viewItem == dripFolderInFeature || viewItem == dripProjectFolder || viewItem == dripFeatureFolder || viewItem == dripNoteFile || viewItem == dripNoteFileInProject || viewItem == dripNoteFileInFeature || viewItem == dripFolderIndexNote || viewItem == dripFeatureFile || viewItem == dripIgnoreFile || viewItem == dripImageFile)",
 					"group": "dripPath@1"
 				},
 				{
 					"command": "drip.renameItem",
-					"when": "view == drip.knowledgeBase && (viewItem == dripFolder || viewItem == dripFolderInProject || viewItem == dripFolderInProjectBlocked || viewItem == dripFolderInFeature || viewItem == dripProjectFolder || viewItem == dripFeatureFolder || viewItem == dripNoteFile || viewItem == dripNoteFileInProject || viewItem == dripNoteFileInFeature || viewItem == dripFeatureFile || viewItem == dripIgnoreFile || viewItem == dripImageFile)",
+					"when": "(view == drip.knowledgeBase || view == drip.projects) && (viewItem == dripFolder || viewItem == dripFolderInProject || viewItem == dripFolderInProjectBlocked || viewItem == dripFolderInFeature || viewItem == dripProjectFolder || viewItem == dripFeatureFolder || viewItem == dripNoteFile || viewItem == dripNoteFileInProject || viewItem == dripNoteFileInFeature || viewItem == dripFeatureFile || viewItem == dripIgnoreFile || viewItem == dripImageFile)",
 					"group": "dripPath@2"
 				},
 				{
+					"command": "drip.exportProject",
+					"when": "view == drip.projects && viewItem == dripProjectFolder",
+					"group": "dripProject@0"
+				},
+				{
 					"command": "drip.deleteProject",
-					"when": "view == drip.knowledgeBase && viewItem == dripProjectFolder",
+					"when": "(view == drip.knowledgeBase || view == drip.projects) && viewItem == dripProjectFolder",
 					"group": "dripProject@1"
 				},
 				{
 					"command": "drip.convertFolderToFeature",
-					"when": "view == drip.knowledgeBase && viewItem == dripFolderInProject",
+					"when": "(view == drip.knowledgeBase || view == drip.projects) && viewItem == dripFolderInProject",
 					"group": "dripFeature@1"
 				},
 				{
 					"command": "drip.deleteFeature",
-					"when": "view == drip.knowledgeBase && viewItem == dripFeatureFolder",
+					"when": "(view == drip.knowledgeBase || view == drip.projects) && viewItem == dripFeatureFolder",
 					"group": "dripFeature@2"
 				},
 				{
 					"command": "drip.ignorePath",
-					"when": "view == drip.knowledgeBase && (viewItem == dripFolder || viewItem == dripFolderInProject || viewItem == dripFolderInProjectBlocked || viewItem == dripFolderInFeature || viewItem == dripProjectFolder || viewItem == dripFeatureFolder || viewItem == dripNoteFile || viewItem == dripNoteFileInProject || viewItem == dripNoteFileInFeature || viewItem == dripFeatureFile || viewItem == dripIgnoreFile || viewItem == dripImageFile)",
+					"when": "(view == drip.knowledgeBase || view == drip.projects) && (viewItem == dripFolder || viewItem == dripFolderInProject || viewItem == dripFolderInProjectBlocked || viewItem == dripFolderInFeature || viewItem == dripProjectFolder || viewItem == dripFeatureFolder || viewItem == dripNoteFile || viewItem == dripNoteFileInProject || viewItem == dripNoteFileInFeature || viewItem == dripFeatureFile || viewItem == dripIgnoreFile || viewItem == dripImageFile)",
 					"group": "dripIgnore@1"
 				},
 				{
 					"command": "drip.deleteItem",
-					"when": "view == drip.knowledgeBase && (viewItem == dripFolder || viewItem == dripFolderInProject || viewItem == dripFolderInProjectBlocked || viewItem == dripFolderInFeature || viewItem == dripNoteFile || viewItem == dripNoteFileInProject || viewItem == dripNoteFileInFeature || viewItem == dripFeatureFile || viewItem == dripIgnoreFile || viewItem == dripImageFile)",
+					"when": "(view == drip.knowledgeBase || view == drip.projects) && (viewItem == dripFolder || viewItem == dripFolderInProject || viewItem == dripFolderInProjectBlocked || viewItem == dripFolderInFeature || viewItem == dripNoteFile || viewItem == dripNoteFileInProject || viewItem == dripNoteFileInFeature || viewItem == dripFeatureFile || viewItem == dripIgnoreFile || viewItem == dripImageFile)",
 					"group": "dripDelete@1"
 				},
 				{
 					"command": "drip.updateIndexScope",
-					"when": "view == drip.knowledgeBase && (viewItem == dripFolder || viewItem == dripFolderInProject || viewItem == dripFolderInProjectBlocked || viewItem == dripFolderInFeature || viewItem == dripProjectFolder || viewItem == dripFeatureFolder || viewItem == dripNoteFile || viewItem == dripNoteFileInProject || viewItem == dripNoteFileInFeature || viewItem == dripFeatureFile) && drip.startupCheckComplete",
+					"when": "(view == drip.knowledgeBase || view == drip.projects) && (viewItem == dripFolder || viewItem == dripFolderInProject || viewItem == dripFolderInProjectBlocked || viewItem == dripFolderInFeature || viewItem == dripProjectFolder || viewItem == dripFeatureFolder || viewItem == dripNoteFile || viewItem == dripNoteFileInProject || viewItem == dripNoteFileInFeature || viewItem == dripFeatureFile) && drip.startupCheckComplete",
 					"group": "dripIndex@1"
 				},
 				{
@@ -1217,6 +1321,8 @@
 	"scripts": {
 		"compile-web": "tsgo --project ./tsconfig.json --noEmit",
 		"build:webview": "node scripts/build-webview.mjs",
+		"launch:peer-b": "node scripts/launch-peer-b.mjs",
+		"selftest:peer-sync": "node --test src/peer/_selftest/peerSync.selftest.js",
 		"lint": "eslint .",
 		"bench:embeddings": "node benchmarks/run.js",
 		"bench:embeddings:real": "node benchmarks/run.js --real",
@@ -1241,6 +1347,7 @@
 		"@codemirror/state": "^6.7.6",
 		"@codemirror/view": "^6.43.14",
 		"@xenova/transformers": "^2.17.2",
-		"better-sqlite3": "^13.0.3"
+		"better-sqlite3": "^13.0.3",
+		"mqtt": "^5.16.1"
 	}
 }

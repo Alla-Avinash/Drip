@@ -1,13 +1,38 @@
 {
-  "version": "0.2.0",
-  "configurations": [
-    {
-      "name": "Run Extension (DRIP)",
-      "type": "extensionHost",
-      "request": "launch",
-      "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
-      "outFiles": [],
-      "preLaunchTask": "build-webview"
-    }
-  ]
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "Run Extension (DRIP)",
+			"type": "extensionHost",
+			"request": "launch",
+			"args": ["--extensionDevelopmentPath=${workspaceFolder}"],
+			"outFiles": [],
+			"preLaunchTask": "build-webview"
+		},
+		{
+			"name": "Run Extension (DRIP) — Peer B (isolated)",
+			"type": "node",
+			"request": "launch",
+			"runtimeExecutable": "node",
+			"args": ["${workspaceFolder}/scripts/launch-peer-b.mjs"],
+			"cwd": "${workspaceFolder}",
+			"console": "internalConsole",
+			"internalConsoleOptions": "openOnSessionStart",
+			"autoAttachChildProcesses": false,
+			"preLaunchTask": "build-webview",
+			"env": {
+				"NODE_OPTIONS": ""
+			}
+		}
+	],
+	"compounds": [
+		{
+			"name": "Run Extension (DRIP) — two peers",
+			"configurations": [
+				"Run Extension (DRIP)",
+				"Run Extension (DRIP) — Peer B (isolated)"
+			],
+			"stopAll": false
+		}
+	]
 }

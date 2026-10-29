@@ -38,6 +38,12 @@ const {
 const { enqueueHeadingEmbeddingUpserts } = require('../../embeddings/headingEmbeddingSync');
 const { enqueueFolderEmbeddingsForNotePath } = require('../../embeddings/folderEmbeddingSync');
 const { resolveFileIdOwnership, MODE_EXISTING } = require('../dripTxt/dripTxtReconcileUpdate.js');
+const { classifyNoteZone } = require('../../projectIndex');
+const {
+	isNoteInProject,
+	isSharedProjectNote,
+	headingAllocScopeForNote
+} = require('../../../document/project/projectFileIds');
 const { computeIndexPersistenceSignature } = require('../dripTxt/dripTxtDocumentWatch.js');
 const { propagateFileIdDrift } = require('../../dripTxt/dripTxtFileIdMigration.js');
 const {
@@ -266,13 +272,15 @@ async function persistDripMdNote(kbRootUri, noteUri, text, fileId, mode, context
 	}
 
 	const embeddingUpserts = [];
-	if (mode === MODE_EXISTING) {
-		await applyParsedNoteToIndex(kbRootUri, relPath, parsed, context, {
+	const zone = classifyNoteZone(relPath);
+	let persistedId = fileId;
+	if (mode === MODE_EXISTING || zone === 'project') {
+		persistedId = await applyParsedNoteToIndex(kbRootUri, relPath, parsed, context, {
 			incremental: true,
 			embeddingUpserts
 		});
 	} else {
-		await replaceParsedNoteAtFileId(kbRootUri, fileId, parsed, context, { embeddingUpserts });
+		persistedId = await replaceParsedNoteAtFileId(kbRootUri, fileId, parsed, context, { embeddingUpserts });
 	}
 	enqueueHeadingEmbeddingUpserts(kbRootUri, embeddingUpserts);
 	enqueueFolderEmbeddingsForNotePath(kbRootUri, relPath);
@@ -280,7 +288,12 @@ async function persistDripMdNote(kbRootUri, noteUri, text, fileId, mode, context
 	const usedIds = (parsed.headings || [])
 		.map(h => Number(h.heading_id))
 		.filter(n => Number.isFinite(n) && n > 0);
-	await syncFileHeadingAllocatorFromUsedIds(kbRootUri, fileId, usedIds);
+	await syncFileHeadingAllocatorFromUsedIds(
+		kbRootUri,
+		fileId,
+		usedIds,
+		headingAllocScopeForNote(kbRootUri, noteUri)
+	);
 }
 
 /**
@@ -306,6 +319,11 @@ async function syncDripMdNote(kbRootUri, noteUri, context, options = {}) {
 	const ownership = await resolveFileIdOwnership(kbRootUri, noteUri, claimedFileId);
 	const { fileId, fileEntityId, mode } = ownership;
 
+	if (await isSharedProjectNote(kbRootUri, noteUri)) {
+		await persistDripMdNote(kbRootUri, noteUri, normalized, fileId, MODE_EXISTING, context, lastSigByUri);
+		return { text: normalized, changed: false, fileId, fileEntityId, mode };
+	}
+
 	const walked = walkDripMdNoteHeadings(lines);
 	const idByLine = await resolveDripMdHeadingIds(kbRootUri, fileId, walked);
 	const nextText = rebuildDripMdNoteText(normalized, fileStem, fileEntityId, walked, idByLine);
@@ -320,7 +338,7 @@ async function syncDripMdNote(kbRootUri, noteUri, context, options = {}) {
 
 	await persistDripMdNote(kbRootUri, noteUri, nextText, fileId, mode, context, lastSigByUri);
 
-	if (claimedFileId != null && claimedFileId !== fileId) {
+	if (claimedFileId != null && claimedFileId !== fileId && !isNoteInProject(kbRootUri, noteUri)) {
 		await propagateFileIdDrift(context, kbRootUri, noteUri, {
 			oldId: formatFileEntityId(claimedFileId),
 			newId: fileEntityId,
@@ -375,6 +393,16 @@ function registerDripMdNoteIndexSync(context, state) {
 				// Only write straight to disk when the tab is already closed (close flush).
 				writeToDisk: doc.isClosed
 			});
+			if (!doc.isClosed) {
+				try {
+					require('../../../peer/projectHandEdit').seedHandEditBaseline(doc.uri, text);
+				} catch {
+					/* baseline is optional until the first save */
+				}
+				await require('../../../peer/projectHandEdit')
+					.synthesizeHandEditsOnSave(kbRoot, doc.uri, text)
+					.catch(err => console.error('[DRIP] shared-project .d.md save', err));
+			}
 		} catch (err) {
 			console.error('[DRIP] .d.md note sync failed', doc.uri.fsPath, err);
 		} finally {

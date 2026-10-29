@@ -24,7 +24,9 @@ const { getMetadataSettingsForIndex, matchHeadingTitleTypePrefix, HEADING_SPECIA
 
 const HEADING_RE = /^\s*#\d*\s+/;
 const SHORTHAND_TAGS_RE = /^\s*\[([^\]]*)\]\s*$/;
-const FILE_IDENTITY_RE = /^\s*(filename|created|random|fileid|headings)\s*:\s*(.+)$/i;
+const FILE_IDENTITY_RE = /^\s*(filename|created|random|fileid|fileuid|headings)\s*:\s*(.+)$/i;
+/** Always colored as metadata so a hidden id cannot end the typed block. */
+const ALWAYS_TYPED_KEYS = new Set(['status', 'deadline', 'completed', 'priority', 'parent', 'feature', 'team', 'uid']);
 const COMMENT_RE = /^\s*\/\//;
 
 function push(tokens, line, start, length, role, bold) {
@@ -55,7 +57,7 @@ function getCustomTypeMarkers() {
 }
 
 function getTypedFieldKeys() {
-	const out = new Set(['status', 'deadline', 'priority']);
+	const out = new Set(ALWAYS_TYPED_KEYS);
 	const meta = getMetadataSettingsForIndex();
 	for (const t of meta.types || []) {
 		const attrs = t && t.attributes && typeof t.attributes === 'object' ? t.attributes : {};

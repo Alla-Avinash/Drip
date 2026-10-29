@@ -142,6 +142,7 @@ async function bindKnowledgeBaseRoot(context, kbRootUri) {
 	await ensureDripIndexSkeleton(kbRootUri);
 	await loadKbSidecar(context, kbRootUri);
 	await ensureKbEditorNote(kbRootUri, context);
+	await require('./projectsDrip').ensureProjectsHome(kbRootUri);
 	return kbRootUri;
 }
 

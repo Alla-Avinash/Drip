@@ -77,11 +77,25 @@ async function applyHeadingFormModel(editor, model) {
 	/** @type {Record<string, unknown>} */
 	let attributes = model.attributes && typeof model.attributes === 'object' ? { ...model.attributes } : {};
 	if (typeId === 'issue') {
+		const zoneUid = String((zone.attributes && zone.attributes.uid) || '').trim();
+		const modelUid = String(attributes.uid || '').trim();
+		if (zoneUid) attributes.uid = zoneUid;
+		else if (modelUid) attributes.uid = modelUid;
 		try {
 			const { ensureIssueParentAttribute } = require('../../../document/project/issueParentLink');
 			attributes = ensureIssueParentAttribute(attributes, doc.getText(), zone.headingLine);
 		} catch (err) {
 			console.error('[DRIP] stamp issue parent on apply', err);
+		}
+		try {
+			const { withCompletedStamp } = require('../../../document/project/issueCompletedStamp');
+			const existing = {};
+			for (const [k, v] of Object.entries(zone.attributes || {})) {
+				existing[String(k).toLowerCase()] = String(v == null ? '' : v);
+			}
+			attributes = withCompletedStamp(existing, attributes);
+		} catch (err) {
+			console.error('[DRIP] stamp issue completed on apply', err);
 		}
 	}
 
@@ -192,6 +206,31 @@ async function applyHeadingFormModel(editor, model) {
 	});
 }
 
+async function refuseHeadingFormByRole(model, editor) {
+	try {
+		const { getHeadingFormKbRoot } = require('./headingFormKb');
+		const kbRoot = getHeadingFormKbRoot();
+		if (!kbRoot || !editor) return false;
+		const {
+			projectFolderPrefixForPath,
+			readProjectRecord,
+			projectFolderUriFromPrefix
+		} = require('../../../peer/projectSidecar');
+		const prefix = projectFolderPrefixForPath(kbRoot.fsPath, editor.document.uri.fsPath);
+		if (!prefix) return false;
+		const rec = await readProjectRecord(projectFolderUriFromPrefix(kbRoot, prefix));
+		if (!rec || !rec.shared) return false;
+		const me = await require('../../../peer/peerIdentity').ensurePeerIdentity();
+		const { hasCap, CAPS } = require('../../../peer/projectRoles');
+		if (hasCap(rec, me.peerId, CAPS.ISSUE_EDIT)) return false;
+		if (hasCap(rec, me.peerId, CAPS.ISSUE_STATUS)) return false;
+		void vscode.window.showWarningMessage('Your role cannot change this heading.');
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 /**
  * @param {any} model
  */
@@ -213,6 +252,8 @@ async function applyHeadingFormModelFromMessage(model) {
 		}
 	}
 	if (!editor) return;
+
+	if (await refuseHeadingFormByRole(model, editor)) return;
 
 	const next = { ...(model || {}) };
 	const typeId = next.typeId ? String(next.typeId).trim().toLowerCase() : '';
@@ -253,6 +294,19 @@ async function applyHeadingFormModelFromMessage(model) {
 		}
 	}
 	await applyHeadingFormModel(editor, next);
+	try {
+		const { getHeadingFormKbRoot } = require('./headingFormKb');
+		const kbRoot = getHeadingFormKbRoot();
+		if (kbRoot) {
+			await require('../../../peer/projectHandEdit').synthesizeHandEditsOnSave(
+				kbRoot,
+				editor.document.uri,
+				editor.document.getText()
+			);
+		}
+	} catch (err) {
+		console.error('[DRIP] record heading-form edit', err);
+	}
 }
 
 module.exports = {

@@ -138,6 +138,21 @@ CREATE INDEX IF NOT EXISTS idx_issue_sort ON issue_metadata(deadline, priority);
 CREATE INDEX IF NOT EXISTS idx_issue_parent_key ON issue_metadata(parent_issue_key);
 CREATE INDEX IF NOT EXISTS idx_issue_project ON issue_metadata(project_id);
 
+-- Issue → team assignment. Keyed by the issue number (issue_key = i-N) instead of
+-- the issue's file/heading location, so a project's teams live in one clean,
+-- separable table. Deleting a project's rows (e.g. on convert-to-solo) leaves no
+-- team data behind in the generic EAV store. "team" is the team name, matching
+-- project.json teams[].name.
+CREATE TABLE IF NOT EXISTS issue_teams (
+	project_id INTEGER NOT NULL,
+	issue_key TEXT NOT NULL,
+	team TEXT NOT NULL,
+	PRIMARY KEY (project_id, issue_key),
+	FOREIGN KEY (project_id, issue_key) REFERENCES issue_metadata(project_id, issue_key) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_issue_teams_team ON issue_teams(team);
+
 -- Canonical Project View concept store. concept_key = c-N's number (per project,
 -- integer starting at 1). Concepts live in the project's _concepts folder, outside
 -- any feature, so there is no feature_id column here.

@@ -88,6 +88,14 @@ async function reconcileNoteHeadingIdentitiesOnDisk(kbRootUri, noteUri, _context
 		text = await readTextFile(noteUri);
 	}
 	const normalized = String(text).replace(/\r\n/g, '\n');
+	try {
+		const { isSharedProjectNote } = require('../../document/project/projectFileIds');
+		if (await isSharedProjectNote(kbRootUri, noteUri)) {
+			return { changed: false, text: normalized };
+		}
+	} catch {
+		/* keep the full repair if the shared check fails */
+	}
 	const pool = buildHeadingIdPoolFromText(normalized);
 	const result = await reconcileHeadingIdentitiesForKbNote(kbRootUri, normalized, {
 		noteUri,

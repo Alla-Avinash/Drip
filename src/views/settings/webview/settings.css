@@ -93,3 +93,57 @@ body { font-family: var(--vscode-font-family); margin: 0; color: var(--vscode-fo
 		.tour-dots { display: flex; gap: 6px; justify-content: center; margin-top: 16px; }
 		.tour-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--vscode-panel-border); }
 		.tour-dot.active { background: var(--vscode-focusBorder); }
+
+		/* Teams & people (Project Sharing) */
+		.team-create { display: flex; gap: 8px; align-items: center; margin: 10px 0 14px; }
+		.team-create input { flex: 1; }
+		.team-create button { margin-top: 0; white-space: nowrap; }
+		.team-list { display: flex; flex-direction: column; gap: 8px; }
+		.team-row { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--vscode-panel-border); border-radius: 8px; background: var(--vscode-input-background); }
+		.team-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+		.team-name { display: flex; align-items: center; gap: 10px; min-width: 0; }
+		.team-badge { width: 32px; height: 32px; flex-shrink: 0; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+		.team-text { min-width: 0; }
+		.team-title { font-weight: 600; }
+		.team-sub { color: var(--vscode-descriptionForeground); font-size: 11px; margin-top: 1px; }
+		.team-controls { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+		.team-controls button { margin-top: 0; padding: 5px 10px; }
+		.team-lead { display: flex; align-items: center; gap: 6px; color: var(--vscode-descriptionForeground); font-size: 12px; cursor: default; }
+		.team-lead select { width: auto; min-width: 130px; }
+		.team-names { color: var(--vscode-descriptionForeground); font-size: 12px; flex-shrink: 1; text-align: right; }
+		.team-members { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+		.team-members .empty { color: var(--vscode-descriptionForeground); font-size: 12px; }
+
+		.people-list { display: flex; flex-direction: column; gap: 8px; }
+		.person-row { padding: 12px; border: 1px solid var(--vscode-panel-border); border-radius: 8px; background: var(--vscode-input-background); }
+		.person-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+		.person-id { display: flex; align-items: center; gap: 10px; min-width: 0; }
+		.person-avatar { width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+		.person-name { min-width: 0; }
+		.p-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+		.p-title .n { font-weight: 600; }
+		.person-sub { color: var(--vscode-descriptionForeground); font-size: 11px; margin-top: 2px; }
+		.presence-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+		.presence-dot.online { background: var(--vscode-testing-iconPassed, #3fb950); }
+		.presence-dot.offline { background: var(--vscode-descriptionForeground); opacity: 0.5; }
+		.badge { font-size: 10px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--vscode-panel-border); color: var(--vscode-descriptionForeground); }
+		.role-select { width: auto; min-width: 130px; flex-shrink: 0; }
+		.person-teams { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+		.person-teams .teams-label { color: var(--vscode-descriptionForeground); font-size: 11px; margin-right: 2px; }
+
+		/* member / team chips with a remove "×" */
+		.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 6px 3px 10px; border-radius: 14px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); font-size: 12px; border: 1px solid transparent; }
+		.chip .chip-avatar { width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; background: rgba(128,128,128,0.3); flex-shrink: 0; }
+		.chip-x { margin: 0; padding: 0; width: 16px; height: 16px; line-height: 1; font-size: 14px; border: none; background: transparent; color: inherit; opacity: 0.65; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; }
+		.chip-x:hover { opacity: 1; background: rgba(128,128,128,0.3); }
+		.add-btn { margin: 0; width: 24px; height: 24px; padding: 0; line-height: 1; font-size: 15px; border-radius: 50%; border: 1px dashed var(--vscode-panel-border); background: transparent; color: var(--vscode-foreground); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+		.add-btn:hover { background: var(--vscode-list-hoverBackground); border-style: solid; }
+
+		/* searchable add picker */
+		.picker-popover { position: fixed; z-index: 1001; width: 240px; background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-panel-border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); padding: 6px; }
+		.picker-search { margin: 0 0 6px; }
+		.picker-list { max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+		.picker-item { margin: 0; width: 100%; text-align: left; padding: 6px 8px; border-radius: 5px; background: transparent; color: var(--vscode-foreground); border: none; font-size: 12px; }
+		.picker-item:hover { background: var(--vscode-list-hoverBackground); }
+		.picker-sub { color: var(--vscode-descriptionForeground); font-size: 11px; }
+		.picker-empty { color: var(--vscode-descriptionForeground); font-size: 12px; padding: 6px 8px; }

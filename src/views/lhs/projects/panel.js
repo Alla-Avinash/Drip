@@ -66,7 +66,8 @@ function buildFilterSchemaForWebview() {
 				{ id: 'status', label: 'Status', kind: 'enum', values: enumValuesFor(issueType, 'status') },
 				{ id: 'priority', label: 'Priority', kind: 'enum', values: enumValuesFor(issueType, 'priority') },
 				{ id: 'deadline', label: 'Deadline', kind: 'datetime' },
-				{ id: 'category', label: 'Category', kind: 'enum', values: enumValuesFor(issueType, 'category') }
+				{ id: 'category', label: 'Category', kind: 'enum', values: enumValuesFor(issueType, 'category') },
+				{ id: 'team', label: 'Team', kind: 'enum', values: [] }
 			]
 		}
 	};
@@ -204,13 +205,36 @@ class DripProjectViewPanel {
 					case 'openFeatureOverview':
 						await this.openFeatureOverview(message);
 						break;
+					case 'joinProject':
+						await vscode.commands.executeCommand('drip.joinProject');
+						break;
 					case 'openProjectSettings':
+					case 'openProjectShare': {
+						const prefix = String(message.folderPrefix || this._selectedPrefix || '');
+						const title = String(message.title || '');
+						const pick = await vscode.window.showQuickPick(
+							[
+								{
+									label: 'Project metadata',
+									description: 'Status, priority, and category for this project',
+									panel: 'project-types'
+								},
+								{
+									label: 'Share settings',
+									description: 'Invite people and keep this project in sync',
+									panel: 'project-sharing'
+								}
+							],
+							{ placeHolder: title || 'Project settings' }
+						);
+						if (!pick) break;
 						await vscode.commands.executeCommand('drip.openDripSettingsView', {
-							panel: 'project-types',
-							projectKey: String(message.folderPrefix || this._selectedPrefix || ''),
-							projectTitle: String(message.title || '')
+							panel: pick.panel,
+							projectKey: prefix,
+							projectTitle: title
 						});
 						break;
+					}
 					case 'requestProjectTags':
 						await this.sendProjectTags(String(message.folderPrefix || this._selectedPrefix || ''));
 						break;
@@ -225,6 +249,18 @@ class DripProjectViewPanel {
 						break;
 					case 'deleteProjectTag':
 						await this.mutateProjectTags('delete', message);
+						break;
+					case 'loadChatOverview':
+						await this.loadChatOverview(message);
+						break;
+					case 'openChatRoom':
+						await this.openChatRoom(message);
+						break;
+					case 'sendChat':
+						await this.sendChat(message);
+						break;
+					case 'clearChat':
+						await this.clearChat(message);
 						break;
 					default:
 						break;
@@ -297,11 +333,19 @@ class DripProjectViewPanel {
 		} catch {
 			/* ignore */
 		}
+		let share = { shared: false, status: 'solo', members: [], role: '', notices: [] };
+		try {
+			const { shareStateForWebview } = require('../../../peer/projectShareCommands');
+			share = await shareStateForWebview(kbRoot, folderPrefix);
+		} catch {
+			/* sharing is optional */
+		}
 		await this.panel.webview.postMessage({
 			type: 'projectDetail',
 			folderPrefix,
 			features: data.features,
-			issues: data.issues
+			issues: data.issues,
+			share
 		});
 	}
 
@@ -322,10 +366,21 @@ class DripProjectViewPanel {
 			void vscode.window.showWarningMessage('Enter an issue title in the Project View form.');
 			return;
 		}
+		const rec = await require('../../../peer/projectSidecar').readProjectRecord(folderUri);
+		if (rec && rec.shared) {
+			const me = await require('../../../peer/peerIdentity').ensurePeerIdentity();
+			const { hasCap, CAPS } = require('../../../peer/projectRoles');
+			if (!hasCap(rec, me.peerId, CAPS.ISSUE_CREATE)) {
+				void vscode.window.showWarningMessage('Your role cannot create issues.');
+				return;
+			}
+		}
 		const { createIssueInProjectInbox } = require('../../../document/project/projectIssuesMailbox');
 		const result = await createIssueInProjectInbox(kbRoot, folderUri, {
 			title,
 			parentIssueId: message.parentIssueId || null,
+			team: String(message.team || ''),
+			attributes: message.team ? { team: String(message.team) } : {},
 			context: this.context
 		});
 		void vscode.window.setStatusBarMessage(`Created ${result.issueId}`, 2500);
@@ -342,6 +397,23 @@ class DripProjectViewPanel {
 		const prefix = String(message.folderPrefix || this._selectedPrefix || '');
 		const issueId = String(message.issueId || '');
 		if (!kbRoot || !prefix || !issueId) return;
+		try {
+			const folderUri = vscode.Uri.joinPath(
+				kbRoot,
+				...prefix.replace(/\/+$/, '').split('/').filter(Boolean)
+			);
+			const rec = await require('../../../peer/projectSidecar').readProjectRecord(folderUri);
+			if (rec && rec.shared) {
+				const me = await require('../../../peer/peerIdentity').ensurePeerIdentity();
+				const { hasCap, CAPS } = require('../../../peer/projectRoles');
+				if (!hasCap(rec, me.peerId, CAPS.ISSUE_MOVE)) {
+					void vscode.window.showWarningMessage('Your role cannot move issues.');
+					return;
+				}
+			}
+		} catch {
+			/* role check is best-effort */
+		}
 
 		const { issues } = await listProjectChildrenFromIndex(kbRoot, prefix);
 		const issue = issues.find(
@@ -508,6 +580,182 @@ class DripProjectViewPanel {
 		}
 		await this.sendProjectTags(prefix);
 	}
+
+	async _chatContext(message) {
+		const kbRoot = this.state.getVerifiedKnowledgeBaseRoot && this.state.getVerifiedKnowledgeBaseRoot();
+		const prefix = String(message.folderPrefix || this._selectedPrefix || '');
+		if (!kbRoot || !prefix) return null;
+		const folderUri = vscode.Uri.joinPath(kbRoot, ...prefix.replace(/\/+$/, '').split('/').filter(Boolean));
+		const rec = await require('../../../peer/projectSidecar').readProjectRecord(folderUri);
+		const me = await require('../../../peer/peerIdentity').ensurePeerIdentity();
+		return { kbRoot, prefix, folderUri, rec, me };
+	}
+
+	async _postChatOverview(ctx) {
+		const { chatOverview } = require('../../../peer/projectChat');
+		const overview = await chatOverview(ctx.folderUri, ctx.rec, ctx.me.peerId, {
+			kbRootUri: ctx.kbRoot,
+			folderPrefix: ctx.prefix
+		});
+		await this.panel.webview.postMessage({ type: 'chatOverview', overview });
+	}
+
+	async refreshChatOverview() {
+		const ctx = await this._chatContext({ folderPrefix: this._selectedPrefix || '' });
+		if (!ctx || !ctx.rec || !ctx.rec.shared) return;
+		await this._postChatOverview(ctx);
+	}
+
+	/** Re-send the currently open room's messages so read ticks update live. */
+	async refreshOpenChatRoom() {
+		const active = this._activeChatRoom;
+		if (!active) return;
+		const ctx = await this._chatContext({ folderPrefix: this._selectedPrefix || '' });
+		if (!ctx || !ctx.rec || !ctx.rec.shared) return;
+		const { readRoom } = require('../../../peer/projectChat');
+		const data = await readRoom(ctx.folderUri, active.room, active.id, ctx.rec, ctx.me.peerId);
+		await this.panel.webview.postMessage({
+			type: 'chatRoom',
+			room: active.room,
+			id: active.id,
+			messages: data.messages || []
+		});
+	}
+
+	async loadChatOverview(message) {
+		const ctx = await this._chatContext(message);
+		if (!ctx || !ctx.rec || !ctx.rec.shared) return;
+		await this._postChatOverview(ctx);
+	}
+
+	async openChatRoom(message) {
+		const ctx = await this._chatContext(message);
+		if (!ctx || !ctx.rec || !ctx.rec.shared) return;
+		const room = String(message.room || 'project');
+		const id = String(message.id || '');
+		if (room === 'mentions') {
+			const { markMentionsRead } = require('../../../peer/projectChat');
+			await markMentionsRead(ctx.folderUri, ctx.rec, ctx.me.peerId);
+			await this._postChatOverview(ctx);
+			return;
+		}
+		const { readRoom, markRead } = require('../../../peer/projectChat');
+		this._activeChatRoom = { room, id };
+		const data = await readRoom(ctx.folderUri, room, id, ctx.rec, ctx.me.peerId);
+		const mr = await markRead(ctx.folderUri, room, id);
+		if (mr.advanced) {
+			try {
+				const { recordLocalOperation, OP_TYPES } = require('../../../peer/projectRecord');
+				await recordLocalOperation(ctx.kbRoot, ctx.prefix, OP_TYPES.CHAT_READ, { room, id, upTo: mr.upTo });
+			} catch (err) {
+				console.error('[DRIP] record chat read', err);
+			}
+		}
+		await this.panel.webview.postMessage({
+			type: 'chatRoom',
+			room,
+			id,
+			messages: data.messages || []
+		});
+		await this._postChatOverview(ctx);
+	}
+
+	async sendChat(message) {
+		const ctx = await this._chatContext(message);
+		if (!ctx || !ctx.rec || !ctx.rec.shared) return;
+		if (ctx.rec.shared) {
+			const { hasCap, CAPS } = require('../../../peer/projectRoles');
+			if (!hasCap(ctx.rec, ctx.me.peerId, CAPS.CHAT_WRITE)) {
+				void vscode.window.showWarningMessage('Your role cannot talk on this project.');
+				return;
+			}
+		}
+		const room = String(message.room || 'project');
+		const id = String(message.id || '');
+		const { appendMessage, appendIssueMessage } = require('../../../peer/projectChat');
+		let data;
+		if (room === 'issue') {
+			// Issue chat supports `@team-name` mentions, which fan out to team talk.
+			const sent = await appendIssueMessage(ctx.folderUri, ctx.rec, id, String(message.text || ''), ctx.me, String(message.issueKey || ''));
+			data = sent.issueData;
+			try {
+				const { recordLocalOperation, OP_TYPES } = require('../../../peer/projectRecord');
+				const last = (data.messages || [])[data.messages.length - 1];
+				if (last) {
+					await recordLocalOperation(ctx.kbRoot, ctx.prefix, OP_TYPES.CHAT_APPEND, { room, id, message: last });
+				}
+				for (const f of sent.fanout) {
+					if (f && f.message) {
+						await recordLocalOperation(ctx.kbRoot, ctx.prefix, OP_TYPES.CHAT_APPEND, {
+							room: 'team',
+							id: f.teamId,
+							message: f.message,
+							grants: f.grants,
+							participants: f.participants
+						});
+					}
+				}
+			} catch (err) {
+				console.error('[DRIP] record issue chat', err);
+			}
+		} else {
+			const res = await appendMessage(ctx.folderUri, ctx.rec, room, id, String(message.text || ''), ctx.me);
+			data = res.data;
+			try {
+				if (res.message) {
+					const { recordLocalOperation, OP_TYPES } = require('../../../peer/projectRecord');
+					await recordLocalOperation(ctx.kbRoot, ctx.prefix, OP_TYPES.CHAT_APPEND, {
+						room,
+						id,
+						message: res.message,
+						grants: res.grants,
+						participants: res.participants
+					});
+				}
+			} catch (err) {
+				console.error('[DRIP] record chat', err);
+			}
+		}
+		// Re-read the room so the response carries decrypted text plus read state
+		// (blue ticks) for the newly appended message.
+		const fresh = await require('../../../peer/projectChat').readRoom(ctx.folderUri, room, id, ctx.rec, ctx.me.peerId);
+		await this.panel.webview.postMessage({
+			type: 'chatRoom',
+			room,
+			id,
+			messages: fresh.messages || []
+		});
+		await this._postChatOverview(ctx);
+	}
+
+	async clearChat(message) {
+		const ctx = await this._chatContext(message);
+		if (!ctx || !ctx.rec || !ctx.rec.shared) return;
+		if (ctx.rec.shared) {
+			const { hasCap, CAPS } = require('../../../peer/projectRoles');
+			if (!hasCap(ctx.rec, ctx.me.peerId, CAPS.CHAT_WRITE)) {
+				void vscode.window.showWarningMessage('Your role cannot clear talk.');
+				return;
+			}
+		}
+		const room = String(message.room || 'project');
+		const id = String(message.id || '');
+		const { clearRoom } = require('../../../peer/projectChat');
+		const data = await clearRoom(ctx.folderUri, room, id);
+		try {
+			const { recordLocalOperation, OP_TYPES } = require('../../../peer/projectRecord');
+			await recordLocalOperation(ctx.kbRoot, ctx.prefix, OP_TYPES.CHAT_CLEAR, { room, id });
+		} catch (err) {
+			console.error('[DRIP] record chat clear', err);
+		}
+		await this.panel.webview.postMessage({
+			type: 'chatRoom',
+			room,
+			id,
+			messages: data.messages || []
+		});
+		await this._postChatOverview(ctx);
+	}
 }
 
 function refreshProjectViewIfShown() {
@@ -521,8 +769,30 @@ function refreshProjectViewIfShown() {
 	})();
 }
 
+/**
+ * Refresh only the chat overview (badges, mentions, DM/issue lists) without
+ * reloading the whole project or closing the open chat modal. Called after a
+ * chat operation arrives from another member.
+ * @param {string} folderPrefix
+ */
+function refreshProjectChatIfShown(folderPrefix) {
+	const panel = DripProjectViewPanel.currentPanel;
+	if (!panel) return;
+	const sel = String(panel._selectedPrefix || '');
+	if (!sel || sel !== String(folderPrefix || '')) return;
+	void (async () => {
+		try {
+			await panel.refreshChatOverview();
+			await panel.refreshOpenChatRoom();
+		} catch {
+			/* chat refresh is best-effort */
+		}
+	})();
+}
+
 module.exports = {
 	DripProjectViewPanel,
 	getProjectViewHtml,
-	refreshProjectViewIfShown
+	refreshProjectViewIfShown,
+	refreshProjectChatIfShown
 };

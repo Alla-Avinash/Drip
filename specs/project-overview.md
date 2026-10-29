@@ -25,7 +25,7 @@ DRIP gives that developer a single, structured place to store — in plain Engli
 
 - **Knowledge base** — a `.driplock` folder tree of notes, with filtering and CRUD.
 - **Structured notes** — `.d.txt` files with metadata, tags, relations, and stable IDs.
-- **Projects, features, issues** — a hierarchy for planning and tracking work, browsed in a Linear-like Project View.
+- **Projects, features, issues** — a hierarchy for planning and tracking work, browsed in a Linear-like Project View. A project can stay solo or be shared with other people; only that project folder is the shared world, and there is no central server.
 - **Indexing** — a local SQLite index for fast search, sorting, and backlinks.
 - **Semantic search** — embeddings-based matching of headings, files, folders, and tags.
 - **AI integration** — an LLM chat with long-term memory, and a local MCP server so external AI apps can manage issues.

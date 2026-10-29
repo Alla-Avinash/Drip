@@ -44,7 +44,10 @@ const DEFAULT_METADATA_TYPES = [
 			status: { kind: 'enum', values: ['in-progress', 'to-do', 'completed'], default: '' },
 			priority: { kind: 'enum', values: ['high', 'medium', 'low'], default: '' },
 			deadline: { kind: 'datetime', default: '' },
+			completed: { kind: 'datetime', default: '', required: false, label: 'Completed' },
 			category: { kind: 'enum', values: [], default: '' },
+			feature: { kind: 'enum', values: [], default: '', required: false, label: 'Feature' },
+			team: { kind: 'enum', values: [], default: '', required: false, label: 'Team' },
 			/**
 			 * Logical parent for Project View (`i-N`). Distinct from outline indent.
 			 * Auto-stamped when nesting under an issue; set manually to override.
@@ -223,6 +226,15 @@ function normalizeMetadataType(raw) {
 	}
 	if (id === 'issue') {
 		attributes.parent = { ...ISSUE_PARENT_ATTRIBUTE_RULE, values: [] };
+		if (!attributes.completed) {
+			attributes.completed = { kind: 'datetime', default: '', required: false };
+		}
+		if (!attributes.feature) {
+			attributes.feature = { kind: 'enum', values: [], default: '', required: false };
+		}
+		if (!attributes.team) {
+			attributes.team = { kind: 'enum', values: [], default: '', required: false };
+		}
 	}
 	return { id, marker, shortcut, color, displayTemplate: raw && raw.displayTemplate !== false, attributes };
 }

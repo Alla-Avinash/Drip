@@ -390,18 +390,41 @@ function insertTypedMetadataRows(db, fileId, typedMetadata, metadataTypeIdByLowe
 				if (ctx && ctx.projectId != null && Number.isFinite(Number(ctx.projectId))) {
 					const title =
 						(ctx.titleByHeadingId && ctx.titleByHeadingId.get(headingId)) || '';
+					const issueKey =
+						(ctx.issueKeyByHeadingId && ctx.issueKeyByHeadingId.get(headingId)) ||
+						issueKeyFromHeadingTitle(title);
 					upsertIssueRow(db, {
 						projectId: Number(ctx.projectId),
 						fileId,
 						headingId,
 						title,
-						issueKey: issueKeyFromHeadingTitle(title),
+						issueKey,
 						status: fields.status != null ? String(fields.status) : null,
 						category: fields.category != null ? String(fields.category) : null,
 						deadline: fields.deadline != null ? Number(fields.deadline) : null,
 						priority: fields.priority != null ? String(fields.priority) : null,
 						parentIssueKey: parentKey
 					});
+					// Team → its own table keyed by the issue number (i-N), so a
+					// project's teams are separable from the generic EAV store.
+					if (issueKey) {
+						const projectIdNum = Number(ctx.projectId);
+						const teamPair = (entry.remaining || []).find(
+							p => p && String(p.key || '').trim().toLowerCase() === 'team'
+						);
+						if (teamPair && teamPair.value != null && String(teamPair.value).trim()) {
+							db.run(
+								`INSERT INTO issue_teams (project_id, issue_key, team) VALUES (?, ?, ?)
+								 ON CONFLICT(project_id, issue_key) DO UPDATE SET team = excluded.team`,
+								[projectIdNum, issueKey, String(teamPair.value).trim()]
+							);
+						} else {
+							db.run(
+								`DELETE FROM issue_teams WHERE project_id = ? AND issue_key = ?`,
+								[projectIdNum, issueKey]
+							);
+						}
+					}
 				}
 			}
 		}
@@ -424,6 +447,8 @@ function insertTypedMetadataRows(db, fileId, typedMetadata, metadataTypeIdByLowe
 		for (const pair of remaining) {
 			const key = String(pair.key || '').trim().toLowerCase();
 			if (!key) continue;
+			// `team` on an issue lives in issue_teams (keyed by issue number), not EAV.
+			if (typeName === 'issue' && key === 'team') continue;
 			if (pair.value == null || !String(pair.value).trim()) {
 				continue;
 			}
@@ -740,6 +765,16 @@ async function resolveSequentialFileEntityForKbNote(kbRootUri, noteUri, text) {
 		return { fileNum: fromHeader, fileEntityId: formatFileEntityId(fromHeader) };
 	}
 
+	try {
+		const { allocateFileNumberForNote } = require('../document/project/projectFileIds');
+		const projectNum = await allocateFileNumberForNote(kbRootUri, noteUri);
+		if (projectNum != null) {
+			return { fileNum: projectNum, fileEntityId: formatFileEntityId(projectNum) };
+		}
+	} catch (err) {
+		console.error('[DRIP] project file id for missing header', err);
+	}
+
 	await initEmptyDripIndexFile(kbRootUri);
 	const relPath = normalizeRelPath(kbRootUri.fsPath, noteUri.fsPath);
 	const handle = await openDripIndexDb(kbRootUri);
@@ -763,8 +798,12 @@ async function resolveSequentialFileEntityForKbNote(kbRootUri, noteUri, text) {
  * @param {number} fileId
  * @returns {string}
  */
-function headingAllocatorMetaKey(fileId) {
-	return `heading_alloc_${Math.max(0, Math.floor(Number(fileId) || 0))}`;
+function headingAllocatorMetaKey(fileId, scopeKey) {
+	const id = Math.max(0, Math.floor(Number(fileId) || 0));
+	const scope = String(scopeKey || '')
+		.replace(/\\/g, '/')
+		.replace(/\/+$/, '');
+	return scope ? `heading_alloc_${scope}|${id}` : `heading_alloc_${id}`;
 }
 
 /**
@@ -804,10 +843,10 @@ function formatHeadingAllocatorState(state) {
  * @param {number} fileId
  * @returns {Promise<{ next: number, free: number[] }>}
  */
-async function readFileHeadingAllocator(kbRootUri, fileId) {
+async function readFileHeadingAllocator(kbRootUri, fileId, scopeKey) {
 	const handle = await openDripIndexDb(kbRootUri);
 	try {
-		const key = headingAllocatorMetaKey(fileId);
+		const key = headingAllocatorMetaKey(fileId, scopeKey);
 		const row = queryOne(handle.db, `SELECT value FROM index_meta WHERE key = ?`, [key]);
 		return parseHeadingAllocatorState(row && row[0]);
 	} finally {
@@ -820,10 +859,10 @@ async function readFileHeadingAllocator(kbRootUri, fileId) {
  * @param {number} fileId
  * @param {{ next: number, free: number[] }} state
  */
-async function writeFileHeadingAllocator(kbRootUri, fileId, state) {
+async function writeFileHeadingAllocator(kbRootUri, fileId, state, scopeKey) {
 	const handle = await openDripIndexDb(kbRootUri);
 	try {
-		const key = headingAllocatorMetaKey(fileId);
+		const key = headingAllocatorMetaKey(fileId, scopeKey);
 		handle.db.run(`INSERT OR REPLACE INTO index_meta(key, value) VALUES (?, ?)`, [
 			key,
 			formatHeadingAllocatorState(state)
@@ -840,17 +879,17 @@ async function writeFileHeadingAllocator(kbRootUri, fileId, state) {
  * @param {number} fileId
  * @returns {Promise<number>}
  */
-async function allocateHeadingIdForFile(kbRootUri, fileId) {
-	const state = await readFileHeadingAllocator(kbRootUri, fileId);
+async function allocateHeadingIdForFile(kbRootUri, fileId, scopeKey) {
+	const state = await readFileHeadingAllocator(kbRootUri, fileId, scopeKey);
 	state.free.sort((a, b) => a - b);
 	if (state.free.length) {
 		const id = state.free.shift();
-		await writeFileHeadingAllocator(kbRootUri, fileId, state);
+		await writeFileHeadingAllocator(kbRootUri, fileId, state, scopeKey);
 		return /** @type {number} */ (id);
 	}
 	const id = state.next;
 	state.next = id + 1;
-	await writeFileHeadingAllocator(kbRootUri, fileId, state);
+	await writeFileHeadingAllocator(kbRootUri, fileId, state, scopeKey);
 	return id;
 }
 
@@ -897,10 +936,10 @@ function recomputeHeadingAllocatorState(usedNonH0Ids, existing) {
  * @param {number} fileId
  * @param {Iterable<number>} usedNonH0Ids
  */
-async function syncFileHeadingAllocatorFromUsedIds(kbRootUri, fileId, usedNonH0Ids) {
-	const existing = await readFileHeadingAllocator(kbRootUri, fileId);
+async function syncFileHeadingAllocatorFromUsedIds(kbRootUri, fileId, usedNonH0Ids, scopeKey) {
+	const existing = await readFileHeadingAllocator(kbRootUri, fileId, scopeKey);
 	const state = recomputeHeadingAllocatorState(usedNonH0Ids, existing);
-	await writeFileHeadingAllocator(kbRootUri, fileId, state);
+	await writeFileHeadingAllocator(kbRootUri, fileId, state, scopeKey);
 }
 
 /**
@@ -992,7 +1031,19 @@ async function rebuildDripIndex(kbRootUri, context) {
 				);
 
 				let fileId = parsed.fileId;
-				if (fileId == null || !Number.isFinite(fileId) || fileId < 0 || usedFileIds.has(fileId)) {
+				const validFileId = fileId != null && Number.isFinite(fileId) && fileId >= 0;
+				// Project notes keep the `@fN` written in the file. If that number is
+				// already used by another note in this local index, pick a local row id
+				// and do not write it back to the file.
+				if (zone === 'project' && validFileId) {
+					if (usedFileIds.has(fileId)) {
+						while (usedFileIds.has(nextFileId)) nextFileId += 1;
+						fileId = nextFileId;
+						nextFileId += 1;
+					} else {
+						nextFileId = Math.max(nextFileId, fileId + 1);
+					}
+				} else if (!validFileId || usedFileIds.has(fileId)) {
 					fileId = nextFileId;
 					nextFileId += 1;
 				} else {

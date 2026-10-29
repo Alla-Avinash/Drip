@@ -10,12 +10,19 @@
 
 const path = require('path');
 const vscode = require('vscode');
-const { isDripProjectFolderName, isProjectIndexFileName } = require('./dripNoteProjectFolder.js');
+const {
+	isDripProjectFolderName,
+	isProjectIndexFileName,
+	CONCEPTS_SUBFOLDER_NAME,
+	DECISIONS_SUBFOLDER_NAME,
+	ARCHIVE_SUBFOLDER_NAME
+} = require('./dripNoteProjectFolder.js');
 const { isDripFeatureFolderName, isDripFeatureFileName } = require('./dripNoteFeature.js');
 const {
 	isProjectIssuesFileName,
 	isFeatureInboxFileName
 } = require('../project/projectStructureRules');
+const { isDirectChildOfProjectsHome } = require('../../startup/projectsDrip');
 
 /**
  * Walk directory ancestors from `startDir` inclusive up to (but not including) kb root.
@@ -71,7 +78,7 @@ function getPathPlacement(kbRootFs, fsPath) {
  */
 function canPlaceProjectFolder(kbRootFs, folderFsPath) {
 	const { underProject } = getPathPlacement(kbRootFs, folderFsPath);
-	return !underProject;
+	return !underProject && isDirectChildOfProjectsHome(kbRootFs, folderFsPath);
 }
 
 /**
@@ -197,6 +204,14 @@ function isAllowedProjectFolderChild(childBasename, fileType) {
 		(typeof fileType === 'number' && (fileType & vscode.FileType.Directory) !== 0);
 
 	if (isDir) {
+		const lower = name.toLowerCase();
+		if (
+			lower === CONCEPTS_SUBFOLDER_NAME ||
+			lower === DECISIONS_SUBFOLDER_NAME ||
+			lower === ARCHIVE_SUBFOLDER_NAME
+		) {
+			return true;
+		}
 		return isDripFeatureFolderName(name);
 	}
 	if (isProjectIssuesFileName(name)) return true;
@@ -215,7 +230,7 @@ function projectFolderChildRejectReason(childBasename, fileType) {
 	if (isAllowedProjectFolderChild(childBasename, fileType)) return null;
 	return (
 		`Project folders may only contain: the project index (_Name.p.d.txt / _Name.p.d.md), ` +
-		`_issues.d.txt, and feature folders (*.f) or feature notes (*.f.d.txt).`
+		`_issues.d.txt, _concepts, _decisions, _archive, and feature folders (*.f) or feature notes (*.f.d.txt).`
 	);
 }
 
@@ -223,7 +238,8 @@ function projectFolderChildRejectReason(childBasename, fileType) {
  * Plain note files (`*.d.txt` / `*.md`) must not be created directly inside a project folder
  * (`Name.p/`) nor in any non-feature folder nested under it. The project root and its plain
  * subfolders are reserved for the index note, `_issues.d.txt`, and feature folders/files.
- * Notes are only allowed inside a feature folder (`.f`) or outside any project.
+ * Notes are allowed inside a feature folder (`.f`), inside a project's special `_concepts`
+ * / `_decisions` / `_archive` subfolders, or outside any project.
  *
  * @param {string} kbRootFs knowledge base root path
  * @param {string} folderFsPath target folder path
@@ -232,13 +248,26 @@ function projectFolderChildRejectReason(childBasename, fileType) {
 function noteCreationBlockReason(kbRootFs, folderFsPath) {
 	// Nearest-first basenames of the target folder and all its ancestors up to the KB root.
 	const names = ancestorFolderBasenames(kbRootFs, folderFsPath);
-	for (const name of names) {
+	for (let i = 0; i < names.length; i++) {
+		const name = names[i];
 		if (isDripFeatureFolderName(name)) return null; // inside a feature folder → allowed
 		if (isDripProjectFolderName(name)) {
 			return (
 				'Notes can only be created inside a feature folder (.f). ' +
 				'They are not allowed directly in a project folder (.p) or its plain subfolders.'
 			);
+		}
+		// Concept/decision notes may be created inside a project's special subfolders
+		// (`_concepts` / `_decisions`), which sit directly under the `.p` folder.
+		const lower = name.toLowerCase();
+		if (
+			(lower === CONCEPTS_SUBFOLDER_NAME ||
+				lower === DECISIONS_SUBFOLDER_NAME ||
+				lower === ARCHIVE_SUBFOLDER_NAME) &&
+			i + 1 < names.length &&
+			isDripProjectFolderName(names[i + 1])
+		) {
+			return null;
 		}
 	}
 	return null; // outside any project → allowed

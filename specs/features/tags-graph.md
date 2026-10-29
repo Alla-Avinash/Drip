@@ -36,7 +36,7 @@ Tags in DRIP are managed as **graphs** — the graph is the source of truth for 
 - **Knowledge Base** mode edits the global KB tag graph as before.
 - **Projects** mode swaps the canvas to a per-project graph: it shows the selected project's own tags and behaves exactly like the Knowledge Base graph — the user can add tags, join them with links, and use groups and sub-tags. The selection row shows only a project dropdown. Multi-graph management controls (graph selector, rename/delete/combine, export, undo/redo) are hidden because each project has a single graph.
 - In Projects mode every graph edit (tags, links, groups, sub-tags, layout) writes to that project's own graph, never the global KB graph.
-- Each project's graph is stored as one file under `<kb>/.dripindex/project-tags.drip/`, using the same node/link shape as the global graph, plus an optional per-node `description`. The Project View's **Tags** popover reads the same graph and shows only its top-level (root) tags with their name and description.
+- Each project's graph is stored in that project's `.drip/` sidecar, using the same node/link shape as the global graph, plus an optional per-node `description`. Storing it with the project means it travels to other members and no longer depends on the folder-path slug. The Project View's **Tags** popover reads the same graph and shows only its top-level (root) tags with their name and description. See Project sharing.
 
 ## Flow (plain steps)
 

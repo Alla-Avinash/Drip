@@ -367,10 +367,17 @@ async function moveProjectIssue(kbRoot, projectFolderPrefix, issueId, target, op
 		};
 	}
 
-	return moveIssueBlock(kbRoot, sourceUri, folderUri, spec, issueId, {
+	const result = await moveIssueBlock(kbRoot, sourceUri, folderUri, spec, issueId, {
 		context: options.context,
 		removeParent: options.removeParent === true
 	});
+	if (target.kind === 'feature') {
+		const { moveInboxLinkedChildrenToFeature } = require('./projectIssuesMailbox');
+		await moveInboxLinkedChildrenToFeature(kbRoot, folderUri, spec.featureUri, issueId, {
+			context: options.context
+		});
+	}
+	return result;
 }
 
 module.exports = {

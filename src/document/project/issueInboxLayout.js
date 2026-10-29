@@ -18,7 +18,8 @@ const { parseHeadingForValidation } = require('../parse/dripTxt/dripTxtHeadingPa
 const { parseMarkdownHeading } = require('../parse/dripMd/dripMdHeadingParse.js');
 const {
 	PROJECT_ISSUES_INBOX_HEADING_TITLE,
-	normalizeIssueEntityId
+	normalizeIssueEntityId,
+	parseIssueTitleEntityId
 } = require('./projectStructureRules');
 
 const FORMAT_DRIP_MD = 'drip-md';
@@ -103,7 +104,7 @@ function fromLines(lines) {
 /**
  * Shift a block's heading levels by `delta`, per format.
  * - `.d.txt`: shift the `#`/`#N` marker and its leading indent (one tab per level); prose lines
- *   shift by the same number of tabs (identity lines stay at column 0).
+ *   shift by the same number of tabs (identity lines move with the heading).
  * - `.d.md`: shift the hash count (clamped 1..6); every other line is left untouched.
  *
  * @param {string[]} lines
@@ -132,7 +133,7 @@ function relevelBlock(lines, delta, format) {
 			const marker = newLevel === 0 ? '#' : `#${newLevel}`;
 			return `${shiftWhitespace(m[1], d)}${marker}${m[3]}${s.slice(m[0].length)}`;
 		}
-		if (!s.trim() || IDENTITY_LINE_RE.test(s)) return s;
+		if (!s.trim()) return s;
 		return shiftWhitespace(s, d);
 	});
 }
@@ -319,15 +320,385 @@ function ensureInboxSection(lines, title, format) {
  * @returns {string[]}
  */
 function insertBlock(lines, at, ownerHeadingLine, block) {
-	const chunk = [];
-	if (at - 1 !== ownerHeadingLine) chunk.push('');
+	const chunk = [''];
 	chunk.push(...block);
 	if (at < lines.length && String(lines[at]).trim()) chunk.push('');
 	return [...lines.slice(0, at), ...chunk, ...lines.slice(at)];
 }
 
 /**
- * Append an issue block (root-level) as the last child of `# _inbox` (or another top-level
+ * Hidden uid from an issue block (`uid: …` metadata or a markdown comment field).
+ * @param {string[]} blockLines
+ * @returns {string}
+ */
+function uidFromIssueBlock(blockLines) {
+	for (const line of blockLines || []) {
+		const m = String(line || '').match(/(?:^|\|\s*)uid\s*:\s*(\S+)/i);
+		if (m && String(m[1] || '').trim()) return String(m[1]).trim();
+	}
+	return '';
+}
+
+/**
+ * Put `# _inbox` children in hidden-uid order so every peer reprints the same file.
+ * Nested children stay under their parent. Other sections are left in place.
+ *
+ * @param {string} text
+ * @param {string} [sectionTitle]
+ * @param {string} [format]
+ * @returns {string}
+ */
+function sortInboxChildrenByUid(text, sectionTitle = PROJECT_ISSUES_INBOX_HEADING_TITLE, format) {
+	const ensured = ensureInboxSection(toLines(text), sectionTitle, format);
+	const inboxLine = ensured.headingLine;
+	const inboxLevel = headingLevelOf(ensured.lines[inboxLine], format);
+	if (inboxLevel < 0) return fromLines(ensured.lines);
+	const childLevel = inboxLevel + 1;
+	const end = sectionEnd(ensured.lines, inboxLine, inboxLevel, format);
+
+	/** @type {{ uid: string, block: string[] }[]} */
+	const children = [];
+	let prefixEnd = inboxLine + 1;
+	let i = inboxLine + 1;
+	let sawChild = false;
+	while (i < end) {
+		const ph = parseHeadingForFormat(ensured.lines[i], format);
+		if (ph && ph.level === childLevel) {
+			const start =
+				i > 0 && IDENTITY_LINE_RE.test(String(ensured.lines[i - 1])) ? i - 1 : i;
+			if (!sawChild) {
+				prefixEnd = start;
+				sawChild = true;
+			}
+			const blockEnd = sectionEnd(ensured.lines, i, ph.level, format);
+			const block = ensured.lines.slice(start, blockEnd);
+			while (block.length && !String(block[block.length - 1]).trim()) block.pop();
+			children.push({ uid: uidFromIssueBlock(block), block });
+			i = blockEnd;
+			continue;
+		}
+		i += 1;
+	}
+
+	if (children.length < 2) return fromLines(ensured.lines);
+
+	children.sort((a, b) => {
+		if (!a.uid && !b.uid) return 0;
+		if (!a.uid) return 1;
+		if (!b.uid) return -1;
+		return a.uid < b.uid ? -1 : a.uid > b.uid ? 1 : 0;
+	});
+
+	const prefix = ensured.lines.slice(inboxLine + 1, prefixEnd);
+	while (prefix.length && !String(prefix[prefix.length - 1]).trim()) prefix.pop();
+
+	const middle = [];
+	for (const child of children) {
+		if (middle.length) middle.push('');
+		middle.push(...child.block);
+	}
+
+	const next = [
+		...ensured.lines.slice(0, inboxLine + 1),
+		...prefix,
+		...(prefix.length && middle.length ? [''] : []),
+		...middle,
+		...ensured.lines.slice(end)
+	];
+	return fromLines(next);
+}
+
+function headingBlockStart(lines, headingLine) {
+	return headingLine > 0 && IDENTITY_LINE_RE.test(String(lines[headingLine - 1]))
+		? headingLine - 1
+		: headingLine;
+}
+
+function trimHeadingBlock(block) {
+	const out = (block || []).map(l => String(l));
+	while (out.length && !String(out[out.length - 1]).trim()) out.pop();
+	while (out.length && !String(out[0]).trim()) out.shift();
+	return out;
+}
+
+/**
+ * Direct children of a heading, plus a stable order so headings without a uid keep
+ * their relative place. Persistent and non-persistent use the same rule.
+ * @param {string[]} lines
+ * @param {number} parentHeadingLine
+ * @param {number} parentLevel
+ * @param {number} parentEnd
+ * @param {string} [format]
+ */
+function collectChildHeadingBlocks(lines, parentHeadingLine, parentLevel, parentEnd, format) {
+	/** @type {{ start: number, end: number, uid: string, order: number }[]} */
+	const children = [];
+	let i = parentHeadingLine + 1;
+	while (i < parentEnd) {
+		const ph = parseHeadingForFormat(lines[i], format);
+		if (ph && ph.level === parentLevel + 1) {
+			const start = headingBlockStart(lines, i);
+			const end = sectionEnd(lines, i, ph.level, format);
+			children.push({
+				start,
+				end,
+				uid: uidFromIssueBlock(lines.slice(start, end)),
+				order: children.length
+			});
+			i = end;
+			continue;
+		}
+		i += 1;
+	}
+	return children;
+}
+
+function compareSiblingHeadings(a, b) {
+	if (a.uid && b.uid) return a.uid < b.uid ? -1 : a.uid > b.uid ? 1 : a.order - b.order;
+	if (a.uid && !b.uid) return -1;
+	if (!a.uid && b.uid) return 1;
+	return a.order - b.order;
+}
+
+function blockStartsWithH0(blockLines) {
+	for (const line of blockLines || []) {
+		const raw = String(line || '');
+		if (!raw.trim()) continue;
+		if (IDENTITY_LINE_RE.test(raw)) return /@h0\s*$/i.test(raw.trim());
+		return false;
+	}
+	return false;
+}
+
+function compareRootHeadings(a, b) {
+	const a0 = blockStartsWithH0(a.block);
+	const b0 = blockStartsWithH0(b.block);
+	if (a0 && !b0) return -1;
+	if (!a0 && b0) return 1;
+	return compareSiblingHeadings(a, b);
+}
+
+/**
+ * One heading block: keep its own lines, then reprint children in uid order
+ * with exactly one blank line between headings.
+ * @param {string[]} blockLines
+ * @param {string} [format]
+ * @returns {string[]}
+ */
+function rewriteHeadingBlock(blockLines, format) {
+	const lines = (blockLines || []).map(l => String(l));
+	let headingLine = 0;
+	if (lines.length && IDENTITY_LINE_RE.test(String(lines[0]))) headingLine = 1;
+	const level = headingLevelOf(lines[headingLine], format);
+	if (level < 0) return trimHeadingBlock(lines);
+	const children = collectChildHeadingBlocks(lines, headingLine, level, lines.length, format);
+	const headEnd = children.length ? children[0].start : lines.length;
+	const head = trimHeadingBlock(lines.slice(0, headEnd));
+	if (!children.length) return head;
+	const childOut = [];
+	const sorted = children
+		.map((c, order) => ({
+			...c,
+			order,
+			block: rewriteHeadingBlock(lines.slice(c.start, c.end), format)
+		}))
+		.sort(compareSiblingHeadings);
+	for (const child of sorted) {
+		if (childOut.length) childOut.push('');
+		childOut.push(...child.block);
+	}
+	return [...head, '', ...childOut];
+}
+
+/**
+ * Same reprint rule for every heading in the note: uid order (empty uid keeps
+ * file order), one blank line between headings. Does not move a heading to
+ * another file.
+ * @param {string} text
+ * @param {string} [format]
+ * @returns {string}
+ */
+function headingHasIssueBody(blockLines) {
+	return (blockLines || []).some(l => /^\s*\.issue\b/i.test(String(l)) || /(?:^|\|\s*)uid\s*:/i.test(String(l)));
+}
+
+/**
+ * Feature-note repair: issues stay siblings of the file heading (`# .i-N`), not
+ * nested `#1` children. An empty heading that only exists because a path crumb
+ * reused an issue title is dropped and its children become siblings.
+ * @param {string} text
+ * @param {string} [format]
+ */
+function repairIssueOutline(text, format) {
+	if (isMarkdownFormat(format)) return String(text || '');
+	let lines = toLines(text);
+	const fileH = fileHeadingLineIndex(lines, format);
+	if (fileH >= 0) {
+		const fileLevel = headingLevelOf(lines[fileH], format);
+		const fileEnd = sectionEnd(lines, fileH, fileLevel, format);
+		const children = collectChildHeadingBlocks(lines, fileH, fileLevel, fileEnd, format);
+		const promote = [];
+		for (const ch of children) {
+			let h = ch.start;
+			if (h < ch.end && IDENTITY_LINE_RE.test(String(lines[h]))) h += 1;
+			const ph = parseHeadingForFormat(lines[h], format);
+			if (ph && parseIssueTitleEntityId(ph.title)) promote.push(ch);
+		}
+		if (promote.length) {
+			const fileOwnEnd = children.length ? children[0].start : fileEnd;
+			const keptKids = [];
+			const chunks = [];
+			for (const ch of children) {
+				let h = ch.start;
+				if (h < ch.end && IDENTITY_LINE_RE.test(String(lines[h]))) h += 1;
+				const ph = parseHeadingForFormat(lines[h], format);
+				if (ph && parseIssueTitleEntityId(ph.title)) {
+					chunks.push(dedentToRoot(lines.slice(ch.start, ch.end), fileLevel + 1, format));
+				} else {
+					if (keptKids.length) keptKids.push('');
+					keptKids.push(...lines.slice(ch.start, ch.end));
+				}
+			}
+			const head = trimHeadingBlock(lines.slice(headingBlockStart(lines, fileH), fileOwnEnd));
+			const after = lines.slice(fileEnd);
+			const mid = [];
+			for (const chunk of chunks) {
+				if (mid.length) mid.push('');
+				mid.push(...chunk);
+			}
+			lines = [
+				...lines.slice(0, headingBlockStart(lines, fileH)),
+				...head,
+				...(keptKids.length ? ['', ...keptKids] : []),
+				...(mid.length ? ['', ...mid] : []),
+				...after
+			];
+		}
+	}
+	const next = [];
+	let i = 0;
+	while (i < lines.length) {
+		const ph = parseHeadingForFormat(lines[i], format);
+		if (!ph || !isIssueLikeHeadingTitle(ph.title)) {
+			next.push(lines[i]);
+			i += 1;
+			continue;
+		}
+		const start = headingBlockStart(lines, i);
+		const end = sectionEnd(lines, i, ph.level, format);
+		const block = lines.slice(start, end);
+		if (headingHasIssueBody(block)) {
+			if (start < i) next.push(...lines.slice(start, i));
+			next.push(lines[i]);
+			i += 1;
+			continue;
+		}
+		const kids = collectChildHeadingBlocks(lines, i, ph.level, end, format);
+		if (!kids.length) {
+			i = end;
+			continue;
+		}
+		for (const kid of kids) {
+			if (next.length && String(next[next.length - 1] || '').trim()) next.push('');
+			next.push(...dedentToRoot(lines.slice(kid.start, kid.end), ph.level + 1, format));
+		}
+		i = end;
+	}
+	return fromLines(next);
+}
+
+function normalizeHeadingLayout(text, format) {
+	const lines = toLines(repairIssueOutline(text, format));
+	const sep = lines.findIndex(l => /^---\s*$/.test(String(l)));
+	const header = sep >= 0 ? lines.slice(0, sep + 1) : [];
+	const body = sep >= 0 ? lines.slice(sep + 1) : lines.slice();
+	while (body.length && !String(body[0]).trim()) body.shift();
+
+	const rootLevel = isMarkdownFormat(format) ? 1 : 0;
+	/** @type {{ start: number, end: number, uid: string, order: number }[]} */
+	const roots = [];
+	let i = 0;
+	while (i < body.length) {
+		const ph = parseHeadingForFormat(body[i], format);
+		if (ph && ph.level === rootLevel) {
+			const start = headingBlockStart(body, i);
+			const end = sectionEnd(body, i, ph.level, format);
+			roots.push({
+				start,
+				end,
+				uid: uidFromIssueBlock(body.slice(start, end)),
+				order: roots.length
+			});
+			i = end;
+			continue;
+		}
+		i += 1;
+	}
+	if (!roots.length) {
+		return fromLines(sep >= 0 ? header.concat([''], body) : lines);
+	}
+
+	const prefix = trimHeadingBlock(body.slice(0, roots[0].start));
+	const rootOut = [];
+	const sorted = roots
+		.map((c, order) => ({
+			...c,
+			order,
+			block: rewriteHeadingBlock(body.slice(c.start, c.end), format)
+		}))
+		.sort(compareRootHeadings);
+	for (const root of sorted) {
+		if (rootOut.length) rootOut.push('');
+		rootOut.push(...root.block);
+	}
+	const next =
+		sep >= 0
+			? [...header, '', ...(prefix.length ? [...prefix, ''] : []), ...rootOut]
+			: [...(prefix.length ? [...prefix, ''] : []), ...rootOut];
+	return fromLines(next);
+}
+
+/**
+ * Keep each `@hN` on the line immediately above its heading, at the same indent.
+ * Drop identity lines that have no heading under them (they are leftovers from a move
+ * or a reprint, and they break the next reprint).
+ * @param {string} text
+ * @param {string} [format]
+ * @returns {string}
+ */
+function glueHeadingIdentities(text, format) {
+	if (isMarkdownFormat(format)) return String(text || '');
+	const lines = toLines(text);
+	const out = [];
+	let i = 0;
+	while (i < lines.length) {
+		const line = String(lines[i] || '');
+		if (!IDENTITY_LINE_RE.test(line)) {
+			out.push(line);
+			i += 1;
+			continue;
+		}
+		let ident = line;
+		i += 1;
+		while (i < lines.length && IDENTITY_LINE_RE.test(String(lines[i] || ''))) {
+			ident = String(lines[i] || '');
+			i += 1;
+		}
+		while (i < lines.length && !String(lines[i] || '').trim()) i += 1;
+		const next = i < lines.length ? String(lines[i] || '') : '';
+		if (parseHeadingForFormat(next, format)) {
+			const indent = (next.match(/^(\s*)/) || ['', ''])[1];
+			out.push(`${indent}${ident.trim()}`);
+			out.push(next);
+			i += 1;
+			continue;
+		}
+	}
+	return fromLines(out);
+}
+
+/**
+ * Append an issue block (root-level) as the last child of `# _inbox` (or another top-level)
  * section), i.e. one level under it.
  *
  * @param {string} text
@@ -336,6 +707,24 @@ function insertBlock(lines, at, ownerHeadingLine, block) {
  * @param {string} [format]
  * @returns {string}
  */
+/**
+ * Append a root-level issue after the last root heading. Used in a feature note
+ * so the issue stays a sibling of the file heading, not a nested `#1` child.
+ * @param {string} text
+ * @param {string[]} block
+ * @param {string} [format]
+ */
+function appendIssueAtFileRoot(text, block, format) {
+	const lines = toLines(text);
+	const root = isMarkdownFormat(format) ? 1 : 0;
+	let insertAt = lines.length;
+	for (let i = 0; i < lines.length; i++) {
+		const ph = parseHeadingForFormat(lines[i], format);
+		if (ph && ph.level === root) insertAt = sectionEnd(lines, i, ph.level, format);
+	}
+	return fromLines(insertBlock(lines, insertAt, insertAt, relevelToLevel(block, root, format)));
+}
+
 function appendIssueToInbox(text, block, sectionTitle = PROJECT_ISSUES_INBOX_HEADING_TITLE, format) {
 	const ensured = ensureInboxSection(toLines(text), sectionTitle, format);
 	const inboxLevel = headingLevelOf(ensured.lines[ensured.headingLine], format);
@@ -413,6 +802,121 @@ function insertSiblingAfterIssue(text, issueId, block, format) {
  * @param {string} [format]
  * @returns {{ start: number, end: number, indent: number, lines: string[] } | null}
  */
+function formatPlainHeadingLine(title, level, format) {
+	const t = String(title || '').trim() || 'Section';
+	if (isMarkdownFormat(format)) {
+		const n = Math.max(1, Math.min(6, Math.floor(Number(level) || 1)));
+		return `${'#'.repeat(n)} ${t}`;
+	}
+	const depth = Math.max(0, Math.floor(Number(level) || 0));
+	const marker = depth === 0 ? '#' : `#${depth}`;
+	return `${'\t'.repeat(depth)}${marker} ${t}`;
+}
+
+/**
+ * Title path of the section this issue sits under (`Notes/This week`). Empty when it
+ * is a root heading. Persistent and plain headings both count — the path is titles only.
+ * @param {string} text
+ * @param {string} issueId
+ * @param {string} [format]
+ */
+function fileHeadingLineIndex(lines, format) {
+	const sep = (lines || []).findIndex(l => /^---\s*$/.test(String(l)));
+	const from = sep >= 0 ? sep + 1 : 0;
+	for (let i = from; i < (lines || []).length; i++) {
+		if (parseHeadingForFormat(lines[i], format)) return i;
+	}
+	return -1;
+}
+
+function isIssueLikeHeadingTitle(title) {
+	const t = String(title || '').trim();
+	if (!t) return false;
+	if (parseIssueTitleEntityId(t)) return true;
+	return /^\.?i-\d+\b/i.test(t);
+}
+
+/**
+ * `@hN` on the line above this issue, or 0 when it has none.
+ * @param {string} text
+ * @param {string} issueId
+ * @param {string} [format]
+ */
+function headingNumForIssue(text, issueId, format) {
+	const found = findIssueHeadingBlock(text, issueId, format);
+	if (!found || found.start <= 0) return 0;
+	const raw = String(found.lines[found.start - 1] || '');
+	const m = IDENTITY_LINE_RE.test(raw) ? raw.match(/@h(\d+)/i) : null;
+	const n = m ? parseInt(m[1], 10) : 0;
+	return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function headingPathAboveIssue(text, issueId, format) {
+	const found = findIssueHeadingBlock(text, issueId, format);
+	if (!found) return '';
+	const fileH = fileHeadingLineIndex(found.lines, format);
+	const stack = [];
+	for (let i = 0; i < found.start; i++) {
+		if (i === fileH) continue;
+		const ph = parseHeadingForFormat(found.lines[i], format);
+		if (!ph) continue;
+		while (stack.length && stack[stack.length - 1].level >= ph.level) stack.pop();
+		stack.push({ level: ph.level, title: ph.title });
+	}
+	while (stack.length && stack[stack.length - 1].level >= found.indent) stack.pop();
+	return stack.map(s => s.title).filter(Boolean).join('/');
+}
+
+/**
+ * Make every crumb of `headingPath` exist as a heading (create missing ones as plain
+ * sections). Used so a typed-under-this-section create can land on a machine that
+ * does not have that section — or that file — yet.
+ * @param {string} text
+ * @param {string} headingPath
+ * @param {string} [format]
+ */
+function ensureHeadingPath(text, headingPath, format) {
+	const crumbs = String(headingPath || '')
+		.split('/')
+		.map(s => s.trim())
+		.filter(Boolean)
+		.filter(c => !isIssueLikeHeadingTitle(c));
+	if (!crumbs.length) return String(text || '');
+	const fileH = fileHeadingLineIndex(toLines(text), format);
+	if (fileH >= 0) {
+		const fileTitle = (parseHeadingForFormat(toLines(text)[fileH], format) || {}).title || '';
+		if (fileTitle && crumbs[0] && String(crumbs[0]).trim() === String(fileTitle).trim()) {
+			crumbs.shift();
+		}
+	}
+	if (!crumbs.length) return String(text || '');
+	let next = String(text || '');
+	for (let i = 0; i < crumbs.length; i++) {
+		const prefix = crumbs.slice(0, i + 1).join('/');
+		if (findHeadingSectionByPath(next, prefix, format)) continue;
+		const title = crumbs[i];
+		if (i === 0) {
+			const lines = toLines(next);
+			const root = isMarkdownFormat(format) ? 1 : 0;
+			lines.push('', formatPlainHeadingLine(title, root, format), '');
+			next = fromLines(lines);
+			continue;
+		}
+		const parent = crumbs.slice(0, i).join('/');
+		const parentFound = findHeadingSectionByPath(next, parent, format);
+		if (!parentFound) continue;
+		next = fromLines(
+			insertBlock(
+				parentFound.lines,
+				parentFound.end,
+				parentFound.start,
+				[formatPlainHeadingLine(title, parentFound.indent + 1, format)]
+			)
+		);
+	}
+	return next;
+}
+
 function findHeadingSectionByPath(text, headingPath, format) {
 	const path = String(headingPath || '').trim();
 	if (!path) return null;
@@ -476,6 +980,134 @@ function insertSiblingBeforeHeading(text, headingPath, block, format) {
  * @param {string} [format]
  * @returns {string | null}
  */
+function headingOwnBodyRange(found, format) {
+	let bodyStart = found.start + 1;
+	if (isMarkdownFormat(format)) {
+		if (bodyStart < found.end && /<!--\s*drip\b/i.test(String(found.lines[bodyStart] || ''))) {
+			bodyStart += 1;
+		}
+	} else {
+		let j = bodyStart;
+		while (j < found.end) {
+			const raw = String(found.lines[j] || '');
+			const tr = raw.trim();
+			if (IDENTITY_LINE_RE.test(raw)) {
+				j += 1;
+				bodyStart = j;
+				continue;
+			}
+			if (!tr) break;
+			if (parseHeadingForFormat(raw, format)) break;
+			if (tr.startsWith('//') || /^\[/.test(tr) || /^\.[a-z][\w-]*\b/i.test(tr) || /^[a-z][a-z0-9_-]*\s*:/i.test(tr)) {
+				j += 1;
+				bodyStart = j;
+				continue;
+			}
+			break;
+		}
+		bodyStart = j;
+	}
+	let bodyEnd = found.end;
+	for (let j = bodyStart; j < found.end; j++) {
+		const ph = parseHeadingForFormat(found.lines[j], format);
+		if (ph && ph.level > found.indent) {
+			bodyEnd = j;
+			break;
+		}
+	}
+	while (bodyEnd > bodyStart && !String(found.lines[bodyEnd - 1] || '').trim()) bodyEnd -= 1;
+	return { bodyStart, bodyEnd };
+}
+
+/**
+ * Own prose under a heading (not child headings, not issues). Used for sync.
+ * @param {string} text
+ * @param {string} headingPath
+ * @param {string} [format]
+ */
+function readHeadingOwnBody(text, headingPath, format) {
+	const found = findHeadingSectionByPath(text, headingPath, format);
+	if (!found) return '';
+	const { bodyStart, bodyEnd } = headingOwnBodyRange(found, format);
+	const pad = isMarkdownFormat(format) ? 0 : found.indent + 1;
+	const lines = [];
+	for (let j = bodyStart; j < bodyEnd; j++) {
+		const raw = String(found.lines[j] || '');
+		if (IDENTITY_LINE_RE.test(raw)) continue;
+		lines.push(isMarkdownFormat(format) ? raw : raw.slice(Math.min(pad, indentOf(raw, format))));
+	}
+	return lines.join('\n').replace(/\n{3,}/g, '\n\n').replace(/^\n+|\n+$/g, '');
+}
+
+/**
+ * Replace a heading's own prose. Child headings stay.
+ * @param {string} text
+ * @param {string} headingPath
+ * @param {string} body
+ * @param {string} [format]
+ */
+function replaceHeadingOwnBody(text, headingPath, body, format) {
+	const found = findHeadingSectionByPath(text, headingPath, format);
+	if (!found) return null;
+	const { bodyStart, bodyEnd } = headingOwnBodyRange(found, format);
+	const raw = String(body || '').replace(/\r\n/g, '\n').replace(/\s+$/, '');
+	const bodyLines = raw ? raw.split('\n') : [];
+	const headInd = isMarkdownFormat(format) ? '' : '\t'.repeat(found.indent + 1);
+	const chunk = bodyLines.length
+		? ['', ...bodyLines.map(l => (l.trim() && headInd ? `${headInd}${l}` : l)), '']
+		: [''];
+	const lines = found.lines.slice();
+	lines.splice(bodyStart, Math.max(0, bodyEnd - bodyStart), ...chunk);
+	return fromLines(lines);
+}
+
+/**
+ * Drop a heading and its own prose. Child headings stay in the file.
+ * @param {string} text
+ * @param {string} headingPath
+ * @param {string} [format]
+ */
+function removeHeadingKeepChildren(text, headingPath, format) {
+	const found = findHeadingSectionByPath(text, headingPath, format);
+	if (!found) return null;
+	const { bodyEnd } = headingOwnBodyRange(found, format);
+	let start = found.start;
+	if (start > 0 && IDENTITY_LINE_RE.test(String(found.lines[start - 1]))) start -= 1;
+	const lines = found.lines.slice();
+	lines.splice(start, Math.max(0, bodyEnd - start));
+	return fromLines(lines);
+}
+
+/**
+ * Non-issue headings in a note (plain and persistent) with their own body.
+ * @param {string} text
+ * @param {string} [format]
+ * @returns {{ path: string, title: string, persistent: boolean, body: string }[]}
+ */
+function listSectionHeadings(text, format) {
+	const lines = toLines(text);
+	const fileH = fileHeadingLineIndex(lines, format);
+	const stack = [];
+	const out = [];
+	for (let i = 0; i < lines.length; i++) {
+		const ph = parseHeadingForFormat(lines[i], format);
+		if (!ph) continue;
+		if (i === fileH) continue;
+		while (stack.length && stack[stack.length - 1].level >= ph.level) stack.pop();
+		stack.push({ level: ph.level, title: ph.title });
+		if (parseIssueTitleEntityId(ph.title)) continue;
+		const path = stack.map(s => s.title).filter(Boolean).join('/');
+		if (!path) continue;
+		out.push({
+			path,
+			title: ph.title,
+			persistent: /^\s*\./.test(ph.title),
+			body: readHeadingOwnBody(fromLines(lines), path, format)
+		});
+	}
+	return out;
+}
+
 function insertSiblingAfterHeading(text, headingPath, block, format) {
 	const found = findHeadingSectionByPath(text, headingPath, format);
 	if (!found) return null;
@@ -498,12 +1130,26 @@ module.exports = {
 	sectionEnd,
 	outlineParentsByLine,
 	findIssueHeadingBlock,
+	findInboxHeadingLine,
+	uidFromIssueBlock,
+	sortInboxChildrenByUid,
+	normalizeHeadingLayout,
+	glueHeadingIdentities,
+	appendIssueAtFileRoot,
 	appendIssueToInbox,
+	headingNumForIssue,
+	isIssueLikeHeadingTitle,
 	appendSubIssueUnderParent,
 	insertSiblingBeforeIssue,
 	insertSiblingAfterIssue,
+	headingPathAboveIssue,
+	ensureHeadingPath,
 	findHeadingSectionByPath,
 	appendBlockUnderHeading,
 	insertSiblingBeforeHeading,
-	insertSiblingAfterHeading
+	insertSiblingAfterHeading,
+	listSectionHeadings,
+	readHeadingOwnBody,
+	replaceHeadingOwnBody,
+	removeHeadingKeepChildren
 };

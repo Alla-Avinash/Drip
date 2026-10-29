@@ -73,5 +73,6 @@ function degradedActivate(context) {
 }
 
 module.exports = {
-	activate: realExtension ? realExtension.activate : degradedActivate
+	activate: realExtension ? realExtension.activate : degradedActivate,
+	deactivate: realExtension && realExtension.deactivate ? realExtension.deactivate : undefined
 };

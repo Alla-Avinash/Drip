@@ -15,12 +15,12 @@ When a `.d.txt` file is open in the editor, DRIP provides VS Code language featu
 - The whole note is colored in one pass by a single tokenizer that emits nine roles, using theme-palette colors that follow the active light/dark theme.
   1. **Metadata type name / shortcut** — the leading `.concept`, `.c`, or plain `c` marker on a heading or type line.
   2. **Heading line** — the entire heading line (the `#` prefix, the type marker/shortcut, and the title text) rendered bold.
-  3. **Metadata keys** — typed field keys like `status`, `deadline`, `parent`.
+  3. **Metadata keys** — typed field keys like `status`, `deadline`, `completed`, `parent`, `feature`, `team`, and the issue `uid`. `uid` uses this same color and does not stop the rest of the block — fields under it stay colored.
   4. **Tag / relation keys** — `tags`, `pre-req`, and other configured relation keys.
   5. **Separators & heading values** — the `---` section separator and heading-special key values (`parent`, `workflow`).
-  6. **File-level identity keys** — the `filename`, `fileid`, and `headings` header fields.
-  7. **File identity values** — the values after `filename`, `fileid`, and `headings`.
-  8. **Metadata type values** — the values after typed fields like `status` and `deadline`.
+  6. **File-level identity keys** — the `filename`, `fileid`, `fileuid`, and `headings` header fields.
+  7. **File identity values** — the values after `filename`, `fileid`, `fileuid`, and `headings`.
+  8. **Metadata type values** — the values after typed fields like `status`, `deadline`, and `uid`.
   9. **Tag list values** — the bracketed list after `tags`, `pre-req`, or a shorthand `[a, b]` line.
 - Each role defaults to a theme token. In the **Doc Coloring** settings panel the user can override any role with a custom hex color; empty overrides keep the theme color. Custom colors layer over the semantic tokens as editor decorations, so they only affect `.d.txt` notes.
 

@@ -43,6 +43,14 @@ const {
 } = require('../../dripTxt/dripTxtHeadingIdentity.js');
 const { applyReconciledTextToOpenNote } = require('../../dripTxt/dripTxtHeadingIdentityReconcile.js');
 const { readTextFile, writeTextFile } = require('../../kbFilesystem');
+const { classifyNoteZone } = require('../../projectIndex');
+const {
+	isNoteInProject,
+	allocateFileNumberForNote,
+	recordProjectFileNumber,
+	isSharedProjectNote,
+	headingAllocScopeForNote
+} = require('../../../document/project/projectFileIds');
 
 const MODE_EXISTING = 'existing';
 const MODE_RECLAIM = 'reclaim';
@@ -213,6 +221,30 @@ function rewriteHeadingIdentities(lines, fileEntityId, options) {
 async function resolveFileIdOwnership(kbRootUri, noteUri, claimedFileId) {
 	const currentPath = relPathForNote(kbRootUri, noteUri);
 
+	if (isNoteInProject(kbRootUri, noteUri)) {
+		if (claimedFileId == null || !Number.isFinite(claimedFileId) || claimedFileId < 0) {
+			const allocated = await allocateFileNumberForNote(kbRootUri, noteUri);
+			const fileId =
+				allocated != null ? allocated : await allocateNextFileEntityNumber(kbRootUri);
+			return {
+				fileId,
+				fileEntityId: formatFileEntityId(fileId),
+				mode: MODE_FIRST_INSERT,
+				indexedPath: null
+			};
+		}
+		await recordProjectFileNumber(kbRootUri, noteUri, claimedFileId);
+		const row = await lookupFileRowById(kbRootUri, claimedFileId);
+		const indexedPath = row ? String(row.path || '').replace(/\\/g, '/') : null;
+		// Keep the project's `@fN` even when a KB note already uses that number.
+		return {
+			fileId: claimedFileId,
+			fileEntityId: formatFileEntityId(claimedFileId),
+			mode: MODE_EXISTING,
+			indexedPath
+		};
+	}
+
 	if (claimedFileId == null || !Number.isFinite(claimedFileId) || claimedFileId < 0) {
 		const fileId = await allocateNextFileEntityNumber(kbRootUri);
 		return {
@@ -289,13 +321,17 @@ async function persistReconcileUpdate(kbRootUri, noteUri, text, fileId, mode, co
 
 	/** @type {{ fileId: number, headingId: number }[]} */
 	const embeddingUpserts = [];
-	if (mode === MODE_EXISTING) {
-		await applyParsedNoteToIndex(kbRootUri, relPath, parsed, context, {
+	const zone = classifyNoteZone(relPath);
+	// Project notes upsert by path so a colliding KB `@fN` cannot steal that files row
+	// or get written back into the project file header.
+	let persistedId = fileId;
+	if (mode === MODE_EXISTING || zone === 'project') {
+		persistedId = await applyParsedNoteToIndex(kbRootUri, relPath, parsed, context, {
 			incremental: true,
 			embeddingUpserts
 		});
 	} else {
-		await replaceParsedNoteAtFileId(kbRootUri, fileId, parsed, context, { embeddingUpserts });
+		persistedId = await replaceParsedNoteAtFileId(kbRootUri, fileId, parsed, context, { embeddingUpserts });
 	}
 	const { enqueueHeadingEmbeddingUpserts } = require('../../embeddings/headingEmbeddingSync');
 	enqueueHeadingEmbeddingUpserts(kbRootUri, embeddingUpserts);
@@ -305,7 +341,12 @@ async function persistReconcileUpdate(kbRootUri, noteUri, text, fileId, mode, co
 	const usedIds = (parsed.headings || [])
 		.map(h => Number(h.heading_id))
 		.filter(n => Number.isFinite(n) && n > 0);
-	await syncFileHeadingAllocatorFromUsedIds(kbRootUri, fileId, usedIds);
+	await syncFileHeadingAllocatorFromUsedIds(
+		kbRootUri,
+		fileId,
+		usedIds,
+		headingAllocScopeForNote(kbRootUri, noteUri)
+	);
 	return parsed;
 }
 
@@ -339,6 +380,35 @@ async function reconcileUpdate(kbRootUri, noteUri, options = {}) {
 			? String(options.text)
 			: await readNoteTextPreferOpen(noteUri);
 	const original = String(text || '').replace(/\r\n/g, '\n');
+	if (await isSharedProjectNote(kbRootUri, noteUri)) {
+		const claimed = parseFileEntityFromLines(original.split('\n'));
+		const claimedFileId =
+			claimed && Number.isFinite(claimed.fileNum) ? claimed.fileNum : null;
+		const ownership = await resolveFileIdOwnership(kbRootUri, noteUri, claimedFileId);
+		let indexUpdated = false;
+		if (options.persistIndex !== false) {
+			await persistReconcileUpdate(
+				kbRootUri,
+				noteUri,
+				original,
+				ownership.fileId,
+				MODE_EXISTING,
+				options.context
+			);
+			indexUpdated = true;
+		}
+		return {
+			text: original,
+			changed: false,
+			fileId: ownership.fileId,
+			fileEntityId: ownership.fileEntityId,
+			mode: ownership.mode,
+			indexedPath: ownership.indexedPath,
+			appliedToEditor: false,
+			wroteToDisk: false,
+			indexUpdated
+		};
+	}
 	let lines = original.split('\n');
 
 	const claimed = parseFileEntityFromLines(lines);

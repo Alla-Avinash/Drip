@@ -152,6 +152,20 @@ CREATE INDEX idx_issue_parent_key ON issue_metadata(parent_issue_key);
 CREATE INDEX idx_issue_project    ON issue_metadata(project_id);
 
 -- -----------------------------------------------------------------------------
+-- issue_teams — issue → team assignment, keyed by issue number (i-N) not file
+-- location, so a project's teams are one clean, separable table. `team` is the
+-- team name (matches project.json teams[].name).
+-- -----------------------------------------------------------------------------
+CREATE TABLE issue_teams (
+	project_id INTEGER NOT NULL,
+	issue_key  TEXT NOT NULL,
+	team       TEXT NOT NULL,
+	PRIMARY KEY (project_id, issue_key),
+	FOREIGN KEY (project_id, issue_key) REFERENCES issue_metadata(project_id, issue_key) ON DELETE CASCADE
+);
+CREATE INDEX idx_issue_teams_team ON issue_teams(team);
+
+-- -----------------------------------------------------------------------------
 -- concept_metadata — fixed columns for a concept heading (c-N) in a project
 -- _concepts folder. concept_key = c-N's integer number.
 -- -----------------------------------------------------------------------------

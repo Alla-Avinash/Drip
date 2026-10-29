@@ -73,6 +73,7 @@ These rules apply to anyone developing the project and changing the codebase. Th
 - No automated tests unless explicitly requested — the user verifies manually.
 - Explain non-trivial moves in one line if necessary: **where** the code went and **why**.
 - **Debugging:** touch only the minimal required files — don't fix unrelated code.
+- **Migrations:** never add schema/data migration logic on your own. If you think a migration is needed, say so and ask for approval first — do not implement it preemptively. The user decides whether a one-time data/schema migration is wanted.
 - **Automated tests:** after a fix, give a short (3-line) note on whether an automated test is worth adding — only if absolutely necessary.
 - **Refactoring:** if a pattern becomes cluttered after many edits and no longer fits the goal of an easy-to-understand codebase, tell the user — propose the changes, why they're needed, and the benefits — rather than continuing the old format. Refactors and merges must follow standard coding conventions and best practices so the code stays clean and simple.
 

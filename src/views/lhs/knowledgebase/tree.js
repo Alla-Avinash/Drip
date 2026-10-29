@@ -25,17 +25,29 @@ const COMPONENT_ENTRIES = [
 class DripTreeDataProvider {
 	/**
 	 * @param {*} state
-	 * @param {'components' | 'knowledge' | 'drafts' | 'recents' | 'dailyNotes'} mode
+	 * @param {'components' | 'knowledge' | 'projects' | 'drafts' | 'recents' | 'dailyNotes'} mode
 	 */
 	constructor(state, mode) {
 		this.state = state;
 		this.mode = mode;
 		this.onDidChangeTreeDataEmitter = new vscode.EventEmitter();
 		this.onDidChangeTreeData = this.onDidChangeTreeDataEmitter.event;
+		/** @type {import('vscode').TreeItem[]} */
+		this._lastProjectItems = [];
+		this.presenceDecorations = new SharedProjectPresenceDecorationProvider();
 	}
 
 	refresh() {
 		this.onDidChangeTreeDataEmitter.fire(undefined);
+	}
+
+	/**
+	 * Online count uses a file decoration (badge), never a tree reload.
+	 * Reloading this tree is what draws the loading bar under Projects.
+	 */
+	refreshPresence() {
+		if (this.mode !== 'projects') return;
+		void this.presenceDecorations.updateFromProjectItems(this._lastProjectItems);
 	}
 
 	async getChildren(element) {
@@ -63,6 +75,10 @@ class DripTreeDataProvider {
 
 			if (this.mode === 'dailyNotes') {
 				return this.getDailyNotesChildren(element);
+			}
+
+			if (this.mode === 'projects') {
+				return this.getProjectsChildren(element);
 			}
 
 			if (!element) {
@@ -96,6 +112,35 @@ class DripTreeDataProvider {
 			};
 			return item;
 		});
+	}
+
+	async getProjectsChildren(element) {
+		const kbRoot = this.state.getVerifiedKnowledgeBaseRoot();
+		if (!kbRoot) {
+			const item = new vscode.TreeItem('Select a Knowledge Base first', vscode.TreeItemCollapsibleState.None);
+			item.contextValue = 'dripProjectsEmpty';
+			return [item];
+		}
+		const { ensureProjectsHome } = require('../../../startup/projectsDrip');
+		const home = await ensureProjectsHome(kbRoot);
+		if (!element) {
+			const kids = await this.state.getKnowledgeBaseTreeChildren(home);
+			if (!kids.length) {
+				this._lastProjectItems = [];
+				const empty = new vscode.TreeItem('No projects yet', vscode.TreeItemCollapsibleState.None);
+				empty.description = 'Use + to create or join a project';
+				empty.iconPath = new vscode.ThemeIcon('folder-library');
+				empty.contextValue = 'dripProjectsEmpty';
+				return [empty];
+			}
+			this._lastProjectItems = kids;
+			void this.presenceDecorations.updateFromProjectItems(kids);
+			return kids;
+		}
+		if (element.kind === 'folder') {
+			return this.state.getKnowledgeBaseTreeChildren(element.uri);
+		}
+		return [];
 	}
 
 	async getKnowledgeRootChildren() {
@@ -251,6 +296,55 @@ class DripTreeDataProvider {
 		}
 
 		return [];
+	}
+}
+
+/**
+ * Green online count on a shared project folder. File decorations do not
+ * reload the tree, so they never show the Projects loading bar.
+ */
+class SharedProjectPresenceDecorationProvider {
+	constructor() {
+		this._emitter = new vscode.EventEmitter();
+		this.onDidChangeFileDecorations = this._emitter.event;
+		/** @type {Map<string, number>} */
+		this._countByFsPath = new Map();
+	}
+
+	/**
+	 * @param {import('vscode').Uri} uri
+	 */
+	provideFileDecoration(uri) {
+		if (!uri) return undefined;
+		const n = this._countByFsPath.get(uri.fsPath);
+		if (!n) return undefined;
+		const badge = n > 99 ? '99' : String(n);
+		return new vscode.FileDecoration(
+			badge,
+			n === 1 ? '1 online' : `${n} online`,
+			new vscode.ThemeColor('charts.green')
+		);
+	}
+
+	/**
+	 * @param {{ uri?: import('vscode').Uri, contextValue?: string }[]} items
+	 */
+	async updateFromProjectItems(items) {
+		const { readProjectRecord } = require('../../../peer/projectSidecar');
+		const { onlineCountFor, isSharingActive } = require('../../../peer/projectLanSync');
+		const next = new Map();
+		for (const item of items || []) {
+			if (!item || item.contextValue !== 'dripProjectFolder' || !item.uri) continue;
+			try {
+				const rec = await readProjectRecord(item.uri);
+				if (!rec || !rec.shared || !rec.projectId || !isSharingActive(rec.projectId)) continue;
+				next.set(item.uri.fsPath, Math.max(1, onlineCountFor(rec.projectId)));
+			} catch {
+				/* sidecar may be missing */
+			}
+		}
+		this._countByFsPath = next;
+		this._emitter.fire(undefined);
 	}
 }
 

@@ -7,9 +7,10 @@
  * KB tag graph (nodes + links + relation types + groups), plus an optional per-node
  * `description` used by the Project View's flat "Tags" popover.
  *
- * Stored as one JSON file per project under `<kb>/.dripindex/project-tags.drip/`, keyed
- * by the project's folder prefix (slugified). A project's flat tag list is derived from
- * its root nodes (`parentId === null`), so the graph and the flat list stay in sync.
+ * Stored in the project's `.drip/tags.json` when that sidecar exists (shared projects),
+ * otherwise as one JSON file under `<kb>/.dripindex/project-tags.drip/` keyed by the
+ * folder-prefix slug. A project's flat tag list is derived from its root nodes
+ * (`parentId === null`), so the graph and the flat list stay in sync.
  */
 
 const vscode = require('vscode');
@@ -114,6 +115,13 @@ function normalizeProjectGraph(raw) {
 async function loadProjectGraph(kbRootUri, folderPrefix) {
 	if (!kbRootUri) return emptyProjectGraph();
 	try {
+		const { projectFolderUriFromPrefix, readTagsFile } = require('../peer/projectSidecar');
+		const sidecar = await readTagsFile(projectFolderUriFromPrefix(kbRootUri, folderPrefix));
+		if (sidecar) return normalizeProjectGraph(sidecar);
+	} catch {
+		/* fall through to the legacy KB-level file */
+	}
+	try {
 		const buf = await vscode.workspace.fs.readFile(projectTagsFileUri(kbRootUri, folderPrefix));
 		const parsed = JSON.parse(Buffer.from(buf).toString('utf8'));
 		return normalizeProjectGraph(parsed);
@@ -128,8 +136,6 @@ async function loadProjectGraph(kbRootUri, folderPrefix) {
  * @param {ReturnType<typeof emptyProjectGraph>} graph
  */
 async function saveProjectGraph(kbRootUri, folderPrefix, graph) {
-	const dir = projectTagsDirUri(kbRootUri);
-	await vscode.workspace.fs.createDirectory(dir);
 	const norm = normalizeProjectGraph(graph);
 	const payload = {
 		version: 2,
@@ -138,6 +144,18 @@ async function saveProjectGraph(kbRootUri, folderPrefix, graph) {
 		links: norm.links,
 		groups: norm.groups
 	};
+	try {
+		const { projectFolderUriFromPrefix, isProjectShared, writeTagsFile, readTagsFile } = require('../peer/projectSidecar');
+		const folderUri = projectFolderUriFromPrefix(kbRootUri, folderPrefix);
+		if ((await isProjectShared(folderUri)) || (await readTagsFile(folderUri))) {
+			await writeTagsFile(folderUri, payload);
+			return;
+		}
+	} catch {
+		/* fall through */
+	}
+	const dir = projectTagsDirUri(kbRootUri);
+	await vscode.workspace.fs.createDirectory(dir);
 	await vscode.workspace.fs.writeFile(
 		projectTagsFileUri(kbRootUri, folderPrefix),
 		Buffer.from(JSON.stringify(payload, null, 2), 'utf8')

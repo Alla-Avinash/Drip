@@ -288,6 +288,30 @@ async function listProjectChildrenFromIndex(kbRootUri, projectFolderPrefix) {
 				.all(projectId);
 		}
 
+		/** @type {Map<string, string>} */
+		const teamByIssueKey = new Map();
+		try {
+			const teamRows = db.native
+				.prepare(
+					`SELECT project_id AS projectId, issue_key AS issueKey, team AS team
+					 FROM issue_teams`
+				)
+				.all();
+			for (const raw of teamRows || []) {
+				const row = asRow(raw);
+				const key = String(row.issueKey || '')
+					.trim()
+					.toLowerCase()
+					.replace(/^i-(\d+)$/i, (_, n) => `i-${parseInt(n, 10)}`);
+				teamByIssueKey.set(
+					`${Number(row.projectId) || 0}:${key}`,
+					String(row.team || '')
+				);
+			}
+		} catch {
+			/* issue_teams may be empty */
+		}
+
 		const issues = (issueRows || []).map(r => {
 			const row = asRow(r);
 			const fileId = Number(row.fileId) || 0;
@@ -334,7 +358,8 @@ async function listProjectChildrenFromIndex(kbRootUri, projectFolderPrefix) {
 					row.deadline != null && Number.isFinite(Number(row.deadline))
 						? Number(row.deadline)
 						: null,
-				featurePathPrefix
+				featurePathPrefix,
+				team: teamByIssueKey.get(`${Number(row.projectId) || projectId}:${issueKey || ''}`) || ''
 			};
 		});
 
