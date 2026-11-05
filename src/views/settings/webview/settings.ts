@@ -2618,6 +2618,37 @@ interface Window {
 		if (btnStartTour) {
 			btnStartTour.addEventListener('click', startTour);
 		}
+
+		/**
+		 * Short prompt that sends ChatGPT to the long-form GitHub context folder
+		 * (plus a tiny fallback summary if browsing fails).
+		 */
+		var DRIP_CONTEXT_GITHUB =
+			'https://github.com/Alla-Avinash/Drip/tree/production/context';
+		var DRIP_CHATGPT_PROMPT = [
+			'You are my DRIP coach for the VS Code/Cursor extension DRIP (plain-text knowledge base + project tracker).',
+			'',
+			'FIRST: open and read the official context docs on GitHub (start with README.md, then the other files as needed):',
+			DRIP_CONTEXT_GITHUB,
+			'',
+			'Read at least: product-overview.md, learning-curve.md, best-practices.md, faq.md, ui-and-settings-map.md, project-sharing-p2p.md, mcp-llm-search.md.',
+			'',
+			'Those docs are ground truth for: who DRIP is for, usefulness, learning curve, best practices, FAQs, where UI/settings live, peer-to-peer project sharing/sync, Retriever/embeddings, Lightweight LLM, MCP setup, and GitHub backup vs live share.',
+			'',
+			'Rules: Do not invent a DRIP note cloud or fake menus. Prefer concrete UI paths (sidebar / Settings section / command). If a doc and my screen disagree, ask what I see. If you cannot fetch GitHub, say so and use this fallback: local files KB; in .d.txt persistent headings start with hash, space, then a dot before the type/title; projects then features then issues in Project View; share is opt-in P2P per project via Settings then Project Sharing or Join; MCP is Settings then MCP connection (localhost URL and token); backup is not live share.',
+			'',
+			'THEN: (1) Confirm you read the context folder. (2) Give a few practical tips to get value immediately — do not assign a day/week study plan; DRIP is meant to be used first, learned as you go. (3) Answer my follow-up questions using those docs — FAQ-style doubts, where a component lives, peer-to-peer share, MCP setup, and whether DRIP fits my use case.'
+		].join('\n');
+
+		var btnAskChatgpt = document.getElementById('btn-ask-chatgpt');
+		if (btnAskChatgpt) {
+			btnAskChatgpt.addEventListener('click', function () {
+				vscode.postMessage({
+					type: 'openExternalUrl',
+					url: 'https://chatgpt.com/?q=' + encodeURIComponent(DRIP_CHATGPT_PROMPT)
+				});
+			});
+		}
 		var btnTourClose = document.getElementById('tour-close');
 		var btnTourNext = document.getElementById('tour-next');
 		var btnTourBack = document.getElementById('tour-back');

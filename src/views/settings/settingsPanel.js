@@ -322,6 +322,19 @@ function wireSettingsWebviewMessageHandler(webview, state, context) {
 						vscode.Uri.parse((await require('../../integrations/mcp/mcpBridge').getMcpStatus()).healthUrl)
 					);
 					break;
+				case 'openExternalUrl': {
+					const raw = String(message.url || '').trim();
+					if (!raw) break;
+					let uri;
+					try {
+						uri = vscode.Uri.parse(raw);
+					} catch {
+						break;
+					}
+					if (uri.scheme !== 'http' && uri.scheme !== 'https') break;
+					await vscode.env.openExternal(uri);
+					break;
+				}
 			case 'llmAddProfile':
 				{
 					await require('../../llm/llmSettings').addLlmProfile(context, message.profile);

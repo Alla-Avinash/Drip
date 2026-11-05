@@ -31,6 +31,14 @@
 				<p>DRIP is a <strong>plain-text personal knowledge base</strong> plus a <strong>project tracker</strong>, built to help you record — in plain English — what you've built, why, and what still needs doing. Your notes stay as ordinary files on disk; DRIP indexes them so they can be searched, sorted, and browsed.</p>
 
 				<div class="card">
+					<h3 style="margin-top:0;">Ask ChatGPT how to use DRIP</h3>
+					<p class="meta">Opens ChatGPT in your browser and points it at the DRIP <strong>GitHub context docs</strong> (overview, learning curve, best practices, FAQ, UI map, peer-to-peer sharing, MCP/search). Ask follow-ups there — where something lives, how to share, how to configure MCP, or whether DRIP fits you. Those docs must be on GitHub (<code>production</code> branch) for ChatGPT to fetch them.</p>
+					<div class="actions">
+						<button id="btn-ask-chatgpt" type="button">Open ChatGPT with DRIP context</button>
+					</div>
+				</div>
+
+				<div class="card">
 					<h3 style="margin-top:0;">The two note formats</h3>
 					<p class="meta">DRIP reads two kinds of notes. Both live in your knowledge base folder; choose whichever fits how you write.</p>
 					<table>
@@ -65,6 +73,18 @@
 						<li><strong>Track work.</strong> Use <strong>Projects</strong> for projects → features → issues, and the <strong>Project View</strong> to browse them.</li>
 						<li><strong>Search and reuse.</strong> Use the <strong>Retriever</strong> to search by meaning, and the <strong>Tags Graph</strong> to see how tags connect.</li>
 					</ol>
+				</div>
+
+				<div class="card">
+					<h3 style="margin-top:0;">Project sharing</h3>
+					<p class="meta">A project can stay <strong>solo</strong> on this machine, or become <strong>shared</strong> so other people can join. Only that project folder is shared — the rest of your knowledge base stays private. There is no DRIP server.</p>
+					<ul class="about-steps">
+						<li><strong>Share.</strong> Open <strong>Project Sharing</strong> (or the project gear → Share settings), pick the project, and share it. You become the first admin.</li>
+						<li><strong>Invite &amp; join.</strong> Copy a project invite and send it. The other person pastes it in <strong>Join a Project</strong> (or Join new Project). An admin admits them and picks their role and teams.</li>
+						<li><strong>Live sync.</strong> While sharing is on and DRIP is open, members exchange changes in the background. Admins, members, and updaters can pause or resume sharing on this machine.</li>
+						<li><strong>Account.</strong> Sharing uses the one identity on this PC (<strong>Account</strong>): GitHub name when signed in, otherwise the guest PC name.</li>
+					</ul>
+					<p class="meta" style="margin-top:8px;">Full controls live in <strong>Project Sharing</strong>; identity and GitHub sign-in live in <strong>Account</strong>.</p>
 				</div>
 
 				<div class="card">
