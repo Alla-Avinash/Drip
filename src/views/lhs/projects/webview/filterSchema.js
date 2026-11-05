@@ -42,6 +42,65 @@
 	}
 
 	/**
+	 * Sentinel for "no value set" in enum filters (shown as "None" in the UI).
+	 * Used by Features and Issues views (and any other consumer of this module).
+	 */
+	const NONE_FILTER_VALUE = '__none__';
+	const NONE_FILTER_LABEL = 'None';
+
+	/**
+	 * @param {unknown} value
+	 * @returns {boolean}
+	 */
+	function isNoneFilterValue(value) {
+		return String(value || '') === NONE_FILTER_VALUE;
+	}
+
+	/**
+	 * Whether an item's field value counts as empty (no enum / no text set).
+	 * @param {unknown} actual
+	 * @returns {boolean}
+	 */
+	function isEmptyEnumActual(actual) {
+		if (actual == null) return true;
+		return String(actual).trim() === '';
+	}
+
+	/**
+	 * Checkbox choices for an enum filter: the field's values, plus a trailing "None"
+	 * for issues/projects that leave that key blank.
+	 * @param {{ values?: string[] } | null | undefined} field
+	 * @returns {{ value: string, label: string }[]}
+	 */
+	function enumFilterChoices(field) {
+		/** @type {{ value: string, label: string }[]} */
+		const out = [];
+		const seen = new Set();
+		(field && field.values ? field.values : []).forEach(function (v) {
+			const value = String(v);
+			if (!value || seen.has(value) || value === NONE_FILTER_VALUE) return;
+			seen.add(value);
+			out.push({ value: value, label: value });
+		});
+		out.push({ value: NONE_FILTER_VALUE, label: NONE_FILTER_LABEL });
+		return out;
+	}
+
+	/**
+	 * Does `actual` match one selected enum filter value (including None)?
+	 * @param {unknown} actual
+	 * @param {string} filterValue
+	 * @returns {boolean}
+	 */
+	function enumFilterValueMatches(actual, filterValue) {
+		if (isNoneFilterValue(filterValue)) return isEmptyEnumActual(actual);
+		if (isEmptyEnumActual(actual)) return false;
+		const a = String(actual);
+		const b = String(filterValue);
+		return a === b || a.toLowerCase() === b.toLowerCase();
+	}
+
+	/**
 	 * @param {unknown} value
 	 * @returns {string|null} normalized enum value (lowercased, trimmed, or null when empty)
 	 */
@@ -141,11 +200,17 @@
 	window.DripFilter = {
 		FIELD_KINDS,
 		ORDER_DIRECTIONS,
+		NONE_FILTER_VALUE,
+		NONE_FILTER_LABEL,
 		orderDirectionsForKind,
 		hydrate,
 		fieldById,
 		enumRank,
 		normEnum,
+		isNoneFilterValue,
+		isEmptyEnumActual,
+		enumFilterChoices,
+		enumFilterValueMatches,
 		deadlineOf,
 		issueCountOf,
 		issueStatusCountsOf

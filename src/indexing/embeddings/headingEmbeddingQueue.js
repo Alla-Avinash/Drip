@@ -11,7 +11,7 @@
 
 /**
  * @typedef {'upsert' | 'delete'} HeadingEmbeddingJobReason
- * @typedef {{ fileId: number, headingId: number, reason: HeadingEmbeddingJobReason }} HeadingEmbeddingJob
+ * @typedef {{ fileId: number, headingId: number, reason: HeadingEmbeddingJobReason, zone?: 'document' | 'project' }} HeadingEmbeddingJob
  */
 
 /** @type {Map<string, Map<string, HeadingEmbeddingJob>>} kbKey → jobKey → job */
@@ -62,13 +62,14 @@ function getQueue(kbRootUri) {
  * @param {number} headingId
  * @param {HeadingEmbeddingJobReason} reason
  */
-function enqueueHeadingEmbeddingJob(kbRootUri, fileId, headingId, reason) {
+function enqueueHeadingEmbeddingJob(kbRootUri, fileId, headingId, reason, zone) {
 	const q = getQueue(kbRootUri);
 	const k = jobKey(fileId, headingId);
 	q.set(k, {
 		fileId: Number(fileId),
 		headingId: Number(headingId),
-		reason: reason === 'delete' ? 'delete' : 'upsert'
+		reason: reason === 'delete' ? 'delete' : 'upsert',
+		zone: zone === 'project' ? 'project' : 'document'
 	});
 }
 
@@ -82,7 +83,7 @@ function enqueueHeadingEmbeddingJobs(kbRootUri, headings, reason) {
 		if (h == null || h.fileId == null || h.headingId == null) {
 			continue;
 		}
-		enqueueHeadingEmbeddingJob(kbRootUri, h.fileId, h.headingId, reason);
+		enqueueHeadingEmbeddingJob(kbRootUri, h.fileId, h.headingId, reason, h.zone);
 	}
 }
 

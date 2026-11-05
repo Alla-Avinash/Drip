@@ -190,9 +190,12 @@ class DripProjectViewPanel {
 					case 'clearProject':
 						this._selectedPrefix = '';
 						break;
-					case 'openHeading':
-						await this.openHeading(message);
-						break;
+				case 'openHeading':
+					await this.openHeading(message);
+					break;
+				case 'searchIssues':
+					await this.searchIssues(message);
+					break;
 					case 'createIssue':
 						await this.createIssue(message);
 						break;
@@ -350,7 +353,57 @@ class DripProjectViewPanel {
 	}
 
 	/**
-	 * @param {{ folderPrefix?: string, parentIssueId?: string, title?: string }} message
+	 * Semantic / recommended issue search for the project's search bar. Returns an
+	 * ordered list of matching issue keys; the webview filters + orders its local issues.
+	 * @param {{ folderPrefix?: string, query?: string, searchEngine?: string, topN?: number, seq?: number }} message
+	 */
+	async searchIssues(message) {
+		const kbRoot = this.state.getVerifiedKnowledgeBaseRoot && this.state.getVerifiedKnowledgeBaseRoot();
+		const prefix = String(message.folderPrefix || this._selectedPrefix || '');
+		const query = String(message.query || '').trim();
+		const seq = Number(message.seq) || 0;
+		if (!kbRoot || !prefix || !query) {
+			await this.panel.webview.postMessage({
+				type: 'issueSearchResult',
+				folderPrefix: prefix,
+				query,
+				searchEngine: String(message.searchEngine || 'recommended'),
+				seq,
+				order: []
+			});
+			return;
+		}
+		try {
+			const { searchProjectIssues } = require('../../../indexing/projectIssueSearch');
+			const result = await searchProjectIssues(kbRoot, prefix, {
+				query,
+				searchEngine: message.searchEngine,
+				topN: message.topN,
+				seq
+			});
+			await this.panel.webview.postMessage({
+				type: 'issueSearchResult',
+				folderPrefix: prefix,
+				query: result.query,
+				searchEngine: result.searchEngine,
+				seq: result.seq,
+				order: result.order
+			});
+		} catch (err) {
+			console.error('[DRIP] issue search failed', err);
+			await this.panel.webview.postMessage({
+				type: 'issueSearchResult',
+				folderPrefix: prefix,
+				query,
+				searchEngine: String(message.searchEngine || 'recommended'),
+				seq,
+				order: []
+			});
+		}
+	}
+
+	/**
+	 * @param {{ folderPrefix?: string, parentIssueId?: string, title?: string, team?: string, featurePath?: string, featureFolderPrefix?: string, isFolderIndex?: boolean }} message
 	 */
 	async createIssue(message) {
 		const kbRoot = this.state.getVerifiedKnowledgeBaseRoot && this.state.getVerifiedKnowledgeBaseRoot();
@@ -375,13 +428,51 @@ class DripProjectViewPanel {
 				return;
 			}
 		}
-		const { createIssueInProjectInbox } = require('../../../document/project/projectIssuesMailbox');
+
+		const {
+			createIssueInProjectInbox,
+			resolveFeatureMailboxTarget
+		} = require('../../../document/project/projectIssuesMailbox');
+		const { readTextFile, buildNewNoteFile, writeTextFile: writeTextFileRaw } = require('../../../document/dripNoteKbOps.js');
+		const { markExpectedDiskWrite } = require('../../../shared/documentEditGuard');
+		const { allocateNextEntityNumber } = require('../../../indexing/dripTxt/dripTxtIndex.js');
+
+		/** @type {import('vscode').Uri | undefined} */
+		let targetUri;
+		const featureRel = String(
+			message.featureFolderPrefix || message.featurePath || ''
+		)
+			.replace(/\\/g, '/')
+			.replace(/\/+$/, '');
+		if (featureRel) {
+			const featureUri = vscode.Uri.joinPath(
+				kbRoot,
+				...featureRel.split('/').filter(Boolean)
+			);
+			const target = await resolveFeatureMailboxTarget(featureUri);
+			if (target.kind === 'folder') {
+				try {
+					await readTextFile(target.mailboxUri);
+				} catch {
+					const n = await allocateNextEntityNumber(kbRoot, target.mailboxUri).catch(() => 0);
+					const content = buildNewNoteFile(
+						{ title: 'inbox', content: '', metadataFilename: 'inbox' },
+						{ fileEntityNumber: n }
+					);
+					markExpectedDiskWrite(target.mailboxUri);
+					await writeTextFileRaw(target.mailboxUri, content);
+				}
+			}
+			targetUri = target.mailboxUri;
+		}
+
 		const result = await createIssueInProjectInbox(kbRoot, folderUri, {
 			title,
 			parentIssueId: message.parentIssueId || null,
 			team: String(message.team || ''),
 			attributes: message.team ? { team: String(message.team) } : {},
-			context: this.context
+			context: this.context,
+			targetUri
 		});
 		void vscode.window.setStatusBarMessage(`Created ${result.issueId}`, 2500);
 		await this.loadProject(prefix);

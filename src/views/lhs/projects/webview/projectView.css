@@ -97,10 +97,23 @@ button.ghost {
 	text-overflow: ellipsis;
 }
 .issue-toolbar {
-	margin-bottom: 4px;
+	display: flex;
+	flex-direction: column;
+	align-items: stretch; /* override .toolbar's align-items:center so the search bar stays full-width */
+	gap: 8px;
+	margin-bottom: 16px;
+}
+.issue-toolbar-row {
+	display: flex;
+	gap: 8px;
+	flex-wrap: nowrap;
+	align-items: center;
+	width: 100%;
 }
 .issue-toolbar .proj-search {
-	flex: 1;
+	flex: 1 1 auto;
+	min-width: 0;
+	width: auto;
 }
 .proj-grid {
 	display: grid;
@@ -131,6 +144,56 @@ button.ghost {
 }
 .proj-search:focus {
 	outline: 1px solid var(--vscode-focusBorder);
+}
+.search-type-anchor {
+	position: relative;
+	flex: 0 0 auto;
+}
+/* Same footprint as the Retriever's search-engine icon button. */
+.search-type-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 32px;
+	padding: 0;
+	flex-shrink: 0;
+	cursor: pointer;
+}
+.search-type-btn.open,
+.search-type-btn.has-engine {
+	border-color: var(--vscode-focusBorder);
+}
+/* Retriever-style engine panel: label + select (+ optional top-embeddings). */
+.search-engine-menu {
+	right: 0;
+	left: auto;
+	min-width: 240px;
+	padding: 8px;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+.search-engine-menu .gs-label {
+	margin-bottom: 2px;
+}
+.search-engine-select {
+	width: 100%;
+	font-size: 12px;
+}
+.search-engine-top-label {
+	margin-top: 6px;
+}
+.top-emb-input {
+	width: 100%;
+	box-sizing: border-box;
+	font: inherit;
+	font-size: 12px;
+	color: var(--fg);
+	background: var(--input);
+	border: 1px solid var(--input-border, var(--border));
+	border-radius: 2px;
+	padding: 6px 8px;
 }
 .proj-select {
 	font: inherit;
@@ -666,8 +729,9 @@ button.ghost {
 	left: 0;
 	top: 50%;
 	width: 100%;
-	height: 1px;
-	background: var(--fg);
+	/* Hairline stub — border draws thinner/cleaner than a filled 1px bar. */
+	height: 0;
+	border-top: 1px solid var(--fg);
 }
 .tg-corner::before {
 	content: '';
@@ -684,8 +748,8 @@ button.ghost {
 	left: 0;
 	top: 50%;
 	width: 100%;
-	height: 1px;
-	background: var(--fg);
+	height: 0;
+	border-top: 1px solid var(--fg);
 }
 .ghost-issue {
 	display: flex;
@@ -715,17 +779,6 @@ button.ghost {
 	padding: 0 5px;
 	opacity: 0.9;
 }
-.parent-chain-toggle {
-	display: flex;
-	align-items: center;
-	gap: 5px;
-	font-size: 11px;
-	color: var(--muted);
-	white-space: nowrap;
-	cursor: pointer;
-	user-select: none;
-	margin-left: 4px;
-}
 .issue {
 	display: flex;
 	align-items: center;
@@ -737,11 +790,56 @@ button.ghost {
 .issue.tree { gap: 4px; }
 .issue:first-child { border-top: none; }
 .issue:hover { background: var(--list-hover); }
-.issue .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.issue-btn {
-	flex-shrink: 0;
+.issue .name {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+/* Compact right-side metadata: values only, capped width so the title keeps most of the row. */
+.issue-meta {
+	display: inline-flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 4px;
+	flex: 0 1 auto;
+	max-width: 38%;
+	min-width: 0;
+	overflow: hidden;
+}
+.issue-meta .pill {
+	flex: 0 1 auto;
+	min-width: 0;
+	max-width: 6.5em;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 	font-size: 11px;
-	padding: 2px 8px;
+	padding: 0 4px;
+}
+.issue-menu-anchor {
+	flex-shrink: 0;
+}
+.issue-menu-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 18px;
+	height: 18px;
+	min-height: 0;
+	padding: 0;
+	font-size: 14px;
+	line-height: 1;
+	letter-spacing: 0;
+	cursor: pointer;
+}
+.issue-menu-btn.open {
+	border-color: var(--vscode-focusBorder);
+}
+.issue-menu-panel {
+	min-width: 140px;
+	z-index: 40;
 }
 .inline-sub {
 	display: flex;
@@ -1379,9 +1477,16 @@ button.ghost {
 	flex-shrink: 0;
 }
 
-/* Feature row "Overview" button (pushed to the right edge of the summary). */
-.feat-overview {
+/* Feature row actions: Overview then + (new issue), pushed to the right. */
+.feat-actions {
 	margin-left: auto;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	flex: none;
+}
+.feat-add-issue,
+.feat-overview {
 	flex: none;
 	font-size: 11px;
 	padding: 3px 10px;
@@ -1391,6 +1496,15 @@ button.ghost {
 	background: transparent;
 	color: var(--fg);
 }
+.feat-add-issue {
+	width: 26px;
+	padding-left: 0;
+	padding-right: 0;
+	font-size: 14px;
+	line-height: 1;
+	text-align: center;
+}
+.feat-add-issue:hover,
 .feat-overview:hover {
 	background: var(--list-hover);
 }

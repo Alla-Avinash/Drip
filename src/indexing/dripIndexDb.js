@@ -79,15 +79,29 @@ function typedMetadataTablesForZone(zone) {
 }
 
 /**
+ * Tag embedding upsert targets with their zone so the drain encodes them into the
+ * right DB (`index.drip` for documents, `projects.drip` for project headings).
+ * @template {{ fileId: number, headingId: number }} T
+ * @param {T[]} targets
+ * @param {'project' | 'document'} zone
+ * @returns {T[]}
+ */
+function tagEmbeddingTargetsZone(targets, zone) {
+	const z = zone === 'project' ? 'project' : 'document';
+	for (const t of targets || []) {
+		if (t && typeof t === 'object') t.zone = z;
+	}
+	return targets;
+}
+
+/**
  * Remove all heading-scoped rows for a file (typed metadata + tags + refs).
  * @param {import('./db/dripSqlite').DripSqliteDatabase} db
  * @param {number} fileId
  * @param {'project' | 'document'} zone
  */
 function deleteFileHeadingScopedRows(db, fileId, zone) {
-	if (zone !== 'project') {
-		deleteFileEmbeddings(db, fileId);
-	}
+	deleteFileEmbeddings(db, fileId);
 	db.run('DELETE FROM searchtags WHERE file_id = ?', [fileId]);
 	db.run('DELETE FROM relations WHERE from_file_id = ?', [fileId]);
 	for (const table of typedMetadataTablesForZone(zone)) {
@@ -106,7 +120,7 @@ function deleteFileHeadingScopedRows(db, fileId, zone) {
  * @param {'project' | 'document'} zone
  */
 function deleteHeadingScopedRows(db, fileId, headingId, options, zone) {
-	if (zone !== 'project' && !(options && options.keepEmbedding)) {
+	if (!(options && options.keepEmbedding)) {
 		deleteHeadingEmbedding(db, fileId, headingId);
 	}
 	db.run('DELETE FROM searchtags WHERE file_id = ? AND heading_id = ?', [fileId, headingId]);
@@ -958,6 +972,7 @@ async function rebuildDripIndex(kbRootUri, context) {
 		// Reset document scope.
 		handle.db.run('BEGIN');
 		clearAllHeadingEmbeddings(handle.db);
+		clearAllHeadingEmbeddings(projectHandle.db);
 		try {
 			require('./embeddings/folderEmbeddingStore').clearAllFolderEmbeddings(handle.db);
 		} catch (err) {
@@ -1162,10 +1177,7 @@ async function applyParsedNoteToIndex(kbRootUri, relPath, parsed, context, optio
 								deleteHeadingScopedRows(scopeDb, fileId, headingId, undefined, zone);
 								continue;
 							}
-							const plan =
-								zone === 'project'
-									? { needUpsert: false, keepEmbedding: true }
-									: planHeadingEmbeddingRewrite(scopeDb, fileId, headingId, parsed);
+							const plan = planHeadingEmbeddingRewrite(scopeDb, fileId, headingId, parsed);
 							if (plan.needUpsert) {
 								upsertSet.add(headingId);
 							}
@@ -1183,9 +1195,9 @@ async function applyParsedNoteToIndex(kbRootUri, relPath, parsed, context, optio
 							relationTypeIdByLower,
 							zone
 						);
-						if (embeddingUpserts && zone === 'document') {
+						if (embeddingUpserts) {
 							for (const headingId of upsertSet) {
-								embeddingUpserts.push({ fileId, headingId });
+								embeddingUpserts.push({ fileId, headingId, zone });
 							}
 						}
 					}
@@ -1202,8 +1214,10 @@ async function applyParsedNoteToIndex(kbRootUri, relPath, parsed, context, optio
 						relationTypeIdByLower,
 						zone
 					);
-					if (embeddingUpserts && zone === 'document') {
-						embeddingUpserts.push(...collectAllHeadingEmbeddingTargets(fileId, parsed));
+					if (embeddingUpserts) {
+						embeddingUpserts.push(
+							...tagEmbeddingTargetsZone(collectAllHeadingEmbeddingTargets(fileId, parsed), zone)
+						);
 					}
 				}
 			} else {
@@ -1238,8 +1252,10 @@ async function applyParsedNoteToIndex(kbRootUri, relPath, parsed, context, optio
 					relationTypeIdByLower,
 					zone
 				);
-				if (embeddingUpserts && zone === 'document') {
-					embeddingUpserts.push(...collectAllHeadingEmbeddingTargets(fileId, parsed));
+				if (embeddingUpserts) {
+					embeddingUpserts.push(
+						...tagEmbeddingTargetsZone(collectAllHeadingEmbeddingTargets(fileId, parsed), zone)
+					);
 				}
 			}
 
@@ -1422,8 +1438,10 @@ async function replaceParsedNoteAtFileId(kbRootUri, fileId, parsed, context, opt
 				relationTypeIdByLower,
 				zone
 			);
-			if (embeddingUpserts && zone === 'document') {
-				embeddingUpserts.push(...collectAllHeadingEmbeddingTargets(id, parsed));
+			if (embeddingUpserts) {
+				embeddingUpserts.push(
+					...tagEmbeddingTargetsZone(collectAllHeadingEmbeddingTargets(id, parsed), zone)
+				);
 			}
 			bumpNextFileIdCounter(fileDb, id);
 			if (scopeHandle !== fileHandle) {

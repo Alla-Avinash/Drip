@@ -41,6 +41,20 @@ function openDripIndexDb(...args) {
 }
 
 /**
+ * Open the heading DB for a job's zone: `projects.drip` for project headings,
+ * `index.drip` for document headings.
+ * @param {import('vscode').Uri} kbRootUri
+ * @param {'document' | 'project'} zone
+ * @returns {Promise<{ db: import('../db/dripSqlite').DripSqliteDatabase, close: () => void }>}
+ */
+async function openHeadingEmbeddingDb(kbRootUri, zone) {
+	if (zone === 'project') {
+		return require('../dripProjectDb').openDripProjectsDb(kbRootUri);
+	}
+	return openDripIndexDb(kbRootUri);
+}
+
+/**
  * @param {import('vscode').Uri | string} kbRootUri
  */
 function kbKey(kbRootUri) {
@@ -182,8 +196,9 @@ async function awaitHeadingEmbeddingsReady(kbRootUri, opts) {
  * @param {{ fileId: number, headingId: number, reason: string }} job
  */
 async function processOneJob(kbRootUri, job) {
+	const zone = job.zone === 'project' ? 'project' : 'document';
 	if (job.reason === 'delete') {
-		const handle = await openDripIndexDb(kbRootUri);
+		const handle = await openHeadingEmbeddingDb(kbRootUri, zone);
 		try {
 			deleteHeadingEmbedding(handle.db, job.fileId, job.headingId);
 		} finally {
@@ -193,14 +208,23 @@ async function processOneJob(kbRootUri, job) {
 	}
 
 	let text = '';
-	let modelId = '';
 	{
-		const handle = await openDripIndexDb(kbRootUri);
+		const handle = await openHeadingEmbeddingDb(kbRootUri, zone);
 		try {
 			if (getHeadingTitle(handle.db, job.fileId, job.headingId) === undefined) {
 				return;
 			}
 			text = buildHeadingEmbeddingTextFromDb(handle.db, job.fileId, job.headingId);
+		} finally {
+			handle.close();
+		}
+	}
+
+	// The embedding model is canonical in `index.drip` (both DBs stay on the same model).
+	let modelId = '';
+	{
+		const handle = await openDripIndexDb(kbRootUri);
+		try {
 			modelId = getEmbeddingMeta(handle.db).model;
 		} finally {
 			handle.close();
@@ -214,7 +238,7 @@ async function processOneJob(kbRootUri, job) {
 
 	const vector = await encodeHeadingEmbeddingText(text, { modelId });
 
-	const handle2 = await openDripIndexDb(kbRootUri);
+	const handle2 = await openHeadingEmbeddingDb(kbRootUri, zone);
 	try {
 		if (getHeadingTitle(handle2.db, job.fileId, job.headingId) === undefined) {
 			return;
@@ -233,36 +257,65 @@ async function runHeadingEmbeddingDrain(kbRootUri) {
 }
 
 /**
- * Enqueue every heading that has no embedding_id yet.
+ * Heading ids in a db that still lack an embedding vector.
+ * @param {import('../db/dripSqlite').DripSqliteDatabase} db
+ * @returns {{ fileId: number, headingId: number }[]}
+ */
+function collectMissingHeadingEmbeddings(db) {
+	/** @type {{ fileId: number, headingId: number }[]} */
+	const missing = [];
+	const rows = db.exec(
+		`
+		SELECT h.file_id, h.heading_id
+		FROM headings h
+		LEFT JOIN heading_embedding_records r
+			ON r.file_id = h.file_id AND r.heading_id = h.heading_id
+		WHERE r.embedding_id IS NULL
+		ORDER BY h.file_id, h.heading_id
+		`
+	);
+	if (rows.length) {
+		for (const row of rows[0].values) {
+			missing.push({
+				fileId: Number(row[0]),
+				headingId: Number(row[1])
+			});
+		}
+	}
+	return missing;
+}
+
+/**
+ * Enqueue every heading (document + project) that has no embedding_id yet.
  * @param {import('vscode').Uri} kbRootUri
  * @returns {Promise<number>} number enqueued
  */
 async function enqueueMissingHeadingEmbeddings(kbRootUri) {
-	const handle = await openDripIndexDb(kbRootUri);
-	/** @type {{ fileId: number, headingId: number }[]} */
+	/** @type {{ fileId: number, headingId: number, zone?: 'document' | 'project' }[]} */
 	const missing = [];
+
+	const handle = await openDripIndexDb(kbRootUri);
 	try {
-		const rows = handle.db.exec(
-			`
-			SELECT h.file_id, h.heading_id
-			FROM headings h
-			LEFT JOIN heading_embedding_records r
-				ON r.file_id = h.file_id AND r.heading_id = h.heading_id
-			WHERE r.embedding_id IS NULL
-			ORDER BY h.file_id, h.heading_id
-			`
-		);
-		if (rows.length) {
-			for (const row of rows[0].values) {
-				missing.push({
-					fileId: Number(row[0]),
-					headingId: Number(row[1])
-				});
-			}
+		for (const m of collectMissingHeadingEmbeddings(handle.db)) {
+			missing.push({ ...m, zone: 'document' });
 		}
 	} finally {
 		handle.close();
 	}
+
+	try {
+		const projectHandle = require('../dripProjectDb').openDripProjectsDb(kbRootUri);
+		try {
+			for (const m of collectMissingHeadingEmbeddings(projectHandle.db)) {
+				missing.push({ ...m, zone: 'project' });
+			}
+		} finally {
+			projectHandle.close();
+		}
+	} catch (err) {
+		console.warn('[DRIP] project heading embedding scan failed', err && err.message);
+	}
+
 	enqueueHeadingEmbeddingUpserts(kbRootUri, missing);
 	return missing.length;
 }

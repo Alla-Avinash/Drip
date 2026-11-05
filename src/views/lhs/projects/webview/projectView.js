@@ -72,6 +72,18 @@
 
 	// Issue detail search (filters issues within an open project).
 	let issueQuery = '';
+	// Issue search engine: 'word' | 'semantic' | 'recommended' (Retriever-style select).
+	let issueSearchType = 'recommended';
+	/** Top embeddings for semantic/recommended (user-editable, default 20, capped at 50). */
+	let issueTopEmbeddings = 20;
+	/** @type {Map<string, number> | null} ranked issue key → position (from host semantic search) */
+	let issueRankOrder = null;
+	let issueRankQuery = '';
+	let issueSearchPending = false;
+	let issueRankSeq = 0;
+	let issueSearchDebounce = null;
+	/** Whether the Retriever-style search-engine menu is open. */
+	let searchTypeMenuOpen = false;
 
 	// Project detail view mode: 'features' (grouped sections, default) or 'issues' (flat browser).
 	let detailView = 'features';
@@ -100,6 +112,12 @@
 	let openIssuesFilterField = '';
 	let openIssuesChipField = '';
 
+	// Features-view filter / display menus (same issue filters + field toggles as Issues, minus Feature).
+	let openFeaturesFilter = false;
+	let openFeaturesFilterField = '';
+	let openFeaturesChipField = '';
+	let openFeaturesDisplay = false;
+
 	// List view state.
 	let listGroupBy = '';
 	let listOrderBy = 'title';
@@ -125,6 +143,8 @@
 
 	// Issue-row inline action state (detail view).
 	let inlineSubKey = ''; // issueKey with an open inline sub-issue form
+	/** Issue key whose ⋮ actions menu is open (Features view). */
+	let openIssueMenuKey = '';
 	let showParentChain = false; // show a sub-issue's parent hierarchy as dimmed rows when its parent lives elsewhere
 
 	/** @type {{ parentIssueId: string, label: string } | null} */
@@ -266,6 +286,12 @@
 			});
 		}
 		const actual = field.get(item);
+		// Enum filters (shared via DripFilter): values include a trailing "None" for blanks.
+		if (DF && DF.enumFilterValueMatches) {
+			return values.some(function (v) {
+				return DF.enumFilterValueMatches(actual, v);
+			});
+		}
 		return values.some(function (v) { return actual === v; });
 	}
 
@@ -468,17 +494,23 @@
 			return renderDeadlineSubmenu(f, activeVals);
 		}
 		let opts = '';
-		(f.values || []).forEach(function (v) {
-			const checked = activeVals.indexOf(v) !== -1;
+		const choices =
+			DF && DF.enumFilterChoices
+				? DF.enumFilterChoices(f)
+				: (f.values || []).map(function (v) {
+						return { value: String(v), label: String(v) };
+				  });
+		choices.forEach(function (c) {
+			const checked = activeVals.indexOf(c.value) !== -1;
 			opts +=
 				'<label class="fopt"><input type="checkbox" data-field="' +
 				esc(f.id) +
 				'" data-value="' +
-				esc(v) +
+				esc(c.value) +
 				'"' +
 				(checked ? ' checked' : '') +
 				' /> <span>' +
-				esc(v) +
+				esc(c.label) +
 				'</span></label>';
 		});
 		return '<div class="fsub">' + opts + '</div>';
@@ -1326,11 +1358,13 @@
 		}
 	}
 
-	// Close menus when clicking outside the toolbar.
+	// Close menus when clicking outside the toolbar / issue ⋮ menu.
 	document.addEventListener('click', function (e) {
 		const target = /** @type {HTMLElement | null} */ (e.target);
 		if (target && target.closest && target.closest('.issue-bubble-anchor')) return;
 		if (target && target.closest && target.closest('.proj-toolbar')) return;
+		if (target && target.closest && target.closest('.issue-toolbar')) return;
+		if (target && target.closest && target.closest('.issue-menu-anchor')) return;
 		let changed = false;
 		if (openMenu || openChipField || openIssuePopover) {
 			openMenu = '';
@@ -1345,6 +1379,21 @@
 			openIssuesChipField = '';
 			changed = true;
 		}
+		if (openFeaturesFilter || openFeaturesDisplay || openFeaturesChipField) {
+			openFeaturesFilter = false;
+			openFeaturesDisplay = false;
+			openFeaturesFilterField = '';
+			openFeaturesChipField = '';
+			changed = true;
+		}
+		if (searchTypeMenuOpen) {
+			searchTypeMenuOpen = false;
+			changed = true;
+		}
+		if (openIssueMenuKey) {
+			openIssueMenuKey = '';
+			changed = true;
+		}
 		if (changed) {
 			if (selectedPrefix) renderProjectDetail();
 			else renderProjectList();
@@ -1355,13 +1404,23 @@
 
 	/**
 	 * @param {string} [parentIssueId]
+	 * @param {{ path?: string, folderPrefix?: string, isFolderIndex?: boolean, title?: string } | null} [feature]
 	 */
-	function openCompose(parentIssueId) {
+	function openCompose(parentIssueId, feature) {
 		const parent = String(parentIssueId || '').trim();
+		const featTitle = feature && feature.title ? String(feature.title) : '';
 		compose = {
 			parentIssueId: parent,
-			label: parent ? 'Sub-issue under ' + parent : 'New issue'
+			label: parent
+				? 'Sub-issue under ' + parent
+				: featTitle
+					? 'New issue in ' + featTitle
+					: 'New issue',
+			featurePath: feature && feature.path ? String(feature.path) : '',
+			featureFolderPrefix: feature && feature.folderPrefix ? String(feature.folderPrefix) : '',
+			isFolderIndex: Boolean(feature && feature.isFolderIndex)
 		};
+		openIssueMenuKey = '';
 		render();
 		const input = document.getElementById('composeTitle');
 		if (input) {
@@ -1384,6 +1443,9 @@
 			return;
 		}
 		const parentIssueId = compose.parentIssueId || '';
+		const featurePath = compose.featurePath || '';
+		const featureFolderPrefix = compose.featureFolderPrefix || '';
+		const isFolderIndex = Boolean(compose.isFolderIndex);
 		const teamSel = document.getElementById('composeTeam');
 		const team = teamSel ? String(teamSel.value || '') : '';
 		compose = null;
@@ -1392,7 +1454,10 @@
 			folderPrefix: selectedPrefix,
 			parentIssueId: parentIssueId || undefined,
 			title: title,
-			team: team
+			team: team,
+			featurePath: featurePath || undefined,
+			featureFolderPrefix: featureFolderPrefix || undefined,
+			isFolderIndex: featurePath ? isFolderIndex : undefined
 		});
 		detailLoading = true;
 		render();
@@ -1452,26 +1517,12 @@
 	function bindIssueSearch() {
 		const input = document.getElementById('issueSearch');
 		if (input) {
+			// Never full-re-render on keystrokes — that destroys the input and steals focus.
+			// Only the results pane updates (same pattern as the Retriever).
 			input.addEventListener('input', function () {
 				issueQuery = input.value;
-				renderProjectDetail();
-				const again = document.getElementById('issueSearch');
-				if (again) {
-					again.focus();
-					try {
-						again.setSelectionRange(again.value.length, again.value.length);
-					} catch (e) {
-						/* ignore */
-					}
-				}
-			});
-		}
-		const showParent = document.getElementById('showParentChain');
-		if (showParent) {
-			showParent.checked = showParentChain;
-			showParent.addEventListener('change', function () {
-				showParentChain = showParent.checked;
-				renderProjectDetail();
+				refreshIssueResults();
+				requestIssueSearch();
 			});
 		}
 	}
@@ -1498,34 +1549,93 @@
 	 * @param {boolean} inFeature whether the issue lives in a feature (vs the project inbox)
 	 * @param {string} guideHtml tree guide markup (empty string for top-level roots)
 	 */
-	function renderIssueRow(issue, depth, inFeature, guideHtml) {
-		const ikey = esc(issue.issueKey || '');
+	/**
+	 * ⋮ menu for one issue: Move + Sub-issue (Assign is reserved for people/teams later).
+	 * @param {string} ikey escaped issue key
+	 * @param {string} rawKey raw issue key
+	 */
+	function renderIssueActionsMenu(ikey, rawKey) {
 		const caps = shareCaps();
-		const actionBtn =
-			caps.issueMove === false
-				? ''
-				: inFeature
-					? '<button type="button" class="ghost issue-btn issue-move" data-ikey="' +
-					  ikey +
-					  '" title="Move to a feature, project issues, or under another issue (opens Storage)">Move</button>'
-					: '<button type="button" class="ghost issue-btn issue-assign" data-ikey="' +
-					  ikey +
-					  '" title="Move to a feature or under another issue (opens Storage)">Assign</button>';
-		const subBtn =
-			caps.issueCreate === false
-				? ''
-				: '<button type="button" class="ghost issue-btn issue-sub" data-ikey="' +
-				  ikey +
-				  '" title="New sub-issue">Sub</button>';
+		const canMove = caps.issueMove !== false;
+		const canCreate = caps.issueCreate !== false;
+		if (!canMove && !canCreate) return '';
+		const open = openIssueMenuKey && rawKey && openIssueMenuKey === rawKey;
+		let items = '';
+		if (canMove) {
+			items +=
+				'<button type="button" class="fmenu-head issue-move" data-ikey="' +
+				ikey +
+				'">Move</button>';
+		}
+		if (canCreate) {
+			items +=
+				'<button type="button" class="fmenu-head issue-sub" data-ikey="' +
+				ikey +
+				'">Sub-issue</button>';
+		}
+		return (
+			'<span class="menu-anchor align-right issue-menu-anchor">' +
+			'<button type="button" class="ghost issue-menu-btn' +
+			(open ? ' open' : '') +
+			'" data-issue-menu="' +
+			ikey +
+			'" title="Issue actions" aria-label="Issue actions" aria-haspopup="true" aria-expanded="' +
+			(open ? 'true' : 'false') +
+			'">\u22ee</button>' +
+			(open ? '<div class="menu-panel issue-menu-panel">' + items + '</div>' : '') +
+			'</span>'
+		);
+	}
+
+	/**
+	 * @param {any} issue
+	 * @param {number} depth
+	 * @param {boolean} inFeature whether the issue lives in a feature (vs the project inbox)
+	 * @param {string} guideHtml tree guide markup (empty string for top-level roots)
+	 */
+	/**
+	 * Compact right-side metadata for a Features-view issue row: values only (no field
+	 * headings), limited width so the title keeps most of the row.
+	 * @param {any} issue
+	 * @returns {string}
+	 */
+	function renderIssueMeta(issue) {
+		/** @type {string[]} */
+		const pills = [];
+		featuresDisplayableFields().forEach(function (f) {
+			if (issuesDisplay[f.id] === false) return;
+			let text = '';
+			if (f.id === 'deadline') {
+				const d = f.get(issue);
+				if (d == null) return;
+				text = formatDate(d);
+			} else {
+				const v = f.get(issue);
+				if (v == null || String(v) === '') return;
+				text = String(v);
+			}
+			pills.push(
+				'<span class="pill pill-' +
+				esc(f.id) +
+				'" title="' +
+				esc(f.label + ': ' + text) +
+				'">' +
+				esc(text) +
+				'</span>'
+			);
+		});
+		if (!pills.length) return '';
+		return '<span class="issue-meta">' + pills.join('') + '</span>';
+	}
+
+	function renderIssueRow(issue, depth, inFeature, guideHtml) {
+		const rawKey = String(issue.issueKey || '');
+		const ikey = esc(rawKey);
 
 		// Top-level roots sit flush with no connector; nested rows get a CSS tree guide.
-		const isTree = guideHtml !== '';
-
 		return (
 			'<div class="issue' +
-			(isTree ? ' tree' : '') +
-			'" style="padding-left:' +
-			(isTree ? '12px' : 12 + depth * 16 + 'px') +
+			(guideHtml ? ' tree' : '') +
 			'" data-path="' +
 			esc(issue.path) +
 			'" data-fid="' +
@@ -1537,18 +1647,12 @@
 			'" data-ikey="' +
 			ikey +
 			'">' +
-			guideHtml +
+			(guideHtml || '') +
 			'<span class="name">' +
 			esc(issue.title) +
 			'</span>' +
-			'<span class="pill">' +
-			esc(issue.priority || '') +
-			'</span>' +
-			'<span class="pill">' +
-			esc(issue.status || '') +
-			'</span>' +
-			actionBtn +
-			subBtn +
+			renderIssueMeta(issue) +
+			renderIssueActionsMenu(ikey, rawKey) +
 			'</div>'
 		);
 	}
@@ -1789,18 +1893,68 @@
 	}
 
 	/**
+	 * Filter + order a list of issues by the active query and search type.
+	 * Word mode keeps the existing title/key substring filter. Semantic/recommended
+	 * use the host-ranked order. To keep the results flowing continuously while a
+	 * re-rank is in flight, the last-known rank is reused (stale-while-revalidate),
+	 * and before any rank exists we fall back to a plain word filter so the list
+	 * never blanks between keystrokes.
+	 * @param {string} q trimmed query
+	 * @param {any[]} list
+	 */
+	function orderedIssueMatches(q, list) {
+		if (!q) return list;
+		const lq = q.toLowerCase();
+		const wordMatch = function (i) {
+			return (
+				String(i.title || '').toLowerCase().indexOf(lq) !== -1 ||
+				String(i.issueKey || '').toLowerCase().indexOf(lq) !== -1
+			);
+		};
+		if (issueSearchType === 'word') {
+			return list.filter(wordMatch);
+		}
+		if (issueRankOrder && issueRankOrder.size > 0) {
+			// Reuse the latest rank (exact or slightly stale) so results never drop out
+			// while the host re-ranks the current query.
+			const rank = issueRankOrder;
+			const keyOf = function (i) { return String(i.issueKey || '').toLowerCase(); };
+			return list
+				.filter(function (i) { return rank.has(keyOf(i)); })
+				.sort(function (a, b) { return rank.get(keyOf(a)) - rank.get(keyOf(b)); });
+		}
+		// No semantic rank yet (or empty) — show word matches until the first result lands.
+		return list.filter(wordMatch);
+	}
+
+	/**
 	 * Issues matching the detail search text (title or issue key).
 	 * @param {any[]} list
 	 */
 	function filterIssuesByQuery(list) {
-		const q = String(issueQuery || '').trim().toLowerCase();
-		if (!q) return list;
-		return list.filter(function (i) {
-			return (
-				String(i.title || '').toLowerCase().indexOf(q) !== -1 ||
-				String(i.issueKey || '').toLowerCase().indexOf(q) !== -1
-			);
+		return orderedIssueMatches(String(issueQuery || '').trim(), list);
+	}
+
+	/**
+	 * Features-view: search match + the Features Filter menu (same keys as Issues, minus Feature/Team).
+	 * @param {any[]} list
+	 */
+	function filterFeaturesViewIssues(list) {
+		let out = filterIssuesByQuery(list);
+		featuresFilterableFields().forEach(function (f) {
+			const vals = issuesFilters[f.id];
+			if (!vals || !vals.length) return;
+			out = out.filter(function (item) { return filterMatches(item, f, vals); });
 		});
+		return out;
+	}
+
+	function featuresActiveFilterCount() {
+		let n = 0;
+		featuresFilterableFields().forEach(function (f) {
+			n += (issuesFilters[f.id] || []).length;
+		});
+		return n;
 	}
 
 	/**
@@ -1810,6 +1964,11 @@
 	 */
 	function shareTeams() {
 		return Array.isArray(shareState.teams) ? shareState.teams : [];
+	}
+
+	/** True while the project is actively shared (not solo / left-and-became-solo). */
+	function isSharingProject() {
+		return Boolean(shareState && shareState.shared);
 	}
 
 	/** The team a new issue defaults to: the creator's one team, or none. */
@@ -1881,17 +2040,54 @@
 		if (teamField) {
 			teamField.values = shareTeams().map(function (t) { return t.name; }).filter(Boolean);
 		}
+		// Solo / left-and-became-solo projects have no teams — drop any leftover Team filter.
+		if (!isSharingProject() && issuesFilters.team) {
+			delete issuesFilters.team;
+		}
 	}
 
 	// ---- issues view (flat, searchable browser for one project's issues) ----
 
-	function issueFilterableFields() { return filterableFields(issueFields); }
-	function issueDisplayableFields() { return displayableFields(issueFields); }
-	function issueGroupableFields() { return groupableFields(issueFields); }
+	/** Drop Team when the project is solo / not shared. */
+	function withoutTeamIfSolo(fields) {
+		if (isSharingProject()) return fields;
+		return (fields || []).filter(function (f) { return f.id !== 'team'; });
+	}
+
+	function issueFilterableFields() { return withoutTeamIfSolo(filterableFields(issueFields)); }
+	function issueDisplayableFields() { return withoutTeamIfSolo(displayableFields(issueFields)); }
+	function issueGroupableFields() { return withoutTeamIfSolo(groupableFields(issueFields)); }
+
+	/**
+	 * Features-view filters: same as Issues, but no Feature (sections already group by feature)
+	 * and no Team (the header Team dropdown already scopes the list).
+	 */
+	function featuresFilterableFields() {
+		return issueFilterableFields().filter(function (f) {
+			return f.id !== 'feature' && f.id !== 'team';
+		});
+	}
+
+	/**
+	 * Features-view display fields: same as Issues, but no Feature / Team (same reasons as Filter).
+	 */
+	function featuresDisplayableFields() {
+		return issueDisplayableFields().filter(function (f) {
+			return f.id !== 'feature' && f.id !== 'team';
+		});
+	}
+
+	function featuresHiddenFieldCount() {
+		let n = 0;
+		featuresDisplayableFields().forEach(function (f) {
+			if (issuesDisplay[f.id] === false) n++;
+		});
+		return n;
+	}
 
 	function issueActiveFilterCount() {
 		let n = 0;
-		issueFields.forEach(function (f) { n += (issuesFilters[f.id] || []).length; });
+		issueFilterableFields().forEach(function (f) { n += (issuesFilters[f.id] || []).length; });
 		return n;
 	}
 	function issueHiddenFieldCount() {
@@ -1912,15 +2108,8 @@
 	}
 
 	function searchOnlyIssues() {
-		let list = scopedIssues(detail.issues || []).slice();
-		const q = issuesQuery.trim().toLowerCase();
-		if (q) {
-			list = list.filter(function (i) {
-				const hay = String(i.title || '') + ' ' + String(i.issueKey || '');
-				return hay.toLowerCase().indexOf(q) !== -1;
-			});
-		}
-		return list;
+		const list = scopedIssues(detail.issues || []).slice();
+		return orderedIssueMatches(String(issuesQuery || '').trim(), list);
 	}
 	function visibleIssues() {
 		let list = searchOnlyIssues();
@@ -2057,10 +2246,10 @@
 		if (isBoard) {
 			sections += fieldSelectSection('igsColumn', 'Column', issuesBoardColumnBy, issueGroupableFields(), [issuesBoardRowBy, issuesBoardOrderBy], true);
 			sections += fieldSelectSection('igsRow', 'Row', issuesBoardRowBy, issueGroupableFields(), [issuesBoardColumnBy, issuesBoardOrderBy], true);
-			sections += fieldSelectSection('igsOrder', 'Order by', issuesBoardOrderBy, issueFields, [issuesBoardColumnBy, issuesBoardRowBy], false);
+			sections += fieldSelectSection('igsOrder', 'Order by', issuesBoardOrderBy, withoutTeamIfSolo(issueFields), [issuesBoardColumnBy, issuesBoardRowBy], false);
 		} else {
 			sections += fieldSelectSection('igsGroup', 'Group by', issuesListGroupBy, issueGroupableFields(), [issuesListOrderBy], true);
-			sections += fieldSelectSection('igsOrder', 'Order by', issuesListOrderBy, issueFields, [issuesListGroupBy], false);
+			sections += fieldSelectSection('igsOrder', 'Order by', issuesListOrderBy, withoutTeamIfSolo(issueFields), [issuesListGroupBy], false);
 		}
 
 		const orderBy = isBoard ? issuesBoardOrderBy : issuesListOrderBy;
@@ -2096,7 +2285,7 @@
 	function renderIssuesFilterChips() {
 		/** @type {string[]} */
 		const parts = [];
-		issueFields.forEach(function (f) {
+		issueFilterableFields().forEach(function (f) {
 			const vals = issuesFilters[f.id] || [];
 			if (!vals.length) return;
 			const open = openIssuesChipField === f.id;
@@ -2133,6 +2322,7 @@
 			'<input type="text" id="issuesSearch" class="proj-search" placeholder="Search issues\u2026" autocomplete="off" value="' +
 			esc(issuesQuery) +
 			'" />' +
+			issueSearchControlsHtml() +
 			issuesMenuButton('filter', 'Filter', filterCount) +
 			issuesMenuButton('display', 'Display', displayOff) +
 			issuesMenuButton('groupsort', 'Sort', gsActive ? 1 : 0) +
@@ -2477,18 +2667,11 @@
 	function bindIssuesToolbar() {
 		const search = document.getElementById('issuesSearch');
 		if (search) {
+			// Results-only update — keep the search box focused while typing.
 			search.addEventListener('input', function () {
 				issuesQuery = search.value;
-				renderProjectDetail();
-				const again = document.getElementById('issuesSearch');
-				if (again) {
-					again.focus();
-					try {
-						again.setSelectionRange(again.value.length, again.value.length);
-					} catch (e) {
-						/* ignore */
-					}
-				}
+				refreshIssueResults();
+				requestIssueSearch();
 			});
 		}
 		root.querySelectorAll('[data-issues-menu]').forEach(function (btn) {
@@ -2600,30 +2783,6 @@
 				renderProjectDetail();
 			});
 		});
-		root.querySelectorAll('.lt-group').forEach(function (grp) {
-			grp.addEventListener('toggle', function () {
-				const k = grp.getAttribute('data-group') || '';
-				if (!grp.open) collapsedIssuesListGroups.add(k);
-				else collapsedIssuesListGroups.delete(k);
-			});
-		});
-		root.querySelectorAll('[data-issues-row]').forEach(function (btn) {
-			btn.addEventListener('click', function (e) {
-				e.stopPropagation();
-				const r = btn.getAttribute('data-issues-row') || '';
-				if (collapsedIssuesBoardRows.has(r)) collapsedIssuesBoardRows.delete(r);
-				else collapsedIssuesBoardRows.add(r);
-				renderProjectDetail();
-			});
-		});
-		const removeFilters = document.getElementById('issuesRemoveFilters');
-		if (removeFilters) {
-			removeFilters.addEventListener('click', function (e) {
-				e.stopPropagation();
-				issuesFilters = {};
-				renderProjectDetail();
-			});
-		}
 		const clear = document.getElementById('issuesClearAll');
 		if (clear) {
 			clear.addEventListener('click', function (e) {
@@ -2633,8 +2792,10 @@
 		}
 	}
 
+	/** Bind handlers that live inside the issues results pane (rebound on every results refresh). */
 	function bindIssuesView() {
-		root.querySelectorAll('.issue-list-row, .issue-card').forEach(function (el) {
+		const pane = document.getElementById('issuesResults') || root;
+		pane.querySelectorAll('.issue-list-row, .issue-card').forEach(function (el) {
 			el.addEventListener('click', function () {
 				openHeading(
 					el.getAttribute('data-path'),
@@ -2655,16 +2816,185 @@
 				}
 			});
 		});
+		pane.querySelectorAll('.lt-group').forEach(function (grp) {
+			grp.addEventListener('toggle', function () {
+				const k = grp.getAttribute('data-group') || '';
+				if (!grp.open) collapsedIssuesListGroups.add(k);
+				else collapsedIssuesListGroups.delete(k);
+			});
+		});
+		pane.querySelectorAll('[data-issues-row]').forEach(function (btn) {
+			btn.addEventListener('click', function (e) {
+				e.stopPropagation();
+				const r = btn.getAttribute('data-issues-row') || '';
+				if (collapsedIssuesBoardRows.has(r)) collapsedIssuesBoardRows.delete(r);
+				else collapsedIssuesBoardRows.add(r);
+				refreshIssueResults();
+			});
+		});
+		const removeFilters = document.getElementById('issuesRemoveFilters');
+		if (removeFilters) {
+			removeFilters.addEventListener('click', function (e) {
+				e.stopPropagation();
+				issuesFilters = {};
+				renderProjectDetail();
+			});
+		}
 	}
 
-	function renderIssuesView(title) {
+	function searchTypeLabel(type) {
+		if (type === 'semantic') return 'Only semantic search';
+		if (type === 'recommended') return 'Recommended';
+		return 'Only word search';
+	}
+
+	/** Same magnifying-glass SVG the Retriever uses for its search-engine button. */
+	const SEARCH_ENGINE_ICON_SVG =
+		'<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M6.5 1a5.5 5.5 0 0 1 4.383 8.823l3.147 3.147-.708.708-3.147-3.147A5.5 5.5 0 1 1 6.5 1zm0 1a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9z"/></svg>';
+
+	/**
+	 * Retriever-style search-engine panel: label + select, plus a top-embeddings
+	 * number field when Semantic or Recommended is selected (default 20).
+	 */
+	function renderSearchEngineMenu() {
+		let html =
+			'<div class="menu-panel search-engine-menu" id="issueSearchTypeMenu" role="dialog" aria-label="Search engine">' +
+			'<div class="gs-label">Search engine</div>' +
+			'<select id="issueSearchEngine" class="proj-select search-engine-select" aria-label="How results are ranked">' +
+			'<option value="recommended"' +
+			(issueSearchType === 'recommended' ? ' selected' : '') +
+			'>Recommended</option>' +
+			'<option value="semantic"' +
+			(issueSearchType === 'semantic' ? ' selected' : '') +
+			'>Only semantic search</option>' +
+			'<option value="word"' +
+			(issueSearchType === 'word' ? ' selected' : '') +
+			'>Only word search</option>' +
+			'</select>';
+		if (issueSearchType !== 'word') {
+			html +=
+				'<div class="gs-label search-engine-top-label">Top embeddings</div>' +
+				'<input type="number" id="issueTopEmbeddings" class="top-emb-input" min="1" max="50" step="1" value="' +
+				issueTopEmbeddings +
+				'" title="Max embedding results to show (default 20)" aria-label="Top embeddings to show" />';
+		}
+		html += '</div>';
+		return html;
+	}
+
+	/** Retriever-style icon button; opens the search-engine select panel. */
+	function issueSearchControlsHtml() {
+		// Same cue as the Retriever: highlight when not on Recommended (the default).
+		const highlight = issueSearchType !== 'recommended';
+		return (
+			'<span class="menu-anchor align-right search-type-anchor">' +
+			'<button type="button" class="ghost search-type-btn' +
+			(searchTypeMenuOpen ? ' open' : '') +
+			(highlight ? ' has-engine' : '') +
+			'" id="issueSearchType" title="Search engine" aria-label="Search engine" aria-haspopup="true" aria-expanded="' +
+			(searchTypeMenuOpen ? 'true' : 'false') +
+			'">' +
+			SEARCH_ENGINE_ICON_SVG +
+			'</button>' +
+			(searchTypeMenuOpen ? renderSearchEngineMenu() : '') +
+			'</span>'
+		);
+	}
+
+	function activeIssueQuery() {
+		return detailView === 'issues'
+			? String(issuesQuery || '').trim()
+			: String(issueQuery || '').trim();
+	}
+
+	function invalidateIssueRank() {
+		issueRankOrder = null;
+		issueRankQuery = '';
+	}
+
+	function clampTopEmbeddings(raw) {
+		let n = parseInt(String(raw), 10);
+		if (!Number.isFinite(n) || n < 1) n = 1;
+		if (n > 50) n = 50;
+		return n;
+	}
+
+	function requestIssueSearch() {
+		clearTimeout(issueSearchDebounce);
+		const q = activeIssueQuery();
+		if (issueSearchType === 'word' || !q) {
+			issueSearchPending = false;
+			return;
+		}
+		issueSearchPending = true;
+		issueSearchDebounce = setTimeout(function () {
+			const seq = ++issueRankSeq;
+			vscode.postMessage({
+				type: 'searchIssues',
+				folderPrefix: selectedPrefix,
+				query: q,
+				searchEngine: issueSearchType,
+				topN: issueTopEmbeddings,
+				seq: seq
+			});
+		}, 200);
+	}
+
+	function bindIssueSearchControls() {
+		const typeBtn = document.getElementById('issueSearchType');
+		if (typeBtn) {
+			typeBtn.addEventListener('click', function (e) {
+				e.stopPropagation();
+				searchTypeMenuOpen = !searchTypeMenuOpen;
+				if (searchTypeMenuOpen) {
+					openFeaturesFilter = false;
+					openFeaturesDisplay = false;
+					openFeaturesFilterField = '';
+				}
+				renderProjectDetail();
+			});
+		}
+		const engSel = document.getElementById('issueSearchEngine');
+		if (engSel) {
+			engSel.addEventListener('click', function (e) {
+				e.stopPropagation();
+			});
+			engSel.addEventListener('change', function () {
+				const t = engSel.value || 'word';
+				issueSearchType = t === 'semantic' ? 'semantic' : t === 'recommended' ? 'recommended' : 'word';
+				invalidateIssueRank();
+				requestIssueSearch();
+				// Keep the menu open so the top-embeddings field can appear/disappear.
+				renderProjectDetail();
+			});
+		}
+		const topInput = document.getElementById('issueTopEmbeddings');
+		if (topInput) {
+			topInput.addEventListener('click', function (e) {
+				e.stopPropagation();
+			});
+			topInput.addEventListener('change', function () {
+				issueTopEmbeddings = clampTopEmbeddings(topInput.value);
+				topInput.value = String(issueTopEmbeddings);
+				invalidateIssueRank();
+				requestIssueSearch();
+			});
+		}
+	}
+
+	/** Issues-view results body + footer (everything below the toolbar). */
+	function buildIssuesResultsHtml() {
 		const visible = visibleIssues();
 		let body = '';
 		if (!visible.length) {
-			body =
-				detail.issues && detail.issues.length
-					? '<p class="muted-block">No issues match your search or filters.</p>'
-					: '<p class="muted-block">No issues in this project yet.</p>';
+			if (issueSearchPending && activeIssueQuery()) {
+				body = '<p class="muted-block">Searching\u2026</p>';
+			} else {
+				body =
+					detail.issues && detail.issues.length
+						? '<p class="muted-block">No issues match your search or filters.</p>'
+						: '<p class="muted-block">No issues in this project yet.</p>';
+			}
 		} else if (issuesView === 'board') {
 			body = renderIssuesBoard(visible);
 		} else {
@@ -2680,70 +3010,165 @@
 				' hidden by filters</span>' +
 				'<button type="button" class="ghost" id="issuesRemoveFilters">Remove filters</button></div>';
 		}
-
-		let html = detailHeaderHtml(title);
-		if (compose) html += renderComposeForm();
-		html += renderIssuesToolbar() + body + footer;
-
-		root.innerHTML = html;
-		bindDetailHeader();
-		if (compose) bindCompose();
-		bindIssuesToolbar();
-		bindIssuesView();
+		return body + footer;
 	}
 
-	function renderProjectDetail() {
-		const title = selectedTitle || selectedPrefix.replace(/\/+$/, '') || 'Project';
+	function renderFeaturesFilterMenu() {
+		const fields = featuresFilterableFields();
+		let rows = '';
+		fields.forEach(function (f) {
+			const active = (issuesFilters[f.id] || []).length > 0;
+			const expanded = openFeaturesFilterField === f.id;
+			rows += '<div class="fmenu-item' + (expanded ? ' open' : '') + '">';
+			rows +=
+				'<button type="button" class="fmenu-head" data-features-field="' +
+				esc(f.id) +
+				'">' +
+				'<span class="fmark' +
+				(active ? ' on' : '') +
+				'"></span>' +
+				'<span class="fmenu-label">' +
+				esc(f.label) +
+				'</span>' +
+				'<span class="chev">\u203a</span>' +
+				'</button>';
+			if (expanded) rows += renderFilterSubmenu(f, issuesFilters[f.id] || []);
+			rows += '</div>';
+		});
+		return '<div class="menu-panel" id="featuresFilterMenu">' + rows + '</div>';
+	}
 
-		if (detailLoading) {
-			root.innerHTML = detailHeaderHtml(title) + '<div class="empty">Loading features and issues\u2026</div>';
-			bindDetailHeader();
-			return;
-		}
+	function renderFeaturesFilterChips() {
+		/** @type {string[]} */
+		const parts = [];
+		featuresFilterableFields().forEach(function (f) {
+			const vals = issuesFilters[f.id] || [];
+			if (!vals.length) return;
+			const open = openFeaturesChipField === f.id;
+			parts.push(
+				'<span class="chip-anchor">' +
+				'<button type="button" class="filter-chip' +
+				(open ? ' open' : '') +
+				'" data-features-chip="' +
+				esc(f.id) +
+				'" title="Edit ' +
+				esc(f.label) +
+				' filter">' +
+				esc(f.label) +
+				' <span class="chip-count">' +
+				vals.length +
+				'</span></button>' +
+				(open ? '<div class="chip-popover">' + renderFilterSubmenu(f, vals) + '</div>' : '') +
+				'</span>'
+			);
+		});
+		if (!parts.length) return '';
+		return '<div class="proj-chips">' + parts.join('') + '</div>';
+	}
 
-		if (detailView === 'issues') {
-			renderIssuesView(title);
-			return;
-		}
+	function clearFeaturesFilters() {
+		featuresFilterableFields().forEach(function (f) {
+			delete issuesFilters[f.id];
+		});
+		featuresDisplayableFields().forEach(function (f) {
+			delete issuesDisplay[f.id];
+		});
+		openFeaturesFilter = false;
+		openFeaturesFilterField = '';
+		openFeaturesChipField = '';
+		openFeaturesDisplay = false;
+		renderProjectDetail();
+	}
 
+	function renderFeaturesDisplayMenu() {
+		let rows = '';
+		featuresDisplayableFields().forEach(function (f) {
+			const on = issuesDisplay[f.id] !== false;
+			rows +=
+				'<label class="fopt"><input type="checkbox" data-features-display="' +
+				esc(f.id) +
+				'"' +
+				(on ? ' checked' : '') +
+				' /> <span>' +
+				esc(f.label) +
+				'</span></label>';
+		});
+		return (
+			'<div class="menu-panel" id="featuresDisplayMenu">' +
+			'<div class="gs-label view-label">Fields</div>' +
+			rows +
+			'<div class="gs-label view-label">Parent</div>' +
+			'<label class="fopt"><input type="checkbox" id="showParentChain"' +
+			(showParentChain ? ' checked' : '') +
+			' /> <span>Show repeated parent issue</span></label>' +
+			'</div>'
+		);
+	}
+
+	function featuresFilterButtonHtml() {
+		const filterCount = featuresActiveFilterCount();
+		const displayOff = featuresHiddenFieldCount();
+		return (
+			'<span class="menu-anchor">' +
+			'<button type="button" class="ghost menu-btn' +
+			(openFeaturesFilter ? ' open' : '') +
+			'" id="featuresFilterBtn" data-features-menu="filter">' +
+			'Filter' +
+			(filterCount > 0 ? '<span class="bubble">' + filterCount + '</span>' : '') +
+			'</button>' +
+			(openFeaturesFilter ? renderFeaturesFilterMenu() : '') +
+			'</span>' +
+			'<span class="menu-anchor align-right">' +
+			'<button type="button" class="ghost menu-btn' +
+			(openFeaturesDisplay ? ' open' : '') +
+			'" id="featuresDisplayBtn" data-features-menu="display">' +
+			'Display' +
+			(displayOff > 0 ? '<span class="bubble">' + displayOff + '</span>' : '') +
+			'</button>' +
+			(openFeaturesDisplay ? renderFeaturesDisplayMenu() : '') +
+			'</span>' +
+			(filterCount > 0 || displayOff > 0
+				? '<button type="button" class="ghost clear-btn" id="featuresClearFilters">Clear</button>'
+				: '')
+		);
+	}
+
+	/** Features-view results (inbox + features sections) — everything below the search toolbar. */
+	function buildFeaturesResultsHtml() {
 		const features = detail.features || [];
 		const issues = scopedIssues(detail.issues || []);
 		const hasQuery = String(issueQuery || '').trim() !== '';
-		const inbox = filterIssuesByQuery(issues.filter(function (i) {
-			return i.inProjectInbox;
-		}));
-		const elsewhere = filterIssuesByQuery(issues.filter(function (i) {
-			return !i.inProjectInbox;
-		}));
+		const hasFilters = featuresActiveFilterCount() > 0;
+		const narrowing = hasQuery || hasFilters;
+		const inbox = filterFeaturesViewIssues(
+			issues.filter(function (i) {
+				return i.inProjectInbox;
+			})
+		);
+		const elsewhere = filterFeaturesViewIssues(
+			issues.filter(function (i) {
+				return !i.inProjectInbox;
+			})
+		);
 		/** @type {Map<string, any>} */
 		const issueIndex = new Map();
 		issues.forEach(function (i) {
 			if (i.issueKey) issueIndex.set(String(i.issueKey).toLowerCase(), i);
 		});
 
-		let html = detailHeaderHtml(title);
-		html +=
-			'<div class="toolbar issue-toolbar">' +
-			'<input type="text" id="issueSearch" class="proj-search" placeholder="Search issues\u2026" autocomplete="off" value="' +
-			esc(issueQuery) +
-			'" />' +
-			'<label class="parent-chain-toggle"><input type="checkbox" id="showParentChain"' +
-			(showParentChain ? ' checked' : '') +
-			' /> Show repeated parent issue</label>' +
-			'</div>';
-
-		// Project issues (inbox) section — hidden while searching when empty.
-		if (inbox.length || !hasQuery) {
+		let html = '';
+		const composeForFeature = Boolean(compose && (compose.featurePath || compose.featureFolderPrefix));
+		if (inbox.length || !narrowing) {
 			html +=
-				'<div class="section"><div class="section-head"><h3>Project issues (_issues)</h3><span class="count">' +
+				'<div class="section"><div class="section-head"><h3>Project issues</h3><span class="count">' +
 				inbox.length +
 				'</span></div>';
-			if (!hasQuery) html += renderComposeForm();
+			if (!narrowing && !composeForFeature) html += renderComposeForm();
 			html +=
 				'<div class="card"><div>' +
-			(inbox.length
-				? renderIssueForest(inbox, false, issueIndex)
-				: '<div class="muted-block">No inbox issues yet. Use New issue above.</div>') +
+				(inbox.length
+					? renderIssueForest(inbox, false, issueIndex)
+					: '<div class="muted-block">No inbox issues yet. Use New issue above.</div>') +
 				'</div></div></div>';
 		}
 
@@ -2762,8 +3187,13 @@
 						(i.featurePathPrefix === f.folderPrefix || i.featurePathPrefix === f.path)
 					);
 				});
-				// While searching, skip features with no matching issues.
-				if (hasQuery && !childIssues.length) return;
+				if (narrowing && !childIssues.length) return;
+				const composeHere =
+					composeForFeature &&
+					((compose.featureFolderPrefix &&
+						compose.featureFolderPrefix === (f.folderPrefix || '')) ||
+						(compose.featurePath && compose.featurePath === f.path));
+				const canCreateInFeature = shareCaps().issueCreate !== false;
 				html += '<details class="card" open>';
 				html +=
 					'<summary><span class="chip">' +
@@ -2783,33 +3213,157 @@
 					'<span class="count">' +
 					childIssues.length +
 					' issues</span>' +
+					'<span class="feat-actions">' +
 					'<button type="button" class="feat-overview" data-folder-prefix="' +
 					esc(f.folderPrefix || '') +
 					'" data-path="' +
 					esc(f.path) +
 					'" data-is-folder-index="' +
 					(f.isFolderIndex ? '1' : '0') +
-					'">Overview</button></summary>';
-				html +=
-					'<div>' +
-					(childIssues.length
-						? renderIssueForest(childIssues, true, issueIndex)
-						: '<div class="muted-block">No issues in this feature yet.</div>') +
-					'</div>';
+					'">Overview</button>' +
+					(canCreateInFeature
+						? '<button type="button" class="feat-add-issue" data-folder-prefix="' +
+						  esc(f.folderPrefix || '') +
+						  '" data-path="' +
+						  esc(f.path) +
+						  '" data-is-folder-index="' +
+						  (f.isFolderIndex ? '1' : '0') +
+						  '" data-title="' +
+						  esc(f.title) +
+						  '" title="New issue in this feature" aria-label="New issue in this feature">+</button>'
+						: '') +
+					'</span></summary>';
+				html += '<div>';
+				if (composeHere) html += renderComposeForm();
+				html += childIssues.length
+					? renderIssueForest(childIssues, true, issueIndex)
+					: composeHere
+						? ''
+						: '<div class="muted-block">No issues in this feature yet.</div>';
+				html += '</div>';
 				html += '</details>';
 			});
 		}
 		html += '</div>';
 
-		if (hasQuery && !inbox.length && !elsewhere.length) {
-			html += '<div class="muted-block">No issues match your search.</div>';
+		if (narrowing && !inbox.length && !elsewhere.length) {
+			html += issueSearchPending
+				? '<div class="muted-block">Searching\u2026</div>'
+				: '<div class="muted-block">No issues match your search or filters.</div>';
 		}
+		return html;
+	}
 
-		root.innerHTML = html;
-		bindDetailHeader();
-		bindIssueSearch();
-		bindCompose();
-		root.querySelectorAll('.feat-open').forEach(function (btn) {
+	function bindFeaturesFilterControls() {
+		const filterBtn = document.getElementById('featuresFilterBtn');
+		if (filterBtn) {
+			filterBtn.addEventListener('click', function (e) {
+				e.stopPropagation();
+				openFeaturesFilter = !openFeaturesFilter;
+				if (openFeaturesFilter) {
+					searchTypeMenuOpen = false;
+					openFeaturesDisplay = false;
+					openFeaturesFilterField = '';
+					openFeaturesChipField = '';
+				}
+				renderProjectDetail();
+			});
+		}
+		const clearBtn = document.getElementById('featuresClearFilters');
+		if (clearBtn) {
+			clearBtn.addEventListener('click', function (e) {
+				e.stopPropagation();
+				clearFeaturesFilters();
+			});
+		}
+		root.querySelectorAll('.fmenu-head[data-features-field]').forEach(function (head) {
+			head.addEventListener('click', function (e) {
+				e.stopPropagation();
+				const fid = head.getAttribute('data-features-field') || '';
+				openFeaturesFilterField = openFeaturesFilterField === fid ? '' : fid;
+				renderProjectDetail();
+			});
+		});
+		const filterHosts = root.querySelectorAll('#featuresFilterMenu, .issue-toolbar .chip-popover');
+		filterHosts.forEach(function (host) {
+			host.querySelectorAll('.fsub input[type="checkbox"]').forEach(function (cb) {
+				cb.addEventListener('click', function (e) {
+					e.stopPropagation();
+				});
+				cb.addEventListener('change', function () {
+					const fid = cb.getAttribute('data-field') || '';
+					const val = cb.getAttribute('data-value') || '';
+					toggleIssuesFilterValue(fid, val);
+					renderProjectDetail();
+				});
+			});
+			host.querySelectorAll('.fcustom').forEach(function (input) {
+				input.addEventListener('click', function (e) {
+					e.stopPropagation();
+				});
+				input.addEventListener('change', function () {
+					const fid = input.getAttribute('data-field') || '';
+					setIssuesCustomDeadline(fid, input.value);
+					renderProjectDetail();
+				});
+			});
+		});
+		root.querySelectorAll('.filter-chip[data-features-chip]').forEach(function (chip) {
+			chip.addEventListener('click', function (e) {
+				e.stopPropagation();
+				const fid = chip.getAttribute('data-features-chip') || '';
+				openFeaturesFilter = false;
+				openFeaturesDisplay = false;
+				openFeaturesFilterField = '';
+				openFeaturesChipField = openFeaturesChipField === fid ? '' : fid;
+				renderProjectDetail();
+			});
+		});
+	}
+
+	function bindFeaturesDisplayControls() {
+		const displayBtn = document.getElementById('featuresDisplayBtn');
+		if (displayBtn) {
+			displayBtn.addEventListener('click', function (e) {
+				e.stopPropagation();
+				openFeaturesDisplay = !openFeaturesDisplay;
+				if (openFeaturesDisplay) {
+					searchTypeMenuOpen = false;
+					openFeaturesFilter = false;
+					openFeaturesFilterField = '';
+					openFeaturesChipField = '';
+				}
+				renderProjectDetail();
+			});
+		}
+		root.querySelectorAll('input[data-features-display]').forEach(function (cb) {
+			cb.addEventListener('click', function (e) {
+				e.stopPropagation();
+			});
+			cb.addEventListener('change', function () {
+				const fid = cb.getAttribute('data-features-display') || '';
+				issuesDisplay[fid] = cb.checked;
+				renderProjectDetail();
+			});
+		});
+		const showParent = document.getElementById('showParentChain');
+		if (showParent) {
+			showParent.addEventListener('click', function (e) {
+				e.stopPropagation();
+			});
+			showParent.addEventListener('change', function () {
+				showParentChain = showParent.checked;
+				renderProjectDetail();
+			});
+		}
+	}
+
+	function bindFeaturesResults(scope) {
+		const host = scope || root;
+		if (compose || (!String(issueQuery || '').trim() && featuresActiveFilterCount() === 0)) {
+			bindCompose();
+		}
+		host.querySelectorAll('.feat-open').forEach(function (btn) {
 			btn.addEventListener('click', function (e) {
 				e.preventDefault();
 				e.stopPropagation();
@@ -2821,7 +3375,19 @@
 				);
 			});
 		});
-		root.querySelectorAll('.feat-overview').forEach(function (btn) {
+		host.querySelectorAll('.feat-add-issue').forEach(function (btn) {
+			btn.addEventListener('click', function (e) {
+				e.preventDefault();
+				e.stopPropagation();
+				openCompose('', {
+					path: btn.getAttribute('data-path') || '',
+					folderPrefix: btn.getAttribute('data-folder-prefix') || '',
+					isFolderIndex: btn.getAttribute('data-is-folder-index') === '1',
+					title: btn.getAttribute('data-title') || ''
+				});
+			});
+		});
+		host.querySelectorAll('.feat-overview').forEach(function (btn) {
 			btn.addEventListener('click', function (e) {
 				e.preventDefault();
 				e.stopPropagation();
@@ -2834,8 +3400,82 @@
 				});
 			});
 		});
-		bindIssues(root);
+		bindIssues(host);
 		bindIssueActions();
+	}
+
+	/**
+	 * Update only the results pane so the search input never loses focus while typing
+	 * (mirrors the Retriever's list-only refresh).
+	 */
+	function refreshIssueResults() {
+		if (detailView === 'issues') {
+			const pane = document.getElementById('issuesResults');
+			if (!pane) {
+				renderProjectDetail();
+				return;
+			}
+			pane.innerHTML = buildIssuesResultsHtml();
+			bindIssuesView();
+			return;
+		}
+		const pane = document.getElementById('issueResults');
+		if (!pane) {
+			renderProjectDetail();
+			return;
+		}
+		pane.innerHTML = buildFeaturesResultsHtml();
+		bindFeaturesResults(pane);
+	}
+
+	function renderIssuesView(title) {
+		let html = detailHeaderHtml(title);
+		if (compose) html += renderComposeForm();
+		html += renderIssuesToolbar() + '<div id="issuesResults">' + buildIssuesResultsHtml() + '</div>';
+
+		root.innerHTML = html;
+		bindDetailHeader();
+		if (compose) bindCompose();
+		bindIssuesToolbar();
+		bindIssueSearchControls();
+		bindIssuesView();
+	}
+
+	function renderProjectDetail() {
+		const title = selectedTitle || selectedPrefix.replace(/\/+$/, '') || 'Project';
+
+		if (detailLoading) {
+			root.innerHTML = detailHeaderHtml(title) + '<div class="empty">Loading features and issues\u2026</div>';
+			bindDetailHeader();
+			return;
+		}
+
+		if (detailView === 'issues') {
+			renderIssuesView(title);
+			return;
+		}
+
+		let html = detailHeaderHtml(title);
+		html +=
+			'<div class="toolbar issue-toolbar">' +
+			'<div class="issue-toolbar-row">' +
+			'<input type="text" id="issueSearch" class="proj-search" placeholder="Search issues\u2026" autocomplete="off" value="' +
+			esc(issueQuery) +
+			'" />' +
+			issueSearchControlsHtml() +
+			featuresFilterButtonHtml() +
+			'</div>' +
+			renderFeaturesFilterChips() +
+			'</div>';
+		html += '<div id="issueResults">' + buildFeaturesResultsHtml() + '</div>';
+
+		root.innerHTML = html;
+		bindDetailHeader();
+		bindIssueSearch();
+		bindIssueSearchControls();
+		bindFeaturesFilterControls();
+		bindFeaturesDisplayControls();
+		bindFeaturesResults(document.getElementById('issueResults') || root);
 	}
 
 	// ---- unified chat modal ----
@@ -3447,30 +4087,26 @@
 	}
 
 	/**
-	 * Bind assign / move / sub / popover / inline-sub controls in the detail view.
+	 * Bind ⋮ menu / move / sub / inline-sub controls in the detail view.
 	 */
 	function bindIssueActions() {
-		// Inbox issue: open the RHS Storage sidebar in "move issue" mode.
-		root.querySelectorAll('.issue-assign').forEach(function (btn) {
+		root.querySelectorAll('.issue-menu-btn').forEach(function (btn) {
 			btn.addEventListener('click', function (e) {
 				e.preventDefault();
 				e.stopPropagation();
-				const ikey = btn.getAttribute('data-ikey') || '';
-				if (!ikey) return;
-				vscode.postMessage({
-					type: 'moveIssue',
-					folderPrefix: selectedPrefix,
-					issueId: ikey
-				});
+				const ikey = btn.getAttribute('data-issue-menu') || '';
+				openIssueMenuKey = openIssueMenuKey === ikey ? '' : ikey;
+				renderProjectDetail();
 			});
 		});
-		// Feature issue: open the RHS Storage sidebar in "move issue" mode.
+		// Move: open the RHS Storage sidebar in "move issue" mode.
 		root.querySelectorAll('.issue-move').forEach(function (btn) {
 			btn.addEventListener('click', function (e) {
 				e.preventDefault();
 				e.stopPropagation();
 				const ikey = btn.getAttribute('data-ikey') || '';
 				if (!ikey) return;
+				openIssueMenuKey = '';
 				vscode.postMessage({
 					type: 'moveIssue',
 					folderPrefix: selectedPrefix,
@@ -3478,13 +4114,14 @@
 				});
 			});
 		});
-		// Sub: open an inline sub-issue form under the issue.
+		// Sub-issue: open an inline form under the issue.
 		root.querySelectorAll('.issue-sub').forEach(function (btn) {
 			btn.addEventListener('click', function (e) {
 				e.preventDefault();
 				e.stopPropagation();
 				const ikey = btn.getAttribute('data-ikey') || '';
 				if (!ikey) return;
+				openIssueMenuKey = '';
 				inlineSubKey = inlineSubKey === ikey ? '' : ikey;
 				renderProjectDetail();
 			});
@@ -3823,8 +4460,20 @@
 		detailLoading = false;
 		compose = null;
 		issueQuery = '';
+		issuesQuery = '';
+		issueSearchType = 'recommended';
+		issueTopEmbeddings = 20;
+		searchTypeMenuOpen = false;
+		openFeaturesFilter = false;
+		openFeaturesDisplay = false;
+		openFeaturesFilterField = '';
+		openFeaturesChipField = '';
+		invalidateIssueRank();
+		issueSearchPending = false;
+		clearTimeout(issueSearchDebounce);
 		detailView = 'features';
 		inlineSubKey = '';
+		openIssueMenuKey = '';
 		openMenu = '';
 		openFilterField = '';
 		openChipField = '';
@@ -3898,6 +4547,12 @@
 			closeChat();
 			closeOnlinePopover();
 			enrichIssuesWithFeature();
+			invalidateIssueRank();
+			clearTimeout(issueSearchDebounce);
+			issueSearchPending = false;
+			if (issueSearchType !== 'word' && activeIssueQuery()) {
+				requestIssueSearch();
+			}
 			if (selectedPrefix) {
 				const match = projects.find(function (p) {
 					return p.folderPrefix === selectedPrefix;
@@ -3915,6 +4570,19 @@
 				chatPeople = [];
 				chatMentionsReadAt = '';
 				chatTotalUnread = 0;
+			}
+		}
+		if (msg.type === 'issueSearchResult') {
+			if (msg.folderPrefix === selectedPrefix && Number(msg.seq) === issueRankSeq) {
+				issueSearchPending = false;
+				issueRankQuery = String(msg.query || '');
+				const order = Array.isArray(msg.order) ? msg.order : [];
+				issueRankOrder = new Map();
+				order.forEach(function (k, idx) {
+					issueRankOrder.set(String(k).toLowerCase(), idx);
+				});
+				// Results-only refresh — do not rebuild the search input (keeps focus).
+				refreshIssueResults();
 			}
 		}
 		if (msg.type === 'projectTagsState') {

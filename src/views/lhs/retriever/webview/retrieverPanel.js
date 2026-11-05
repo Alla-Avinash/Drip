@@ -1,6 +1,10 @@
 (function () {
 	'use strict';
 	const vscode = acquireVsCodeApi();
+	const $ = id => document.getElementById(id);
+	/** First page size for word search; subsequent “Load more” uses LOAD_MORE_SIZE. */
+	const QUERY_PAGE_SIZE = 100;
+	const LOAD_MORE_SIZE = 100;
 
 	/** @type {{ id: string, label: string, marker: string, color?: string, attributes?: { key: string, kind: string, values: string[] }[] }[]} */
 	let metadataTypes = [];
@@ -76,6 +80,8 @@
 	const selectedRelations = new Map();
 	/** Currently editing relation type in the dropdown (does not clear other types). */
 	let selectedRelationType = '';
+	/** Retriever is for KB note headings — only these type chips (plus None). */
+	const RETRIEVER_FILTER_TYPE_IDS = new Set(['concept', 'task']);
 
 	/** @returns {{ type: string, tags: string[] }[]} */
 	function getSelectedRelationFilters() {
@@ -186,20 +192,163 @@
 	function setCustomCorpusEditorOpen(open) {
 		customCorpusEditorOpen = !!open;
 		const panel = $('rz-custom-corpus');
-		const scopeStrip = document.querySelector('.rz-scope-strip');
-		const filterBar = document.querySelector('.filter-bar');
-		const viewport = document.querySelector('.viewport');
-		const footer = document.querySelector('.rz-footer-wrap');
-		const toolbar = document.querySelector('.toolbar');
+		const chrome = $('rz-main-chrome');
+		const head = document.querySelector('header');
 		if (panel) {
 			panel.hidden = !open;
 			panel.classList.toggle('hidden', !open);
 		}
-		if (scopeStrip) scopeStrip.classList.toggle('hidden', open);
-		if (filterBar) filterBar.classList.toggle('hidden', open);
-		if (viewport) viewport.classList.toggle('hidden', open);
-		if (footer) footer.classList.toggle('hidden', open);
-		if (toolbar) toolbar.classList.toggle('hidden', open);
+		if (chrome) chrome.classList.toggle('hidden', open);
+		if (head) head.classList.toggle('hidden', open);
+		if (open) closeAllMenus();
+	}
+
+	/** @type {string} */
+	let openMenuId = '';
+
+	function closeAllMenus() {
+		openMenuId = '';
+		document.querySelectorAll('.rz-menu-panel').forEach(p => {
+			p.hidden = true;
+		});
+		document.querySelectorAll('[data-menu]').forEach(b => {
+			b.classList.remove('open');
+			b.setAttribute('aria-expanded', 'false');
+		});
+		closeAllAttrMenus(null);
+	}
+
+	/** @param {string} menuId */
+	function toggleMenu(menuId) {
+		const id = String(menuId || '');
+		if (!id) return;
+		if (openMenuId === id) {
+			closeAllMenus();
+			return;
+		}
+		closeAllMenus();
+		openMenuId = id;
+		const panel = $(`rz-panel-${id}`);
+		const btn = $(`rz-menu-${id}`);
+		if (panel) panel.hidden = false;
+		if (btn) {
+			btn.classList.add('open');
+			btn.setAttribute('aria-expanded', 'true');
+		}
+	}
+
+	function attrFilterCount() {
+		let n = 0;
+		for (const typeId of Object.keys(attrFilters)) {
+			const byKey = attrFilters[typeId];
+			if (!byKey) continue;
+			for (const key of Object.keys(byKey)) {
+				const f = byKey[key];
+				if (!f) continue;
+				if (f.kind === 'enum' && Array.isArray(f.values) && f.values.length) n += 1;
+				else if (f.kind === 'datetime' && f.mode && f.mode !== 'any') n += 1;
+				else if (f.kind === 'duration' && f.mode && f.mode !== 'any') n += 1;
+			}
+		}
+		return n;
+	}
+
+	/** @param {string} id @param {number} count */
+	function setMenuBadge(id, count) {
+		const el = $(`rz-badge-${id}`);
+		const btn = $(`rz-menu-${id}`);
+		if (!el) return;
+		const n = Number(count) || 0;
+		if (n > 0) {
+			el.hidden = false;
+			el.textContent = String(n);
+			if (btn) btn.classList.add('has-badge');
+		} else {
+			el.hidden = true;
+			el.textContent = '0';
+			if (btn) btn.classList.remove('has-badge');
+		}
+	}
+
+	function updateMenuBadges() {
+		const { scope, corpus } = readScopeFromUi();
+		let scopeN = 0;
+		if (scope === 'files') scopeN += 1;
+		if (corpus !== 'working') scopeN += 1;
+		setMenuBadge('scope', scopeN);
+
+		setMenuBadge('filter', selectedTypes.size + attrFilterCount());
+
+		let tagsN = selectedTags.size;
+		for (const [, tags] of selectedRelations) {
+			if (tags && tags.size) tagsN += tags.size;
+		}
+		setMenuBadge('tags', tagsN);
+
+		let displayN = 0;
+		if (viewMode === 'board') displayN += 1;
+		if (!showTypeStrip) displayN += 1;
+		if (!showBreadcrumbs) displayN += 1;
+		if (!showRowTags) displayN += 1;
+		if (!showRowRelations) displayN += 1;
+		if (!showPathLine) displayN += 1;
+		setMenuBadge('display', displayN);
+
+		setMenuBadge('sort', groupBy !== 'none' ? 1 : 0);
+
+		const engBtn = $('rz-menu-engine');
+		if (engBtn) {
+			engBtn.classList.toggle(
+				'has-engine',
+				searchEngine !== 'recommended' || topEmbeddings !== 20
+			);
+		}
+		syncTopEmbeddingsVisibility();
+		syncClearButtonVisibility();
+
+		renderActiveChips();
+	}
+
+	function renderActiveChips() {
+		const host = $('rz-active-chips');
+		if (!host) return;
+		/** @type {string[]} */
+		const parts = [];
+		for (const id of [...selectedTypes].sort()) {
+			const label = id === NONE_TYPE_ID ? 'type:none' : `type:${id}`;
+			parts.push(
+				`<button type="button" class="rz-active-chip" data-act="type" data-id="${esc(id)}" title="Edit type filter">${esc(
+					label
+				)} <span class="rz-active-x" aria-hidden="true">×</span></button>`
+			);
+		}
+		for (const tag of [...selectedTags].sort()) {
+			parts.push(
+				`<button type="button" class="rz-active-chip" data-act="tag" data-id="${esc(tag)}" title="Remove tag">${esc(
+					tag
+				)} <span class="rz-active-x" aria-hidden="true">×</span></button>`
+			);
+		}
+		for (const [type, tags] of [...selectedRelations.entries()].sort((a, b) =>
+			String(a[0]).localeCompare(String(b[0]))
+		)) {
+			if (!tags || !tags.size) continue;
+			const joined = [...tags].sort().join(', ');
+			parts.push(
+				`<button type="button" class="rz-active-chip" data-act="rel" data-type="${esc(
+					type
+				)}" title="Remove relation filter">${esc(type)}: ${esc(
+					joined
+				)} <span class="rz-active-x" aria-hidden="true">×</span></button>`
+			);
+		}
+		if (!parts.length) {
+			host.hidden = true;
+			host.innerHTML = '';
+			return;
+		}
+		host.hidden = false;
+		host.innerHTML = parts.join('');
 	}
 
 	function openCustomCorpusEditor(fromCorpus) {
@@ -253,6 +402,7 @@
 		if (sel) sel.value = 'custom';
 		lastCorpusValue = 'custom';
 		syncCustomCorpusEditBtn();
+		updateMenuBadges();
 		persistUiSoon();
 		scheduleQueryImmediate({ skipSuggest: true });
 	}
@@ -302,10 +452,20 @@
 		}
 	}
 
+	/** Highlight the active List/Board segmented button to match `viewMode`. */
+	function syncViewToggle() {
+		const listBtn = $('rz-view-list');
+		const boardBtn = $('rz-view-board');
+		if (listBtn) listBtn.classList.toggle('is-active', viewMode === 'list');
+		if (boardBtn) boardBtn.classList.toggle('is-active', viewMode === 'board');
+	}
+
 	let viewMode = 'list';
 	let groupBy = 'none';
 	/** @type {'recommended'|'semantic'|'word'} */
 	let searchEngine = 'recommended';
+	/** Max embedding results for semantic/recommended (Project View–style; default 20, capped at 50). */
+	let topEmbeddings = 20;
 	/** Tags/relations always soft-rank by overlap (Exact/Relevant UI removed). */
 	const tagMode = 'relevant';
 	const relationMode = 'relevant';
@@ -315,10 +475,26 @@
 	let showRowTags = true;
 	let showRowRelations = true;
 
-	const $ = id => document.getElementById(id);
-	/** First page size; subsequent “Load more” uses LOAD_MORE_SIZE. */
-	const QUERY_PAGE_SIZE = 100;
-	const LOAD_MORE_SIZE = 100;
+	function clampTopEmbeddings(raw) {
+		let n = parseInt(String(raw), 10);
+		if (!Number.isFinite(n) || n < 1) n = 1;
+		if (n > 50) n = 50;
+		return n;
+	}
+
+	/** Show Top embeddings field only for Recommended / semantic (hidden for word-only). */
+	function syncTopEmbeddingsVisibility() {
+		const wrap = $('rz-top-emb-wrap');
+		if (wrap) wrap.classList.toggle('hidden', searchEngine === 'word');
+		const inp = /** @type {HTMLInputElement | null} */ ($('rz-top-embeddings'));
+		if (inp) inp.value = String(topEmbeddings);
+	}
+
+	function firstPageLimit() {
+		if (searchEngine === 'word') return QUERY_PAGE_SIZE;
+		return topEmbeddings;
+	}
+
 	/** @type {Set<string>} expanded note `relPath` keys for file-group accordion */
 	const expandedFileGroupPaths = new Set();
 	/** Paths already seen in the current Files-scope result session (so Load more can expand only new files). */
@@ -372,6 +548,7 @@
 			viewMode,
 			groupBy,
 			searchEngine,
+			topEmbeddings,
 			sortBy: 'relevance',
 			showBreadcrumbs: !!( $('rz-show-bc') && $('rz-show-bc').checked ),
 			showPathLine: !!( $('rz-show-path') && $('rz-show-path').checked ),
@@ -382,6 +559,7 @@
 		};
 	}
 	function persistUiSoon() {
+		updateMenuBadges();
 		clearTimeout(persistTimer);
 		persistTimer = setTimeout(() => {
 			vscode.postMessage({ type: 'retrieverSaveUi', payload: getPersistPayload() });
@@ -505,13 +683,16 @@
 		const engRaw = String(p.searchEngine || '').toLowerCase();
 		if (engRaw === 'semantic' || engRaw === 'word') searchEngine = engRaw;
 		else searchEngine = 'recommended';
+		topEmbeddings = clampTopEmbeddings(
+			p.topEmbeddings != null ? p.topEmbeddings : topEmbeddings
+		);
 		const sel = id => /** @type {HTMLSelectElement | null} */ ($(id));
-		const vs = sel('rz-view-mode');
-		if (vs) vs.value = viewMode;
 		const gs = sel('rz-group-by');
 		if (gs) gs.value = groupBy;
 		const es = sel('rz-search-engine');
 		if (es) es.value = searchEngine;
+		syncTopEmbeddingsVisibility();
+		syncViewToggle();
 		function setCk(id, defVal, key) {
 			const el = /** @type {HTMLInputElement | null} */ ($(id));
 			if (!el) return;
@@ -531,6 +712,7 @@
 		syncRelationTypeSelect();
 		renderSelectedRelationTagChips();
 		syncRelationTagInputEnabled();
+		updateMenuBadges();
 	}
 
 	/**
@@ -558,11 +740,12 @@
 			customCorpusPaths,
 			respectDripignore: corpus === 'working',
 			searchEngine,
+			topEmbeddings,
 			sortBy: 'relevance',
 			groupBy: scope === 'files' ? 'none' : groupBy,
 			viewMode,
 			offset: off,
-			limit: off === 0 ? QUERY_PAGE_SIZE : LOAD_MORE_SIZE
+			limit: off === 0 ? firstPageLimit() : LOAD_MORE_SIZE
 		};
 	}
 
@@ -620,7 +803,7 @@
 		);
 		for (const id of [...selectedTypes]) {
 			if (id === NONE_TYPE_ID) continue;
-			if (!okTypes.has(id)) selectedTypes.delete(id);
+			if (!okTypes.has(id) || !RETRIEVER_FILTER_TYPE_IDS.has(id)) selectedTypes.delete(id);
 		}
 		// Do not drop typed-in tags that are absent from the current chip list —
 		// soft-rank still queries the index for them.
@@ -733,8 +916,9 @@
 					customCorpusPaths,
 					respectDripignore: corpus === 'working',
 					searchEngine,
+					topEmbeddings,
 					_seq: trip,
-					limit: 26
+					limit: searchEngine === 'word' ? 26 : Math.min(26, topEmbeddings)
 				}
 			});
 		}, 105);
@@ -773,7 +957,7 @@
 			const id = String(t && t.id != null ? t.id : '')
 				.trim()
 				.toLowerCase();
-			if (!id) continue;
+			if (!id || !RETRIEVER_FILTER_TYPE_IDS.has(id)) continue;
 			const on = selectedTypes.has(id);
 			const b = document.createElement('button');
 			b.type = 'button';
@@ -794,6 +978,7 @@
 			else applyThemeTypeAccent(b);
 			host.appendChild(b);
 		}
+		updateMenuBadges();
 	}
 
 	function renderSelectedTagChips() {
@@ -816,6 +1001,7 @@
 			span.appendChild(x);
 			host.appendChild(span);
 		}
+		updateMenuBadges();
 	}
 
 	function syncRelationTypeSelect() {
@@ -863,24 +1049,23 @@
 		host.innerHTML = '';
 		const filters = getSelectedRelationFilters();
 		for (const f of filters) {
-			for (const tag of f.tags) {
-				const span = document.createElement('span');
-				span.className = 'rz-chip rz-chip-tag rz-chip-rel-tag';
-				span.dataset.relType = f.type;
-				span.dataset.tag = tag;
-				if (metaUiColors.tagsColor) {
-					applyElementAccentColor(span, metaUiColors.tagsColor);
-				}
-				const x = document.createElement('button');
-				x.type = 'button';
-				x.className = 'rz-chip-remove';
-				x.setAttribute('aria-label', `Remove ${f.type}:${tag}`);
-				x.textContent = '×';
-				span.appendChild(document.createTextNode(`${f.type}:${tag}`));
-				span.appendChild(x);
-				host.appendChild(span);
+			if (!f.tags.length) continue;
+			const span = document.createElement('span');
+			span.className = 'rz-chip rz-chip-tag rz-chip-rel-tag';
+			span.dataset.relType = f.type;
+			if (metaUiColors.tagsColor) {
+				applyElementAccentColor(span, metaUiColors.tagsColor);
 			}
+			const x = document.createElement('button');
+			x.type = 'button';
+			x.className = 'rz-chip-remove';
+			x.setAttribute('aria-label', `Remove ${f.type} relation filter`);
+			x.textContent = '×';
+			span.appendChild(document.createTextNode(`${f.type}: ${f.tags.join(', ')}`));
+			span.appendChild(x);
+			host.appendChild(span);
 		}
+		updateMenuBadges();
 	}
 
 	/**
@@ -1172,12 +1357,33 @@
 		el.style.backgroundColor = tintCssBackground(c, 0.22) || '';
 	}
 
+	/** Pin suggest lists under an input with fixed coords so they escape overflow:hidden ancestors. */
+	function positionFixedSuggestUnder(inp, box) {
+		if (!inp || !box) return;
+		const r = inp.getBoundingClientRect();
+		box.style.position = 'fixed';
+		box.style.left = `${Math.round(r.left)}px`;
+		box.style.top = `${Math.round(r.bottom + 2)}px`;
+		box.style.width = `${Math.round(r.width)}px`;
+		box.style.right = 'auto';
+	}
+
+	function clearFixedSuggest(box) {
+		if (!box) return;
+		box.style.position = '';
+		box.style.left = '';
+		box.style.top = '';
+		box.style.width = '';
+		box.style.right = '';
+	}
+
 	function hideTagSuggest() {
 		const box = $('rz-tag-suggest');
 		const inp = $('rz-tag-input');
 		if (box) {
 			box.classList.add('hidden');
 			box.innerHTML = '';
+			clearFixedSuggest(box);
 		}
 		if (inp) inp.setAttribute('aria-expanded', 'false');
 	}
@@ -1268,6 +1474,7 @@
 			return;
 		}
 		box.innerHTML = parts.join('');
+		positionFixedSuggestUnder(inp, box);
 		box.classList.remove('hidden');
 		inp.setAttribute('aria-expanded', 'true');
 	}
@@ -1317,6 +1524,7 @@
 		if (box) {
 			box.classList.add('hidden');
 			box.innerHTML = '';
+			clearFixedSuggest(box);
 		}
 		if (inp) inp.setAttribute('aria-expanded', 'false');
 	}
@@ -1356,6 +1564,7 @@
 						`<button type="button" role="option" class="rz-tag-suggest-item" data-tag="${esc(t)}">${esc(t)}</button>`
 				)
 				.join('');
+			positionFixedSuggestUnder(inp, box);
 			box.classList.remove('hidden');
 			inp.setAttribute('aria-expanded', 'true');
 		}, 90);
@@ -1437,10 +1646,8 @@
 		const more = row.tags.length > shown.length ? ` +${row.tags.length - shown.length}` : '';
 		const tagStyle = styleColorAttr(metaUiColors.tagsColor);
 		return (
-			`<div class="rz-tags-row">` +
 			shown.map(t => `<span class="rz-tag-pill"${tagStyle}>${esc(t)}</span>`).join('') +
-			(more ? `<span class="rz-tag-more">${esc(more)}</span>` : '') +
-			`</div>`
+			(more ? `<span class="rz-tag-more">${esc(more)}</span>` : '')
 		);
 	}
 
@@ -1465,11 +1672,11 @@
 			const shown = list.slice(0, 8);
 			const more = list.length > shown.length ? ` +${list.length - shown.length}` : '';
 			parts.push(
-				`<div class="rz-tags-row rz-relations-row" title="${esc(f.type)}">` +
+				`<span class="rz-relations-row" title="${esc(f.type)}">` +
 					`<span class="rz-rel-key">${esc(f.type)}:</span>` +
 					shown.map(t => `<span class="rz-tag-pill"${tagStyle}>${esc(t)}</span>`).join('') +
 					(more ? `<span class="rz-tag-more">${esc(more)}</span>` : '') +
-					`</div>`
+					`</span>`
 			);
 		}
 		return parts.join('');
@@ -1518,7 +1725,7 @@
 				: [];
 			if (kvEntries.length) {
 				bc =
-					`<div class="rz-bc rz-bc-kv">` +
+					`<span class="rz-bc rz-bc-kv">` +
 					kvEntries
 						.map(s => {
 							const i = s.indexOf(':');
@@ -1532,14 +1739,14 @@
 							);
 						})
 						.join('') +
-					`</div>`;
+					`</span>`;
 			} else if (row.breadcrumbs && row.breadcrumbs.length > 1) {
-				bc = `<div class="rz-bc">${esc(row.breadcrumbs.slice(0, -1).join(' › '))}</div>`;
+				bc = `<span class="rz-bc">${esc(row.breadcrumbs.slice(0, -1).join(' › '))}</span>`;
 			}
 		}
 		const pathLine =
 			showPathLine
-				? `<div class="rz-meta">${esc(formatRelPath(row.relPath, row.line))}</div>`
+				? `<span class="rz-meta">${esc(formatRelPath(row.relPath, row.line))}</span>`
 				: '';
 		let typeHtml = '';
 		if (showTypeStrip) {
@@ -1550,18 +1757,15 @@
 		const tagsHtml = tagsRowHtml(row);
 		const relHtml = relationsRowHtml(row);
 		const scoreHtml = scorePillHtml(row);
+		const pills = typeHtml + bc + tagsHtml + relHtml;
 		const rp = esc(row.relPath || '');
 		const fid = esc(row.fileId || '');
 		const hid = Number(row.headingId) || 0;
 		const titleAttr = esc(String(row.title || ''));
-		// Breadcrumb stack order: type → metadata KV → search tags → relations (if filtered) → path
 		return (
 			`<button type="button" class="rz-row" role="option" tabindex="-1" data-uri="${esc(row.uri)}" data-line="${Number(row.line) || 1}" data-rel="${rp}" data-fileid="${fid}" data-headingid="${hid}" data-title="${titleAttr}">` +
 			`<span class="rz-row-head"><span class="${titleClass}">${esc(row.title)}</span>${scoreHtml}</span>` +
-			typeHtml +
-			bc +
-			tagsHtml +
-			relHtml +
+			(pills ? `<span class="rz-row-pills">${pills}</span>` : '') +
 			pathLine +
 			`</button>`
 		);
@@ -1913,9 +2117,6 @@
 					parts.push(
 						`<button type="button" class="rz-attr-opt rz-attr-opt-clear${active ? '' : ' is-selected'}" data-act="clear" role="option">—</button>`
 					);
-					if (catalogVals.length > 1) {
-						parts.push(`<div class="rz-attr-menu-hint">Select one or more (OR)</div>`);
-					}
 					for (const v of catalogVals) {
 						const vv = String(v || '').trim();
 						if (!vv) continue;
@@ -2022,8 +2223,18 @@
 	function onAttrFilterPanelClick(e) {
 		const t = e && e.target;
 		if (!t || !t.closest) return;
+		// Clicking elsewhere in the Filter panel (label, empty space, another key)
+		// retracts the open metadata-key menu while keeping the selection.
+		const wrap = t.closest('.rz-attr-box-wrap');
+		if (!wrap) {
+			closeAllAttrMenus(null);
+			return;
+		}
 		const keyEl = t.closest('.rz-attr-key');
-		if (!keyEl) return;
+		if (!keyEl) {
+			closeAllAttrMenus(null);
+			return;
+		}
 		const typeId = String(keyEl.getAttribute('data-type-id') || '').toLowerCase();
 		const key = String(keyEl.getAttribute('data-key') || '').toLowerCase();
 		const kind = String(keyEl.getAttribute('data-kind') || 'enum').toLowerCase();
@@ -2200,7 +2411,7 @@
 
 	/**
 	 * Order file buckets by best (first) hit rank.
-	 * First paint / new query: expand all; user can collapse. Load more: expand only new files.
+	 * First paint / new query: files start collapsed; the user expands the sections they care about.
 	 * @param {unknown[]} rows
 	 */
 	function buildFileHeadingGroupsHtml(rows) {
@@ -2228,26 +2439,22 @@
 			fileGroupExpandSessionKey = sessionKey;
 			expandedFileGroupPaths.clear();
 			fileGroupKnownPaths.clear();
+			// Files start collapsed; the user expands the sections they care about.
 			for (const rel of fileOrder) {
-				expandedFileGroupPaths.add(rel);
 				fileGroupKnownPaths.add(rel);
 			}
 		} else {
 			for (const rel of fileOrder) {
 				if (!fileGroupKnownPaths.has(rel)) {
 					fileGroupKnownPaths.add(rel);
-					expandedFileGroupPaths.add(rel);
 				}
 			}
 		}
-		const chevronSvg =
-			'<svg class="rz-chevron-ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M6.5 3.5L11 8l-4.5 4.5V3.5z"/></svg>';
 		const parts = [];
 		for (const rel of fileOrder) {
 			const groupRows = byRel.get(rel) || [];
 			const baseName =
 				rel && rel.includes('/') ? rel.slice(rel.lastIndexOf('/') + 1) : rel || '(note)';
-			const topTitle = String((groupRows[0] && groupRows[0].title) || '').trim();
 			const fileScore = Number(groupRows[0] && groupRows[0]._fileEmbeddingScore);
 			const fileScoreHtml =
 				Number.isFinite(fileScore) && fileScore > 0
@@ -2257,17 +2464,18 @@
 					: '';
 			const expanded = expandedFileGroupPaths.has(rel);
 			const rowCount = groupRows.length;
-			parts.push(`<section class="rz-file-group" role="group">`);
+			parts.push(
+				`<section class="rz-file-group${expanded ? ' is-expanded' : ''}" role="group">`
+			);
 			parts.push(
 				`<button type="button" class="rz-file-group-header" aria-expanded="${expanded ? 'true' : 'false'}" aria-label="${esc(
 					expanded ? 'Collapse' : 'Expand'
 				)} ${esc(baseName)}, ${rowCount} matching heading${rowCount === 1 ? '' : 's'}" data-file-rel="${relToFileGroupDataAttr(rel)}">` +
-					`<span class="rz-file-group-chevron${expanded ? ' is-open' : ''}" aria-hidden="true">${chevronSvg}</span>` +
-					`<span class="rz-file-group-title">${esc(baseName)}</span>` +
+					`<span class="rz-file-group-label">` +
+					`<span class="rz-file-group-title" title="${esc(rel)}">${esc(baseName)}</span>` +
+					`<span class="rz-file-group-count">${rowCount}</span>` +
+					`</span>` +
 					fileScoreHtml +
-					`<span class="rz-file-group-meta">${esc(rel)} · ${rowCount} heading${rowCount === 1 ? '' : 's'}${
-						topTitle ? ` · ${esc(topTitle)}` : ''
-					}</span>` +
 					`</button>`
 			);
 			parts.push(`<div class="rz-file-group-body" ${expanded ? '' : 'hidden'}>`);
@@ -2350,7 +2558,7 @@
 				: [];
 			if (kvEntries.length) {
 				bc =
-					`<div class="rz-bc rz-bc-kv">` +
+					`<span class="rz-bc rz-bc-kv">` +
 					kvEntries
 						.map(s => {
 							const i = s.indexOf(':');
@@ -2364,17 +2572,18 @@
 							);
 						})
 						.join('') +
-					`</div>`;
+					`</span>`;
 			}
 		}
 		const tagsHtml = showRowTags && r.tags && r.tags.length
-			? `<div class="rz-card-tags">${r.tags
+			? r.tags
 					.slice(0, 3)
 					.map(t => `<span class="rz-tag-pill"${styleColorAttr(metaUiColors.tagsColor)}>${esc(t)}</span>`)
-					.join('')}</div>`
+					.join('')
 			: '';
 		const relHtml = relationsRowHtml(r);
 		const scoreHtml = scorePillHtml(r);
+		const pills = typeHtml + bc + tagsHtml + relHtml;
 		const rp = esc(r.relPath || '');
 		const fid = esc(r.fileId || '');
 		const pathLine = showPathLine
@@ -2383,14 +2592,10 @@
 		const titleText = String(r.title || '');
 		const titleEsc = esc(titleText);
 		const hid = Number(r.headingId) || 0;
-		/* Native tooltip shows full heading when CSS ellipsis truncates the card title */
 		return (
 			`<button type="button" class="rz-card" tabindex="-1" data-uri="${esc(r.uri)}" data-line="${Number(r.line) || 1}" data-rel="${rp}" data-fileid="${fid}" data-headingid="${hid}" data-title="${titleEsc}" title="${titleEsc}">` +
 			`<span class="rz-row-head"><span class="rz-card-title">${titleEsc}</span>${scoreHtml}</span>` +
-			typeHtml +
-			bc +
-			tagsHtml +
-			relHtml +
+			(pills ? `<span class="rz-row-pills">${pills}</span>` : '') +
 			pathLine +
 			`</button>`
 		);
@@ -2463,6 +2668,34 @@
 		);
 	}
 
+	/** True when Clear would change something (filters, display, sort, or search engine — not the search text). */
+	function clearButtonShouldShow() {
+		return (
+			selectedTypes.size > 0 ||
+			selectedTags.size > 0 ||
+			relationFiltersActive() ||
+			attrFiltersActive() ||
+			scopeDiffersFromDefault() ||
+			viewMode !== 'list' ||
+			groupBy !== 'none' ||
+			searchEngine !== 'recommended' ||
+			topEmbeddings !== 20 ||
+			!showBreadcrumbs ||
+			!showPathLine ||
+			!showTypeStrip ||
+			!showRowTags ||
+			!showRowRelations
+		);
+	}
+
+	function syncClearButtonVisibility() {
+		const btn = $('rz-clear-filters');
+		if (!btn) return;
+		const show = clearButtonShouldShow();
+		btn.hidden = !show;
+		btn.classList.toggle('hidden', !show);
+	}
+
 	function clearAllRetrieverFilters() {
 		selectedTypes.clear();
 		selectedTags.clear();
@@ -2472,25 +2705,55 @@
 		expandedFileGroupPaths.clear();
 		fileGroupKnownPaths.clear();
 		fileGroupExpandSessionKey = '';
-		const inp = $('rz-heading-search');
-		if (inp) inp.value = '';
+		expandedGroupKeys.clear();
+		// Keep the search box text — Clear only resets filters / display / sort / engine.
 		const sf = /** @type {HTMLInputElement | null} */ ($('rz-scope-files'));
 		const sh = /** @type {HTMLInputElement | null} */ ($('rz-scope-headings'));
 		if (sf) sf.checked = false;
 		if (sh) sh.checked = true;
-		syncGroupByForScope();
 		const corpusSel = /** @type {HTMLSelectElement | null} */ ($('rz-corpus'));
 		if (corpusSel) corpusSel.value = 'working';
 		lastCorpusValue = 'working';
 		clearCustomCorpusSession();
 		const relSel = /** @type {HTMLSelectElement | null} */ ($('rz-relation-type'));
 		if (relSel) relSel.value = '';
+
+		// Display defaults
+		viewMode = 'list';
+		showBreadcrumbs = true;
+		showPathLine = true;
+		showTypeStrip = true;
+		showRowTags = true;
+		showRowRelations = true;
+		['rz-show-bc', 'rz-show-path', 'rz-show-type', 'rz-show-tags', 'rz-show-relations'].forEach(id => {
+			const el = /** @type {HTMLInputElement | null} */ ($(id));
+			if (el) el.checked = true;
+		});
+		syncViewToggle();
+
+		// Sort + search-engine defaults
+		groupBy = 'none';
+		searchEngine = 'recommended';
+		topEmbeddings = 20;
+		const groupSel = /** @type {HTMLSelectElement | null} */ ($('rz-group-by'));
+		if (groupSel) {
+			groupSel.value = 'none';
+			groupSel.disabled = false;
+		}
+		const hint = $('rz-group-files-hint');
+		if (hint) hint.classList.add('hidden');
+		const engSel = /** @type {HTMLSelectElement | null} */ ($('rz-search-engine'));
+		if (engSel) engSel.value = 'recommended';
+		syncTopEmbeddingsVisibility();
+
 		renderTypeChips();
 		renderAttrFilters();
 		renderSelectedTagChips();
 		renderSelectedRelationTagChips();
 		syncRelationTagInputEnabled();
 		hideSuggestPanel();
+		closeAllMenus();
+		updateMenuBadges();
 		scheduleQueryImmediate();
 		persistUiSoon();
 	}
@@ -2568,11 +2831,6 @@
 			loadBtn.classList.toggle('hidden', !(truncated && hostRows.length > 0));
 		}
 
-		const copyMdBtn = $('rz-copy-md');
-		if (copyMdBtn) {
-			copyMdBtn.disabled = !rows.length || kbMissing;
-		}
-
 		if (foot) {
 			const isEmbeddingRank =
 				searchMethod === 'exact' || String(searchMethod).startsWith('recommended:');
@@ -2609,7 +2867,7 @@
 						rows.length +
 						' of ' +
 						hostTotal +
-						' heading matches — file groups auto-expand while searching. Load more for additional pages.' +
+						' heading matches — file groups stay collapsed, click a file row to expand. Load more for additional pages.' +
 						methodHint +
 						filterHint
 					: 'Showing ' +
@@ -2623,7 +2881,7 @@
 			} else {
 				foot.textContent = useFileHeadingGroupLayout()
 					? totalMatched +
-						' heading matches in file groups — click a file row to collapse.' +
+						' heading matches in file groups — click a file row to expand.' +
 						methodHint +
 						filterHint
 					: totalMatched === 1
@@ -2668,7 +2926,7 @@
 					sub.textContent =
 						'Nothing matched (' +
 						headingsInCatalog +
-						' headings indexed). Use Clear filters or change search / type / tag picks. Metadata type chips are below the search bar.';
+						' headings indexed). Use Clear or change search / Filter / Tags picks.';
 				} else {
 					sub.textContent =
 						'Indexed headings returned no rows. Click Refresh — if it keeps happening, report a DRIP bug.';
@@ -2719,6 +2977,22 @@
 		b.hidden = true;
 	}
 
+	/** Compact live summary in the header (headings count) so results get full space. */
+	function updateHeadStatus() {
+		const el = $('rz-head-status');
+		if (!el) return;
+		if (kbMissing) {
+			el.textContent = 'No knowledge base';
+			return;
+		}
+		if (catalogShellOnly) {
+			el.textContent = '';
+			return;
+		}
+		el.textContent =
+			headingsInCatalog > 0 ? headingsInCatalog.toLocaleString() + ' headings' : 'Ready';
+	}
+
 	window.addEventListener('message', event => {
 		try {
 			const msg = event.data;
@@ -2741,6 +3015,7 @@
 					catalogShellOnly = Boolean(p.shellOnly);
 					applyMetadataUiColors(p.metadataColors);
 					setKbBanner();
+					updateHeadStatus();
 					accumulatedRows = [];
 					populateTagDatalist();
 					populateTagGraphSelect();
@@ -3007,42 +3282,6 @@
 		});
 	}
 
-	function flattenForMdLine(text) {
-		return String(text || '').replace(/\s+/g, ' ').trim();
-	}
-
-	function copyVisibleMarkdown() {
-		if (!accumulatedRows.length) {
-			vscode.postMessage({ type: 'retrieverClipboardEmpty' });
-			return;
-		}
-		const qRaw =
-			($('rz-heading-search') && $('rz-heading-search').value && $('rz-heading-search').value.trim()) || '';
-		const qLabel = flattenForMdLine(qRaw) || '(empty)';
-		const total =
-			typeof lastResultPayload.totalMatched === 'number'
-				? lastResultPayload.totalMatched
-				: accumulatedRows.length;
-		const truncated =
-			lastResultPayload.truncated === true ? '\n_(More matches exist — click Load more in Retriever.)_' : '';
-		const hdr =
-			'# Retriever export\n\n' +
-			`_Search: ${qLabel} · ${accumulatedRows.length} of ${total} match(es)_${truncated}\n\n`;
-		const body = accumulatedRows
-			.map(r => {
-				const rel = String(r.relPath || '');
-				const ln = Number(r.line) || 1;
-				return `- ${flattenForMdLine(r.title)} — \`${rel}:${ln}\``;
-			})
-			.join('\n');
-		vscode.postMessage({ type: 'retrieverClipboard', text: hdr + body });
-	}
-
-	const copyMd = $('rz-copy-md');
-	if (copyMd) {
-		copyMd.addEventListener('click', copyVisibleMarkdown);
-	}
-
 	const loadMoreBtn = $('rz-load-more');
 	if (loadMoreBtn) {
 		loadMoreBtn.addEventListener('click', () => {
@@ -3139,6 +3378,7 @@
 			expandedFileGroupPaths.clear();
 			fileGroupKnownPaths.clear();
 			fileGroupExpandSessionKey = '';
+			updateMenuBadges();
 			persistUiSoon();
 			scheduleQueryImmediate();
 		};
@@ -3165,6 +3405,7 @@
 			customCorpusPaths = [];
 			customCorpusDraft = null;
 			syncCustomCorpusEditBtn();
+			updateMenuBadges();
 			persistUiSoon();
 			scheduleQueryImmediate({ skipSuggest: true });
 		});
@@ -3317,6 +3558,7 @@
 		});
 	}
 
+	// Outside the Filter popover (or outside an open key menu): retract menus, keep selection.
 	document.addEventListener('click', e => {
 		const t = e && e.target;
 		if (t && t.closest && t.closest('.rz-attr-box-wrap')) return;
@@ -3439,14 +3681,9 @@
 		relTagChipsHost.addEventListener('click', e => {
 			const rm = e.target && e.target.closest && e.target.closest('.rz-chip-remove');
 			const wrap = rm && rm.closest('.rz-chip-tag');
-			const tag = wrap && wrap.dataset && wrap.dataset.tag;
 			const relType = wrap && wrap.dataset && wrap.dataset.relType;
-			if (!tag || !relType) return;
-			const set = selectedRelations.get(relType);
-			if (set) {
-				set.delete(tag);
-				if (!set.size) selectedRelations.delete(relType);
-			}
+			if (!relType) return;
+			selectedRelations.delete(relType);
 			renderSelectedRelationTagChips();
 			renderResults(lastResultPayload);
 			scheduleQueryImmediate({ skipSuggest: true });
@@ -3466,17 +3703,62 @@
 			} else if (field === 'searchEngine') {
 				searchEngine =
 					v === 'semantic' || v === 'word' ? v : 'recommended';
+				syncTopEmbeddingsVisibility();
 			}
+			updateMenuBadges();
 			if (needsServerRoundTrip) scheduleQueryImmediate({ skipSuggest: true });
 			else renderResults(lastResultPayload);
 			persistUiSoon();
 		});
 	}
 
-	wireSelect('rz-view-mode', 'view', false);
 	// Group is display-only over the current page.
 	wireSelect('rz-group-by', 'group', false);
 	wireSelect('rz-search-engine', 'searchEngine', true);
+
+	const topEmbInp = /** @type {HTMLInputElement | null} */ ($('rz-top-embeddings'));
+	if (topEmbInp) {
+		const commitTopEmb = () => {
+			topEmbeddings = clampTopEmbeddings(topEmbInp.value);
+			topEmbInp.value = String(topEmbeddings);
+			updateMenuBadges();
+			if (searchEngine !== 'word') scheduleQueryImmediate({ skipSuggest: true });
+			else persistUiSoon();
+		};
+		topEmbInp.addEventListener('click', e => e.stopPropagation());
+		topEmbInp.addEventListener('change', commitTopEmb);
+		topEmbInp.addEventListener('keydown', e => {
+			if (e.key === 'Enter') {
+				e.preventDefault();
+				commitTopEmb();
+			}
+		});
+	}
+	syncTopEmbeddingsVisibility();
+
+	// List/Board segmented toggle (mirrors the Project View).
+	(function wireViewToggle() {
+		const listBtn = $('rz-view-list');
+		const boardBtn = $('rz-view-board');
+		if (!listBtn || !boardBtn) return;
+		listBtn.addEventListener('click', () => {
+			if (viewMode === 'list') return;
+			viewMode = 'list';
+			syncViewToggle();
+			updateMenuBadges();
+			renderResults(lastResultPayload);
+			persistUiSoon();
+		});
+		boardBtn.addEventListener('click', () => {
+			if (viewMode === 'board') return;
+			viewMode = 'board';
+			syncViewToggle();
+			updateMenuBadges();
+			renderResults(lastResultPayload);
+			persistUiSoon();
+		});
+		syncViewToggle();
+	})();
 
 	['rz-show-bc', 'rz-show-path', 'rz-show-type', 'rz-show-tags', 'rz-show-relations'].forEach(id => {
 		const el = $(id);
@@ -3487,10 +3769,60 @@
 			showTypeStrip = !!( $('rz-show-type') && $('rz-show-type').checked );
 			showRowTags = !!( $('rz-show-tags') && $('rz-show-tags').checked );
 			showRowRelations = !!( $('rz-show-relations') && $('rz-show-relations').checked );
+			updateMenuBadges();
 			renderResults(lastResultPayload);
 			persistUiSoon();
 		});
 	});
 
+	// Toolbar menus (Scope / Filter / Tags / Display / Sort / engine) — one open at a time.
+	document.querySelectorAll('[data-menu]').forEach(btn => {
+		btn.addEventListener('click', e => {
+			e.stopPropagation();
+			toggleMenu(btn.getAttribute('data-menu') || '');
+		});
+	});
+	document.querySelectorAll('.rz-menu-panel').forEach(panel => {
+		panel.addEventListener('click', e => e.stopPropagation());
+	});
+	document.addEventListener('click', () => closeAllMenus());
+	document.addEventListener('keydown', e => {
+		if (e.key === 'Escape') closeAllMenus();
+	});
+
+	const activeChipsHost = $('rz-active-chips');
+	if (activeChipsHost) {
+		activeChipsHost.addEventListener('click', e => {
+			const chip = e.target && e.target.closest && e.target.closest('.rz-active-chip');
+			if (!chip) return;
+			e.stopPropagation();
+			const act = chip.getAttribute('data-act') || '';
+			const id = chip.getAttribute('data-id') || '';
+			if (act === 'type') {
+				selectedTypes.delete(id);
+				renderTypeChips();
+				renderAttrFilters();
+				scheduleQueryImmediate({ skipSuggest: true });
+				persistUiSoon();
+				return;
+			}
+			if (act === 'tag') {
+				selectedTags.delete(id);
+				renderSelectedTagChips();
+				scheduleQueryImmediate({ skipSuggest: true });
+				persistUiSoon();
+				return;
+			}
+			if (act === 'rel') {
+				const type = chip.getAttribute('data-type') || '';
+				if (type) selectedRelations.delete(type);
+				renderSelectedRelationTagChips();
+				scheduleQueryImmediate({ skipSuggest: true });
+				persistUiSoon();
+			}
+		});
+	}
+
+	updateMenuBadges();
 	vscode.postMessage({ type: 'retrieverPanelReady' });
 })();

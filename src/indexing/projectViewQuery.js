@@ -207,6 +207,7 @@ function deriveFileFeaturesFromFiles(db, pathMap, prefix) {
  *     status: string | null,
  *     priority: string | null,
  *     deadline: number | null,
+ *     category: string | null,
  *     featurePathPrefix: string | null
  *   }[]
  * }>}
@@ -271,6 +272,7 @@ async function listProjectChildrenFromIndex(kbRootUri, projectFolderPrefix) {
 				`SELECT i.project_id AS projectId, i.file_id AS fileId, i.heading_id AS headingId,
 				        h.title AS title, i.issue_key AS issueKey, i.parent_issue_key AS parentIssueKey,
 				        i.status AS status, i.priority AS priority, i.deadline AS deadline,
+				        i.category AS category,
 				        h.parent AS parent
 				 FROM issue_metadata i
 				 LEFT JOIN headings h
@@ -358,6 +360,7 @@ async function listProjectChildrenFromIndex(kbRootUri, projectFolderPrefix) {
 					row.deadline != null && Number.isFinite(Number(row.deadline))
 						? Number(row.deadline)
 						: null,
+				category: row.category != null ? String(row.category) : null,
 				featurePathPrefix,
 				team: teamByIssueKey.get(`${Number(row.projectId) || projectId}:${issueKey || ''}`) || ''
 			};

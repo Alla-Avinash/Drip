@@ -8,6 +8,12 @@ A GitHub Actions workflow that builds DRIP once per platform and publishes it to
 
 DRIP depends on `better-sqlite3`, a native module. `better-sqlite3` v13 is a **N-API** addon, so its compiled binary is ABI-stable: the prebuilt binary the npm package ships (in `prebuilds/`) loads in VS Code's Electron without being recompiled. The same `.vsix` still cannot run on a different OS (the binary is per-OS), so each platform (Windows, macOS Intel, macOS Apple Silicon, Linux) is still built separately on its own machine — but there is no rebuild-against-Electron step.
 
+## Filename case (cross-platform)
+
+Every relative `require()` path must match the on-disk filename's letter case **exactly**. Windows filesystems ignore case, so a wrong-case path still loads there and looks fine; Linux and macOS are case-sensitive, so the same path fails with `Cannot find module '…'` and the extension drops into "DRIP failed to start." This is a silent, Windows-only-works trap: the code passes locally, then breaks only on a Linux/macOS build.
+
+Before publishing (or when a Linux/macOS user reports a load failure), check that every relative import matches its file's real case. The cheap check: search the repo for the lowercased filename and compare it against the actually-tracked filename — any file whose name is all-lowercase but is imported with camelCase (or vice-versa) is a mismatch to rename. The two files that tripped DRIP were `dripNoteMetadataTemplates.js` and `dripNoteDuration.js`, which sat on disk as `dripnote…` while every `require()` used `dripNote…`.
+
 ## How to trigger it
 
 - Open the repo on GitHub → **Actions → Publish to Marketplace → Run workflow** (manual), or

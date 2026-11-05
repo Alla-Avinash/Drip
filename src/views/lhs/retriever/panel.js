@@ -62,156 +62,185 @@ function getRetrieverPanelHtml(webview, extensionUri) {
 <link rel="stylesheet" href="${styleUri}" />
 </head>
 <body>
-	<main>
-		<header class="rz-brand" aria-label="Retriever">
-			<h1 class="rz-h1">DRIP RETRIEVER</h1>
-			<p class="rz-brand-sub">Search and filter headings across your knowledge base</p>
-		</header>
-		<div class="rz-scope-strip" aria-label="Retrieval scope">
-			<span class="rz-scope-strip-label">Scope</span>
-			<div class="rz-scope-checks" role="radiogroup" aria-label="Search files or headings">
-				<label class="rz-scope-check-label"><input type="radio" name="rz-scope" id="rz-scope-headings" value="headings" checked /> Headings</label>
-				<label class="rz-scope-check-label"><input type="radio" name="rz-scope" id="rz-scope-files" value="files" /> Files</label>
+	<header>
+		<span class="meta" id="rz-head-status" aria-live="polite"></span>
+		<button type="button" class="ghost" id="rz-refresh" title="Flush pending index updates, reload from index.drip, and re-run your query">Refresh</button>
+	</header>
+	<div id="rz-custom-corpus" class="rz-custom-corpus hidden" hidden>
+		<div class="rz-custom-corpus-inner">
+			<h2 class="rz-custom-corpus-title">Custom paths</h2>
+			<p class="rz-custom-corpus-sub">Drop or add files/folders from inside the .driplock knowledge base only. Paths outside the KB are rejected. Not saved after this session.</p>
+			<div id="rz-custom-drop" class="rz-custom-drop" tabindex="0" role="button" aria-label="Drop files or folders here">
+				<span class="rz-custom-drop-label">Drag &amp; drop files or folders here</span>
 			</div>
-			<div class="aside-field rz-corpus-field" style="margin:0 0 0 12px;max-width:260px;">
-				<label for="rz-corpus">Corpus</label>
-				<div class="rz-corpus-row">
-					<select id="rz-corpus" class="rz-select" aria-label="Search corpus">
-						<option value="working" selected>Working set (.dripignore)</option>
-						<option value="entire">Entire KB</option>
-						<option value="custom">Custom paths…</option>
-					</select>
-					<button type="button" class="rz-btn secondary rz-corpus-edit-btn hidden" id="rz-corpus-edit" title="Change custom paths">Edit</button>
-				</div>
+			<div class="rz-custom-toolbar">
+				<button type="button" class="ghost" id="rz-custom-add">Add files or folders…</button>
 			</div>
-		</div>
-		<div id="rz-custom-corpus" class="rz-custom-corpus hidden" hidden>
-			<div class="rz-custom-corpus-inner">
-				<h2 class="rz-custom-corpus-title">Custom paths</h2>
-				<p class="rz-custom-corpus-sub">Drop or add files/folders from inside the .driplock knowledge base only. Paths outside the KB are rejected. Not saved after this session.</p>
-				<div id="rz-custom-drop" class="rz-custom-drop" tabindex="0" role="button" aria-label="Drop files or folders here">
-					<span class="rz-custom-drop-label">Drag &amp; drop files or folders here</span>
-				</div>
-				<div class="rz-custom-toolbar">
-					<button type="button" class="rz-btn secondary" id="rz-custom-add">Add files or folders…</button>
-				</div>
-				<ul id="rz-custom-entries" class="rz-custom-entries" aria-live="polite"></ul>
-				<p id="rz-custom-empty" class="rz-custom-empty">No paths yet — drop or add at least one file or folder.</p>
-				<div class="rz-custom-footer">
-					<span class="rz-custom-footer-spacer"></span>
-					<button type="button" class="rz-btn secondary" id="rz-custom-cancel">Cancel</button>
-					<button type="button" class="rz-btn" id="rz-custom-done">Done</button>
-				</div>
+			<ul id="rz-custom-entries" class="rz-custom-entries" aria-live="polite"></ul>
+			<p id="rz-custom-empty" class="rz-custom-empty">No paths yet — drop or add at least one file or folder.</p>
+			<div class="rz-custom-footer">
+				<span class="rz-custom-footer-spacer"></span>
+				<button type="button" class="ghost" id="rz-custom-cancel">Cancel</button>
+				<button type="button" id="rz-custom-done">Done</button>
 			</div>
 		</div>
-		<div class="toolbar">
-			<div class="search-wrap rz-search-slot">
-				<input id="rz-heading-search" class="search-input" type="text" placeholder="Search headings by meaning…" autocomplete="off" spellcheck="false" aria-expanded="false" aria-controls="rz-suggest-panel" aria-autocomplete="list" />
-				<div id="rz-suggest-panel" class="rz-suggest-panel hidden" role="listbox" aria-label="Top embedding matches — click to open"></div>
-			</div>
-			<button type="button" class="rz-btn secondary" id="rz-clear-filters" title="Clear search, scope, corpus (back to Working set), metadata types, and tags">Clear filters</button>
-			<button type="button" class="rz-btn secondary" id="rz-refresh" title="Flush pending index updates, reload from index.drip, and re-run your query">Refresh</button>
-			<button type="button" class="rz-btn secondary" id="rz-copy-md" title="Copy visible results as Markdown" disabled>Copy list</button>
-		</div>
-		<div id="rz-kb-banner" class="rz-banner" hidden>
-			No knowledge base root is configured. Pick a KB folder from DRIP Storage.
-		</div>
-		<div class="filter-bar">
-			<div class="filter-block">
-				<span class="filter-label">Metadata types</span>
-				<p id="rz-types-empty-hint" class="rz-inline-hint hidden">No types in DRIP Settings — add templates, then Refresh.</p>
-				<div id="rz-type-chips" class="chip-row" role="toolbar" aria-label="Filter by metadata type"></div>
-			</div>
-			<div class="filter-row-tags-rel">
-				<div class="filter-block filter-block--half">
-					<span class="filter-label">Tags</span>
-					<div class="aside-field filter-select-field">
-						<label for="rz-tag-graph">Tag graph</label>
-						<select id="rz-tag-graph" class="rz-select" aria-label="Apply tags from a saved tag graph">
-							<option value="">None</option>
-						</select>
+	</div>
+	<div class="rz-layout" id="rz-main-chrome">
+		<div class="rz-center">
+			<h1 class="page-title">Retriever</h1>
+			<p class="page-sub">Search and filter headings across your knowledge base</p>
+			<div class="rz-toolbar">
+				<div class="rz-menus-row">
+					<span class="rz-menu-anchor">
+						<button type="button" class="rz-menu-btn" id="rz-menu-scope" data-menu="scope" aria-haspopup="true" aria-expanded="false">Scope<span class="rz-bubble" id="rz-badge-scope" hidden>0</span></button>
+						<div class="rz-menu-panel" id="rz-panel-scope" hidden role="dialog" aria-label="Scope">
+							<div class="rz-gs-label">Search</div>
+							<div class="rz-scope-checks" role="radiogroup" aria-label="Search files or headings">
+								<label class="rz-check"><input type="radio" name="rz-scope" id="rz-scope-headings" value="headings" checked /> Headings</label>
+								<label class="rz-check"><input type="radio" name="rz-scope" id="rz-scope-files" value="files" /> Files</label>
+							</div>
+							<div class="rz-gs-section">
+								<div class="rz-gs-label">Corpus</div>
+								<div class="rz-corpus-row">
+									<select id="rz-corpus" class="rz-select" aria-label="Search corpus">
+										<option value="working" selected>Working set (.dripignore)</option>
+										<option value="entire">Entire KB</option>
+										<option value="custom">Custom paths…</option>
+									</select>
+									<button type="button" class="ghost rz-corpus-edit-btn hidden" id="rz-corpus-edit" title="Change custom paths">Edit</button>
+								</div>
+							</div>
+						</div>
+					</span>
+					<span class="rz-menu-anchor">
+						<button type="button" class="rz-menu-btn" id="rz-menu-filter" data-menu="filter" aria-haspopup="true" aria-expanded="false">Filter<span class="rz-bubble" id="rz-badge-filter" hidden>0</span></button>
+						<div class="rz-menu-panel rz-menu-wide" id="rz-panel-filter" hidden role="dialog" aria-label="Filter">
+							<div class="rz-gs-label">Metadata types</div>
+							<p id="rz-types-empty-hint" class="rz-inline-hint hidden">No types in DRIP Settings — add templates, then Refresh.</p>
+							<div id="rz-type-chips" class="chip-row" role="toolbar" aria-label="Filter by metadata type"></div>
+							<button type="button" class="ghost rz-clear-attr-filters" id="rz-clear-attr-filters" title="Clear all metadata key filters">Clear metadata filters</button>
+							<div id="rz-attr-filter-panel" class="rz-attr-filter-panel hidden" hidden>
+								<p class="rz-aside-sub">Metadata filters</p>
+								<p class="rz-attr-filter-empty hidden" id="rz-attr-filter-empty">Select a metadata type above to filter by its keys.</p>
+								<div id="rz-attr-filter-body" class="rz-attr-filter-body"></div>
+							</div>
+						</div>
+					</span>
+					<span class="rz-menu-anchor">
+						<button type="button" class="rz-menu-btn" id="rz-menu-tags" data-menu="tags" aria-haspopup="true" aria-expanded="false">Tags<span class="rz-bubble" id="rz-badge-tags" hidden>0</span></button>
+						<div class="rz-menu-panel rz-menu-wide rz-menu-tags" id="rz-panel-tags" hidden role="dialog" aria-label="Tags and Relations">
+							<div class="rz-tagsrel-grid">
+								<div class="rz-tagsrel-block">
+									<div class="rz-gs-label">Tags</div>
+									<div class="rz-gs-section">
+										<label for="rz-tag-graph">Tag graph</label>
+										<select id="rz-tag-graph" class="rz-select" aria-label="Apply tags from a saved tag graph">
+											<option value="">None</option>
+										</select>
+									</div>
+									<div class="tag-input-row rz-tag-picker">
+										<input id="rz-tag-input" class="rz-tag-entry" placeholder="Search tags, Enter to add…" autocomplete="off" spellcheck="false" aria-autocomplete="list" aria-controls="rz-tag-suggest" aria-expanded="false" />
+										<div id="rz-tag-suggest" class="rz-tag-suggest hidden" role="listbox" aria-label="Matching tags"></div>
+									</div>
+									<div id="rz-tag-chips" class="chip-row" aria-live="polite"></div>
+								</div>
+								<div class="rz-tagsrel-block">
+									<div class="rz-gs-label">Relations</div>
+									<div class="rz-gs-section">
+										<label for="rz-relation-type">Relation type</label>
+										<select id="rz-relation-type" class="rz-select" aria-label="Relation type to add tags for (you can add several types)">
+											<option value="">Choose type…</option>
+										</select>
+									</div>
+									<div class="tag-input-row rz-tag-picker">
+										<input id="rz-rel-tag-input" class="rz-tag-entry" placeholder="Add tags for this type, then switch type to add more…" autocomplete="off" spellcheck="false" aria-autocomplete="list" aria-controls="rz-rel-tag-suggest" aria-expanded="false" disabled />
+										<div id="rz-rel-tag-suggest" class="rz-tag-suggest hidden" role="listbox" aria-label="Matching relation tags"></div>
+									</div>
+									<div id="rz-rel-tag-chips" class="chip-row" aria-live="polite"></div>
+								</div>
+							</div>
+						</div>
+					</span>
+					<span class="rz-menu-anchor">
+						<button type="button" class="rz-menu-btn" id="rz-menu-display" data-menu="display" aria-haspopup="true" aria-expanded="false">Display<span class="rz-bubble" id="rz-badge-display" hidden>0</span></button>
+						<div class="rz-menu-panel" id="rz-panel-display" hidden role="dialog" aria-label="Display">
+							<div class="rz-gs-label">View</div>
+							<div class="rz-view-toggle" role="group" aria-label="View mode">
+								<button type="button" class="rz-vt-btn is-active" id="rz-view-list">List</button>
+								<button type="button" class="rz-vt-btn" id="rz-view-board">Board</button>
+							</div>
+							<div class="rz-gs-label rz-view-label">Shown in results</div>
+							<label class="rz-fopt"><input type="checkbox" id="rz-show-type" checked /> <span>Type marker</span></label>
+							<label class="rz-fopt"><input type="checkbox" id="rz-show-bc" checked /> <span>Key-values</span></label>
+							<label class="rz-fopt"><input type="checkbox" id="rz-show-tags" checked /> <span>Tags</span></label>
+							<label class="rz-fopt"><input type="checkbox" id="rz-show-relations" checked /> <span>Relations</span></label>
+							<label class="rz-fopt"><input type="checkbox" id="rz-show-path" checked /> <span>Filepath</span></label>
+						</div>
+					</span>
+					<span class="rz-menu-anchor">
+						<button type="button" class="rz-menu-btn" id="rz-menu-sort" data-menu="sort" aria-haspopup="true" aria-expanded="false">Sort<span class="rz-bubble" id="rz-badge-sort" hidden>0</span></button>
+						<div class="rz-menu-panel rz-menu-gs" id="rz-panel-sort" hidden role="dialog" aria-label="Sort">
+							<div class="rz-gs-section">
+								<div class="rz-gs-label">Group by</div>
+								<select id="rz-group-by" class="rz-select">
+									<option value="none" selected>None</option>
+									<option value="folder">Folder</option>
+									<option value="file">File</option>
+									<option value="type">Type</option>
+								</select>
+								<p id="rz-group-files-hint" class="rz-aside-muted hidden">Group is disabled when Scope is Files (results are already file buckets).</p>
+							</div>
+						</div>
+					</span>
+					<button type="button" class="ghost clear-btn hidden" id="rz-clear-filters" hidden title="Clear scope, corpus, filters, tags, display, and sort back to defaults (keeps search text)">Clear</button>
+				</div>
+				<div class="rz-search-row">
+					<div class="rz-search-slot">
+						<input id="rz-heading-search" class="rz-search" type="text" placeholder="Search headings by meaning…" autocomplete="off" spellcheck="false" aria-expanded="false" aria-controls="rz-suggest-panel" aria-autocomplete="list" />
+						<div id="rz-suggest-panel" class="rz-suggest-panel hidden" role="listbox" aria-label="Top embedding matches — click to open"></div>
 					</div>
-					<div class="tag-input-row rz-tag-picker">
-						<input id="rz-tag-input" class="rz-tag-entry" placeholder="Search tags, Enter to add…" autocomplete="off" spellcheck="false" aria-autocomplete="list" aria-controls="rz-tag-suggest" aria-expanded="false" />
-						<div id="rz-tag-suggest" class="rz-tag-suggest hidden" role="listbox" aria-label="Matching tags"></div>
-					</div>
-					<div id="rz-tag-chips" class="chip-row" aria-live="polite"></div>
+					<span class="rz-menu-anchor rz-engine-anchor">
+						<button type="button" class="ghost rz-engine-btn" id="rz-menu-engine" data-menu="engine" title="Search engine" aria-label="Search engine" aria-haspopup="true" aria-expanded="false">
+							<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M6.5 1a5.5 5.5 0 0 1 4.383 8.823l3.147 3.147-.708.708-3.147-3.147A5.5 5.5 0 1 1 6.5 1zm0 1a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9z"/></svg>
+						</button>
+						<div class="rz-menu-panel rz-menu-engine" id="rz-panel-engine" hidden role="dialog" aria-label="Search engine">
+							<div class="rz-gs-label">Search engine</div>
+							<select id="rz-search-engine" class="rz-select rz-engine-select" aria-label="How results are ranked">
+								<option value="recommended" selected>Recommended</option>
+								<option value="semantic">Only semantic search</option>
+								<option value="word">Only word search</option>
+							</select>
+							<div id="rz-top-emb-wrap" class="rz-top-emb-wrap">
+								<div class="rz-gs-label rz-engine-top-label">Top embeddings</div>
+								<input type="number" id="rz-top-embeddings" class="rz-top-emb-input" min="1" max="50" step="1" value="20" title="Max embedding results to show (default 20)" aria-label="Top embeddings to show" />
+							</div>
+						</div>
+					</span>
 				</div>
-				<div class="filter-block filter-block--half">
-					<span class="filter-label">Relations</span>
-					<div class="aside-field filter-select-field">
-						<label for="rz-relation-type">Relation type</label>
-						<select id="rz-relation-type" class="rz-select" aria-label="Relation type to add tags for (you can add several types)">
-							<option value="">Choose type…</option>
-						</select>
-					</div>
-					<div class="tag-input-row rz-tag-picker">
-						<input id="rz-rel-tag-input" class="rz-tag-entry" placeholder="Add tags for this type, then switch type to add more…" autocomplete="off" spellcheck="false" aria-autocomplete="list" aria-controls="rz-rel-tag-suggest" aria-expanded="false" disabled />
-						<div id="rz-rel-tag-suggest" class="rz-tag-suggest hidden" role="listbox" aria-label="Matching relation tags"></div>
-					</div>
-					<div id="rz-rel-tag-chips" class="chip-row" aria-live="polite"></div>
+				<div id="rz-active-chips" class="rz-active-chips" hidden></div>
+			</div>
+			<div id="rz-kb-banner" class="rz-banner" hidden>
+				No knowledge base root is configured. Pick a KB folder from DRIP Storage.
+			</div>
+			<div class="viewport">
+				<div id="rz-empty" class="empty">
+					<p>Type in the search box to find headings across your knowledge base.</p>
 				</div>
+				<div id="rz-list" class="result-list" role="region" aria-label="Retriever search results" hidden></div>
+				<div id="rz-board" class="result-board" hidden></div>
+			</div>
+			<div class="rz-footer-wrap">
+				<div id="rz-footer" class="rz-footer-text" aria-live="polite"></div>
+				<button type="button" class="ghost rz-load-more-btn hidden" id="rz-load-more">Load more</button>
 			</div>
 		</div>
-		<div class="viewport">
-			<div id="rz-empty" class="empty">
-				<h2>DRIP Retriever</h2>
-				<p>Preparing…</p>
-			</div>
-			<div id="rz-list" class="result-list" role="region" aria-label="Retriever search results" hidden></div>
-			<div id="rz-board" class="result-board" hidden></div>
-		</div>
-		<div class="rz-footer-wrap">
-			<div id="rz-footer" class="rz-footer-text" aria-live="polite"></div>
-			<button type="button" class="rz-btn secondary rz-load-more-btn hidden" id="rz-load-more">Load more</button>
-		</div>
-		<div id="rz-ctx-menu" class="rz-ctx-menu" hidden role="menu" aria-hidden="true">
-			<button type="button" class="rz-ctx-item" role="menuitem" data-act="open">Open</button>
-			<button type="button" class="rz-ctx-item" role="menuitem" data-act="reveal">Reveal in Explorer</button>
-			<button type="button" class="rz-ctx-item" role="menuitem" data-act="copy-path">Copy path:line</button>
-			<button type="button" class="rz-ctx-item" role="menuitem" data-act="copy-l">Copy L. reference…</button>
-		</div>
-	</main>
-	<aside>
-		<h3>Display</h3>
-		<div class="aside-field">
-			<label for="rz-view-mode">View</label>
-			<select id="rz-view-mode" class="rz-select">
-				<option value="list" selected>List</option>
-				<option value="board">Board</option>
-			</select>
-		</div>
-		<div class="aside-field">
-			<label for="rz-group-by">Group</label>
-			<select id="rz-group-by" class="rz-select">
-				<option value="none" selected>None</option>
-				<option value="folder">Folder</option>
-				<option value="file">File</option>
-				<option value="type">Type</option>
-			</select>
-			<p id="rz-group-files-hint" class="aside-muted hidden">Group is disabled when Scope is Files (results are already file buckets).</p>
-		</div>
-		<div class="aside-field">
-			<label for="rz-search-engine">Search engine</label>
-			<select id="rz-search-engine" class="rz-select" aria-label="How results are ranked">
-				<option value="recommended" selected>Recommended</option>
-				<option value="semantic">Only semantic search</option>
-				<option value="word">Only word search</option>
-			</select>
-		</div>
-		<p class="aside-sub">Shown in results</p>
-		<label class="aside-check"><input type="checkbox" id="rz-show-type" checked /> <span>Metadata type marker</span></label>
-		<label class="aside-check"><input type="checkbox" id="rz-show-bc" checked /> <span>Metadata key-values</span></label>
-		<label class="aside-check"><input type="checkbox" id="rz-show-tags" checked /> <span>Search tags</span></label>
-		<label class="aside-check"><input type="checkbox" id="rz-show-relations" checked /> <span>Relations</span></label>
-		<label class="aside-check"><input type="checkbox" id="rz-show-path" checked /> <span>Filepath</span></label>
-		<button type="button" class="rz-btn secondary rz-clear-attr-filters" id="rz-clear-attr-filters" title="Clear all metadata key filters">Clear metadata filters</button>
-		<div id="rz-attr-filter-panel" class="rz-attr-filter-panel hidden" hidden>
-			<p class="aside-sub">Metadata filters</p>
-			<p class="rz-attr-filter-empty hidden" id="rz-attr-filter-empty">Select a metadata type above to filter by its keys.</p>
-			<div id="rz-attr-filter-body" class="rz-attr-filter-body"></div>
-		</div>
-	</aside>
+	</div>
+	<div id="rz-ctx-menu" class="rz-ctx-menu" hidden role="menu" aria-hidden="true">
+		<button type="button" class="rz-ctx-item" role="menuitem" data-act="open">Open</button>
+		<button type="button" class="rz-ctx-item" role="menuitem" data-act="reveal">Reveal in Explorer</button>
+		<button type="button" class="rz-ctx-item" role="menuitem" data-act="copy-path">Copy path:line</button>
+		<button type="button" class="rz-ctx-item" role="menuitem" data-act="copy-l">Copy L. reference…</button>
+	</div>
 	<script nonce="${nonce}" src="${jsUri}"></script>
 </body>
 </html>`;
@@ -393,15 +422,6 @@ class DripRetrieverPanel {
 						message.uri,
 						typeof message.fileId === 'string' ? message.fileId : ''
 					);
-					return;
-				}
-				if (message?.type === 'retrieverClipboardEmpty') {
-					void vscode.window.showInformationMessage('Retriever has nothing to export — adjust filters or load more.');
-					return;
-				}
-				if (message?.type === 'retrieverClipboard' && typeof message.text === 'string') {
-					await vscode.env.clipboard.writeText(message.text);
-					void vscode.window.setStatusBarMessage('Retriever list copied to clipboard', 2600);
 					return;
 				}
 				if (message?.type === 'retrieverPickCustomPaths') {

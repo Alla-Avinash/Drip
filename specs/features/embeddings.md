@@ -22,15 +22,16 @@ DRIP can turn text into **vectors** (embeddings) locally and use vector similari
 
 ### Vector storage
 
-- Vectors are stored as `Float32Array` BLOBs in ordinary SQLite tables — one per heading, file, folder, and tag — inside the index database (`index.drip`).
+- Vectors are stored as `Float32Array` BLOBs in ordinary SQLite tables — one per heading, file, folder, and tag.
 - No separate vector files or sidecar indexes exist.
-- **Project data is never stored as vectors.** Project headings live in `projects.drip`, which has no embedding tables. Project files and project folders (anything under a `.p`/`.f` folder) are also excluded from the file and folder embedding stores, so nothing from the project hierarchy pollutes the document semantic index. The exclusion happens at sync/storage time, not just at query time.
+- Heading vectors are split across the two zones. Document-note headings stay in `index.drip`; project/feature/issue headings (the project zone) get their own heading-embedding tables inside `projects.drip`, so the Project View can run semantic search over issues without those vectors ever entering the document semantic index. Project files and project folders (anything under a `.p`/`.f` folder) are still excluded from the file and folder embedding stores, which live only in `index.drip`. Both exclusions happen at sync/storage time, not just at query time.
 
 ### Vector search
 
 - Similarity is a single exact L2 distance scan over all stored vectors, done in JavaScript. Distance is converted to a 0–1 score with `1 / (1 + distance)`.
 - The same search path is used for every vector count — there is no threshold that switches to a different method.
 - File/folder/tag embeddings support "best place to put this" and related-tag search.
+- Project issue search (the Project View search bar in Semantic/Recommended mode) runs the same L2 scan, but against the project-zone heading vectors in `projects.drip`, scoped to that one project's issues.
 
 ### Ranking for "best place to put this" (AI / LLM ingest)
 

@@ -292,11 +292,15 @@ function seedProjectIndexMeta(db) {
 
 /**
  * Create the project-scoped schema. Idempotent via `CREATE … IF NOT EXISTS`.
+ * Also creates the heading-embedding tables so project issues can be ranked
+ * semantically (same table layout as `index.drip`, kept in this separate file so
+ * project headings never surface in global document search).
  * @param {import('../db/dripSqlite').DripSqliteDatabase} db
  */
 function ensureDripProjectSchema(db) {
 	db.exec(SCHEMA_SQL);
 	seedProjectIndexMeta(db);
+	require('../embeddings/headingEmbeddingStore').ensureHeadingEmbeddingStorage(db);
 }
 
 module.exports = {
