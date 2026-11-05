@@ -1,38 +1,41 @@
 <body>
-	<div class="composer">
-		<header class="top">
-			<h1>DRIP Composer</h1>
-			<div class="kb-row">
-				<p id="kb-root" class="meta kb-path">Knowledge base: not selected</p>
-				<button type="button" id="select-kb" class="secondary">Select Knowledge Base Folder</button>
+	<header>
+		<h1>Composer</h1>
+		<button type="button" class="ghost" id="select-kb">Select Knowledge Base</button>
+	</header>
+	<div class="layout">
+		<div class="center composer">
+			<p class="page-title">Draft a note</p>
+			<p class="page-sub">Capture from the editor or write here, then use Storage to place it in the knowledge base.</p>
+			<p id="kb-root" class="meta kb-path">Knowledge base: not selected</p>
+
+			<section class="field">
+				<label for="heading-title">Heading title</label>
+				<input id="heading-title" type="text" placeholder="Topic" autocomplete="off" />
+			</section>
+
+			<section class="field">
+				<label for="metadata">Metadata</label>
+				<div id="metadata" class="metadata-chips">
+					<div id="chips"></div>
+				</div>
+			</section>
+
+			<section class="field field-body">
+				<label for="body">Body</label>
+				<textarea id="body" spellcheck="true" placeholder="Notes under this heading…"></textarea>
+			</section>
+
+			<div class="button-row">
+				<div class="button-row-center">
+					<button type="button" class="ghost" id="save-draft">Save Draft</button>
+					<button type="button" class="ghost" id="ingest-note">Ingest Note</button>
+					<button type="button" class="ghost danger" id="delete-draft" hidden title="Delete this saved draft">Delete Draft</button>
+				</div>
+				<button type="button" class="ghost button-row-end" id="new-note">New Note</button>
 			</div>
-			<p class="hint">Draft or capture from the editor. Use Storage (RHS) to choose where it lands in the KB.</p>
-		</header>
-
-		<section class="box">
-			<label for="heading-title">Heading title</label>
-			<input id="heading-title" type="text" placeholder="Topic" autocomplete="off" />
-		</section>
-
-		<section class="box">
-			<label for="metadata">Metadata</label>
-			<div id="metadata" class="metadata-chips">
-				<div id="chips"></div>
-			</div>
-		</section>
-
-		<section class="box box-body">
-			<label for="body">Body</label>
-			<textarea id="body" spellcheck="true" placeholder="Notes under this heading…"></textarea>
-		</section>
-
-		<div class="button-row">
-			<button id="save-draft">Save Draft</button>
-			<button id="new-note" class="secondary">New Note</button>
-			<button id="ingest-note">Ingest Note</button>
-			<button id="delete-draft" class="danger" hidden title="Delete this saved draft">Delete Draft</button>
+			<div id="status" class="status"></div>
+			<div id="error" class="error"></div>
 		</div>
-		<div id="status" class="status"></div>
-		<div id="error" class="error"></div>
 	</div>
 </body>

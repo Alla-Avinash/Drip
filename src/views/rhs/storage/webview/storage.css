@@ -1,7 +1,31 @@
-body { font-family: var(--vscode-font-family); color: var(--vscode-editor-foreground); background: var(--vscode-editor-background); margin: 0; padding: 8px; }
-.storage-root { max-width: 100%; display: flex; flex-direction: column; min-height: 0; flex: 1; }
+html, body { height: 100%; margin: 0; }
+body {
+	font-family: var(--vscode-font-family);
+	color: var(--vscode-editor-foreground);
+	background: var(--vscode-editor-background);
+	padding: 8px;
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+.storage-root {
+	max-width: 100%;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	flex: 1;
+	overflow: auto;
+}
 .storage-root[hidden] { display: none; }
-.storage-toolbar-actions { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.storage-toolbar-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 8px;
+	flex-wrap: wrap;
+	flex-shrink: 0;
+}
 .storage-toolbar-actions button { padding: 6px 12px; font-size: 12px; }
 .storage-corpus-strip {
 	display: flex;
@@ -9,6 +33,7 @@ body { font-family: var(--vscode-font-family); color: var(--vscode-editor-foregr
 	gap: 8px;
 	margin-bottom: 10px;
 	flex-wrap: wrap;
+	flex-shrink: 0;
 }
 .storage-corpus-strip > label {
 	margin: 0;
@@ -42,10 +67,28 @@ body { font-family: var(--vscode-font-family); color: var(--vscode-editor-foregr
 .storage-custom-entry-body { flex: 1; min-width: 0; }
 .storage-custom-entry-name { font-weight: 600; }
 .storage-custom-entry-path { color: var(--vscode-descriptionForeground); font-size: 11px; word-break: break-all; }
-.storage-custom-entry-remove { border: none; background: transparent; color: var(--vscode-descriptionForeground); cursor: pointer; }
+.storage-custom-entry-remove {
+	border: none !important;
+	background: transparent !important;
+	color: var(--vscode-descriptionForeground);
+	cursor: pointer;
+	padding: 0 4px;
+}
+.storage-custom-entry-remove:hover {
+	background: var(--vscode-list-hoverBackground) !important;
+	color: var(--vscode-foreground);
+}
 .storage-custom-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 #storage-main-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.storage-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--vscode-panel-border); }
+.storage-actions {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin-top: 16px;
+	padding-top: 12px;
+	border-top: 1px solid var(--vscode-panel-border);
+	flex-shrink: 0;
+}
 .storage-actions-buttons { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .storage-actions-buttons button { padding: 6px 12px; font-size: 12px; }
 .storage-status-below { font-size: 12px; color: var(--vscode-descriptionForeground); line-height: 1.4; min-height: 1.2em; }
@@ -57,8 +100,36 @@ textarea { min-height: 120px; resize: vertical; font-family: var(--vscode-editor
 .row { margin-top: 12px; }
 .meta { color: var(--vscode-descriptionForeground); }
 .button-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
-button { border: none; border-radius: 6px; padding: 10px 12px; cursor: pointer; background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
-button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+/*
+ * Theme-relative shade (no fixed colors): mix a little foreground into the
+ * editor background so buttons stay visible on both light and dark themes.
+ */
+button,
+button.ghost,
+button.secondary {
+	--st-btn-bg: color-mix(in srgb, var(--vscode-foreground) 10%, var(--vscode-editor-background));
+	--st-btn-bg-hover: color-mix(in srgb, var(--vscode-foreground) 16%, var(--vscode-editor-background));
+	--st-btn-border: color-mix(in srgb, var(--vscode-foreground) 22%, var(--vscode-panel-border, var(--vscode-widget-border)));
+	border: 1px solid var(--st-btn-border);
+	border-radius: 2px;
+	padding: 6px 12px;
+	cursor: pointer;
+	background: var(--st-btn-bg);
+	color: var(--vscode-foreground);
+	font: inherit;
+}
+button:hover,
+button.ghost:hover,
+button.secondary:hover {
+	background: var(--st-btn-bg-hover);
+}
+button:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+button:disabled:hover {
+	background: var(--st-btn-bg);
+}
 .target-item { border: 1px solid var(--vscode-panel-border); border-radius: 8px; padding: 10px; margin-top: 10px; }
 .selected-card { border: 2px solid var(--vscode-focusBorder); background: var(--vscode-editorWidget-background); }
 .selectable { cursor: pointer; }
@@ -67,16 +138,46 @@ button.secondary { background: var(--vscode-button-secondaryBackground); color: 
 .error { margin-top: 12px; color: var(--vscode-errorForeground); }
 textarea { min-height: 120px; resize: vertical; font-family: var(--vscode-editor-font-family, var(--vscode-font-family)); }
 .composer-tabs { display: flex; gap: 6px; margin: 12px 0; flex-wrap: wrap; }
-.composer-tabs button.tab { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
-.composer-tabs button.tab.active { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+.composer-tabs button.tab {
+	background: transparent;
+	color: var(--vscode-foreground);
+	border: 1px solid var(--vscode-panel-border, var(--vscode-widget-border));
+}
+.composer-tabs button.tab.active {
+	background: var(--vscode-list-hoverBackground);
+	border-color: var(--vscode-focusBorder, var(--vscode-panel-border));
+}
 .tab-panel[hidden] { display: none !important; }
 .subh { font-size: 12px; margin: 10px 0 6px; color: var(--vscode-descriptionForeground); font-weight: 600; }
 .storage-flow { margin-top: 8px; }
-.storage-path-bar { font-size: 12px; margin-bottom: 8px; padding: 8px 10px; border-radius: 8px; background: var(--vscode-sideBar-background); border: 1px solid var(--vscode-panel-border); line-height: 1.5; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; }
-.storage-path-bar .path-root { font-weight: 600; color: var(--vscode-descriptionForeground); }
+/* Path breadcrumb — never flex-shrink (was clipping "Storage" on first open). */
+.storage-path-bar {
+	font-size: 12px;
+	margin-bottom: 8px;
+	padding: 8px 10px;
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--vscode-foreground) 6%, var(--vscode-editor-background));
+	border: 1px solid color-mix(in srgb, var(--vscode-foreground) 18%, var(--vscode-panel-border));
+	line-height: 1.5;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px 6px;
+	flex-shrink: 0;
+	min-height: 2.4em;
+	box-sizing: border-box;
+	overflow: visible;
+}
+.storage-path-bar .path-root {
+	font-weight: 600;
+	color: var(--vscode-foreground);
+	white-space: nowrap;
+	flex-shrink: 0;
+	overflow: visible;
+}
 .storage-path-bar .path-root.clickable { cursor: pointer; text-decoration: underline; text-underline-offset: 2px; color: var(--vscode-textLink-foreground); }
 .storage-path-bar .path-root.clickable:hover { color: var(--vscode-textLink-activeForeground); }
-.storage-path-bar .path-sep { margin: 0 6px; color: var(--vscode-descriptionForeground); user-select: none; opacity: 0.85; }
+.storage-path-bar .path-sep { margin: 0 2px; color: var(--vscode-descriptionForeground); user-select: none; opacity: 0.85; flex-shrink: 0; }
 .storage-path-bar .path-seg { border-radius: 4px; padding: 1px 4px; }
 .storage-path-bar .path-seg.clickable { cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .storage-path-bar .path-seg.clickable:hover { filter: brightness(1.12); }
@@ -104,8 +205,18 @@ textarea { min-height: 120px; resize: vertical; font-family: var(--vscode-editor
 .new-file-format input[type="radio"] { width: auto; min-width: 0; flex: none; padding: 0; border: none; background: none; margin: 0; }
 .picker-search-label { font-size: 11px; color: var(--vscode-descriptionForeground); margin: 0 0 6px 0; font-weight: 600; }
 .heading-tree-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
-.heading-tree-toolbar button { padding: 3px 8px; font-size: 11px; border-radius: 4px; background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); cursor: pointer; border: none; }
-.heading-tree-toolbar button:hover { filter: brightness(1.08); }
+.heading-tree-toolbar button {
+	padding: 3px 8px;
+	font-size: 11px;
+	border-radius: 2px;
+	background: color-mix(in srgb, var(--vscode-foreground) 10%, var(--vscode-editor-background));
+	color: var(--vscode-foreground);
+	cursor: pointer;
+	border: 1px solid color-mix(in srgb, var(--vscode-foreground) 22%, var(--vscode-panel-border, var(--vscode-widget-border)));
+}
+.heading-tree-toolbar button:hover {
+	background: color-mix(in srgb, var(--vscode-foreground) 16%, var(--vscode-editor-background));
+}
 .heading-tree-toolbar .ht-persistent-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; cursor: pointer; margin-left: auto; }
 .ht-tree-resize-wrap {
 border: 1px solid var(--vscode-panel-border);

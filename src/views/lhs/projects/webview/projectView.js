@@ -147,6 +147,13 @@
 	let openIssueMenuKey = '';
 	let showParentChain = false; // show a sub-issue's parent hierarchy as dimmed rows when its parent lives elsewhere
 
+	/** Features-view section / feature collapse state. */
+	let issuesSectionOpen = true;
+	/** @type {Set<string>} feature keys (folderPrefix or path) that are collapsed */
+	const collapsedFeatures = new Set();
+	/** FEATURES heading "+" menu: Feature folder / Feature file */
+	let openFeaturesAddMenu = false;
+
 	/** @type {{ parentIssueId: string, label: string } | null} */
 	let compose = null;
 
@@ -162,11 +169,10 @@
 		'1y': { label: 'Next 1 year', seconds: 365 * 86400 }
 	};
 
-	const kbMeta = document.getElementById('kbMeta');
 	const root = document.getElementById('root');
 	const btnRefresh = document.getElementById('btnRefresh');
 
-	if (!kbMeta || !root || !btnRefresh) {
+	if (!root || !btnRefresh) {
 		return;
 	}
 
@@ -1121,6 +1127,9 @@
 		issueQuery = '';
 		detailView = 'features';
 		inlineSubKey = '';
+		issuesSectionOpen = true;
+		collapsedFeatures.clear();
+		openFeaturesAddMenu = false;
 		render();
 		vscode.postMessage({
 			type: 'selectProject',
@@ -1365,6 +1374,8 @@
 		if (target && target.closest && target.closest('.proj-toolbar')) return;
 		if (target && target.closest && target.closest('.issue-toolbar')) return;
 		if (target && target.closest && target.closest('.issue-menu-anchor')) return;
+		if (target && target.closest && target.closest('#featuresAddBtn')) return;
+		if (target && target.closest && target.closest('#featuresAddMenu')) return;
 		let changed = false;
 		if (openMenu || openChipField || openIssuePopover) {
 			openMenu = '';
@@ -1394,6 +1405,10 @@
 			openIssueMenuKey = '';
 			changed = true;
 		}
+		if (openFeaturesAddMenu) {
+			openFeaturesAddMenu = false;
+			changed = true;
+		}
 		if (changed) {
 			if (selectedPrefix) renderProjectDetail();
 			else renderProjectList();
@@ -1409,6 +1424,8 @@
 	function openCompose(parentIssueId, feature) {
 		const parent = String(parentIssueId || '').trim();
 		const featTitle = feature && feature.title ? String(feature.title) : '';
+		const featurePath = feature && feature.path ? String(feature.path) : '';
+		const featureFolderPrefix = feature && feature.folderPrefix ? String(feature.folderPrefix) : '';
 		compose = {
 			parentIssueId: parent,
 			label: parent
@@ -1416,11 +1433,19 @@
 				: featTitle
 					? 'New issue in ' + featTitle
 					: 'New issue',
-			featurePath: feature && feature.path ? String(feature.path) : '',
-			featureFolderPrefix: feature && feature.folderPrefix ? String(feature.folderPrefix) : '',
+			featurePath: featurePath,
+			featureFolderPrefix: featureFolderPrefix,
 			isFolderIndex: Boolean(feature && feature.isFolderIndex)
 		};
 		openIssueMenuKey = '';
+		openFeaturesAddMenu = false;
+		// Show the landing section so the inline compose form is visible.
+		if (!featurePath && !featureFolderPrefix) {
+			issuesSectionOpen = true;
+		} else {
+			const key = featureFolderPrefix || featurePath;
+			if (key) collapsedFeatures.delete(key);
+		}
 		render();
 		const input = document.getElementById('composeTitle');
 		if (input) {
@@ -2592,7 +2617,7 @@
 			(detailView === 'issues' ? ' active' : '') +
 			'" data-detail-view="issues">Issues</button>' +
 			'</div>' +
-			(shareCaps().issueCreate !== false
+			(detailView === 'issues' && shareCaps().issueCreate !== false
 				? '<button type="button" id="btnNewIssue">New issue</button>'
 				: '') +
 			'</div>'
@@ -3133,7 +3158,15 @@
 		);
 	}
 
-	/** Features-view results (inbox + features sections) — everything below the search toolbar. */
+	/**
+	 * Stable key for a feature card collapse state.
+	 * @param {any} f
+	 */
+	function featureCollapseKey(f) {
+		return String((f && (f.folderPrefix || f.path)) || '');
+	}
+
+	/** Features-view results (ISSUES + FEATURES sections) — everything below the search toolbar. */
 	function buildFeaturesResultsHtml() {
 		const features = detail.features || [];
 		const issues = scopedIssues(detail.issues || []);
@@ -3156,31 +3189,89 @@
 			if (i.issueKey) issueIndex.set(String(i.issueKey).toLowerCase(), i);
 		});
 
-		let html = '';
+		const canCreate = shareCaps().issueCreate !== false;
 		const composeForFeature = Boolean(compose && (compose.featurePath || compose.featureFolderPrefix));
-		if (inbox.length || !narrowing) {
+		const composeForInbox = Boolean(compose && !composeForFeature);
+		const visibleFeatureKeys = [];
+		features.forEach(function (f) {
+			const childIssues = elsewhere.filter(function (i) {
+				return (
+					i.featurePathPrefix &&
+					(i.featurePathPrefix === f.folderPrefix || i.featurePathPrefix === f.path)
+				);
+			});
+			if (narrowing && !childIssues.length) return;
+			visibleFeatureKeys.push(featureCollapseKey(f));
+		});
+		const anyFeatureOpen = visibleFeatureKeys.some(function (k) {
+			return !collapsedFeatures.has(k);
+		});
+		const collapseLabel = anyFeatureOpen ? 'Collapse all' : 'Expand all';
+
+		let html = '';
+
+		if (inbox.length || !narrowing || composeForInbox) {
 			html +=
-				'<div class="section"><div class="section-head"><h3>Project issues</h3><span class="count">' +
+				'<div class="section features-section">' +
+				'<details class="card issues-inbox-card"' +
+				(issuesSectionOpen ? ' open' : '') +
+				' data-issues-section="1">' +
+				'<summary class="section-summary">' +
+				'<span class="section-summary-title">Issues</span>' +
+				'<span class="count">' +
 				inbox.length +
-				'</span></div>';
-			if (!narrowing && !composeForFeature) html += renderComposeForm();
-			html +=
-				'<div class="card"><div>' +
-				(inbox.length
-					? renderIssueForest(inbox, false, issueIndex)
-					: '<div class="muted-block">No inbox issues yet. Use New issue above.</div>') +
-				'</div></div></div>';
+				'</span>' +
+				'<span class="feat-actions">' +
+				'<button type="button" class="feat-overview" id="issuesOverviewBtn" title="Open project issues file">Overview</button>' +
+				(canCreate
+					? '<button type="button" class="feat-add-issue" id="issuesAddBtn" title="New issue in project inbox" aria-label="New issue in project inbox">+</button>'
+					: '') +
+				'</span></summary><div>';
+			if (composeForInbox) html += renderComposeForm();
+			html += inbox.length
+				? renderIssueForest(inbox, false, issueIndex)
+				: composeForInbox
+					? ''
+					: '<div class="muted-block">No inbox issues yet. Use + above.</div>';
+			html += '</div></details></div>';
 		}
 
 		html +=
-			'<div class="section"><div class="section-head"><h3>Features</h3><span class="count">' +
+			'<div class="section features-section">' +
+			'<div class="section-head features-list-head">' +
+			'<h3>Features</h3>' +
+			'<span class="count">' +
 			features.length +
+			'</span>' +
+			'<span class="features-list-actions">' +
+			(visibleFeatureKeys.length
+				? '<button type="button" class="feat-overview" id="featuresCollapseToggle">' +
+				  esc(collapseLabel) +
+				  '</button>'
+				: '') +
+			(canCreate
+				? '<span class="menu-anchor">' +
+				  '<button type="button" class="feat-new-feature' +
+				  (openFeaturesAddMenu ? ' open' : '') +
+				  '" id="featuresAddBtn" title="Add a feature" aria-label="New feature" aria-haspopup="true" aria-expanded="' +
+				  (openFeaturesAddMenu ? 'true' : 'false') +
+				  '">+ New feature</button>' +
+				  (openFeaturesAddMenu
+						? '<div class="menu-panel issue-menu-panel" id="featuresAddMenu">' +
+						  '<button type="button" class="fmenu-head" data-create-feature="folder">Feature folder</button>' +
+						  '<button type="button" class="fmenu-head" data-create-feature="file">Feature file</button>' +
+						  '</div>'
+						: '') +
+				  '</span>'
+				: '') +
 			'</span></div>';
+
 		if (!features.length) {
 			html +=
-				'<div class="card"><div class="muted-block">No .f features yet. Create a feature folder under this project.</div></div>';
+				'<div class="card"><div class="muted-block">No features yet. Use + New feature above to add a feature folder or feature file.</div></div>';
 		} else {
 			features.forEach(function (f) {
+				const key = featureCollapseKey(f);
 				const childIssues = elsewhere.filter(function (i) {
 					return (
 						i.featurePathPrefix &&
@@ -3193,12 +3284,15 @@
 					((compose.featureFolderPrefix &&
 						compose.featureFolderPrefix === (f.folderPrefix || '')) ||
 						(compose.featurePath && compose.featurePath === f.path));
-				const canCreateInFeature = shareCaps().issueCreate !== false;
-				html += '<details class="card" open>';
+				const isOpen = !collapsedFeatures.has(key);
 				html +=
-					'<summary><span class="chip">' +
-					(f.isFolderIndex ? 'folder' : 'file') +
-					'</span> ' +
+					'<details class="card feature-card"' +
+					(isOpen ? ' open' : '') +
+					' data-feature-key="' +
+					esc(key) +
+					'">';
+				html +=
+					'<summary>' +
 					'<button type="button" class="linkish feat-open" data-path="' +
 					esc(f.path) +
 					'" data-fid="' +
@@ -3221,7 +3315,7 @@
 					'" data-is-folder-index="' +
 					(f.isFolderIndex ? '1' : '0') +
 					'">Overview</button>' +
-					(canCreateInFeature
+					(canCreate
 						? '<button type="button" class="feat-add-issue" data-folder-prefix="' +
 						  esc(f.folderPrefix || '') +
 						  '" data-path="' +
@@ -3363,6 +3457,83 @@
 		if (compose || (!String(issueQuery || '').trim() && featuresActiveFilterCount() === 0)) {
 			bindCompose();
 		}
+		const issuesCard = host.querySelector('details[data-issues-section]');
+		if (issuesCard) {
+			issuesCard.addEventListener('toggle', function () {
+				issuesSectionOpen = issuesCard.open;
+			});
+		}
+		host.querySelectorAll('details.feature-card[data-feature-key]').forEach(function (el) {
+			el.addEventListener('toggle', function () {
+				const key = el.getAttribute('data-feature-key') || '';
+				if (!key) return;
+				if (el.open) collapsedFeatures.delete(key);
+				else collapsedFeatures.add(key);
+			});
+		});
+		const collapseToggle = host.querySelector('#featuresCollapseToggle');
+		if (collapseToggle) {
+			collapseToggle.addEventListener('click', function (e) {
+				e.preventDefault();
+				e.stopPropagation();
+				const cards = host.querySelectorAll('details.feature-card[data-feature-key]');
+				const anyOpen = Array.prototype.some.call(cards, function (c) {
+					return c.open;
+				});
+				cards.forEach(function (c) {
+					const key = c.getAttribute('data-feature-key') || '';
+					if (anyOpen) {
+						c.open = false;
+						if (key) collapsedFeatures.add(key);
+					} else {
+						c.open = true;
+						if (key) collapsedFeatures.delete(key);
+					}
+				});
+				renderProjectDetail();
+			});
+		}
+		const featuresAddBtn = host.querySelector('#featuresAddBtn');
+		if (featuresAddBtn) {
+			featuresAddBtn.addEventListener('click', function (e) {
+				e.preventDefault();
+				e.stopPropagation();
+				openFeaturesAddMenu = !openFeaturesAddMenu;
+				renderProjectDetail();
+			});
+		}
+		host.querySelectorAll('[data-create-feature]').forEach(function (btn) {
+			btn.addEventListener('click', function (e) {
+				e.preventDefault();
+				e.stopPropagation();
+				const kind = btn.getAttribute('data-create-feature') === 'file' ? 'file' : 'folder';
+				openFeaturesAddMenu = false;
+				vscode.postMessage({
+					type: 'createFeature',
+					folderPrefix: selectedPrefix,
+					kind: kind
+				});
+			});
+		});
+		const issuesOverview = host.querySelector('#issuesOverviewBtn');
+		if (issuesOverview) {
+			issuesOverview.addEventListener('click', function (e) {
+				e.preventDefault();
+				e.stopPropagation();
+				vscode.postMessage({
+					type: 'openIssuesOverview',
+					folderPrefix: selectedPrefix
+				});
+			});
+		}
+		const issuesAdd = host.querySelector('#issuesAddBtn');
+		if (issuesAdd) {
+			issuesAdd.addEventListener('click', function (e) {
+				e.preventDefault();
+				e.stopPropagation();
+				openCompose('');
+			});
+		}
 		host.querySelectorAll('.feat-open').forEach(function (btn) {
 			btn.addEventListener('click', function (e) {
 				e.preventDefault();
@@ -3376,6 +3547,7 @@
 			});
 		});
 		host.querySelectorAll('.feat-add-issue').forEach(function (btn) {
+			if (btn.id === 'issuesAddBtn' || btn.id === 'featuresAddBtn') return;
 			btn.addEventListener('click', function (e) {
 				e.preventDefault();
 				e.stopPropagation();
@@ -3388,6 +3560,7 @@
 			});
 		});
 		host.querySelectorAll('.feat-overview').forEach(function (btn) {
+			if (btn.id === 'issuesOverviewBtn' || btn.id === 'featuresCollapseToggle') return;
 			btn.addEventListener('click', function (e) {
 				e.preventDefault();
 				e.stopPropagation();
@@ -3457,7 +3630,7 @@
 
 		let html = detailHeaderHtml(title);
 		html +=
-			'<div class="toolbar issue-toolbar">' +
+			'<div class="toolbar issue-toolbar features-toolbar">' +
 			'<div class="issue-toolbar-row">' +
 			'<input type="text" id="issueSearch" class="proj-search" placeholder="Search issues\u2026" autocomplete="off" value="' +
 			esc(issueQuery) +
@@ -4478,6 +4651,9 @@
 		openFilterField = '';
 		openChipField = '';
 		openIssuePopover = '';
+		issuesSectionOpen = true;
+		collapsedFeatures.clear();
+		openFeaturesAddMenu = false;
 		vscode.postMessage({ type: 'clearProject' });
 		render();
 	}
@@ -4496,7 +4672,6 @@
 				projectFields = DF ? DF.hydrate((schema.project && schema.project.fields) || []) : [];
 				issueFields = DF ? DF.hydrate((schema.issue && schema.issue.fields) || []) : [];
 			}
-			kbMeta.textContent = msg.kbLabel || '';
 			if (
 				selectedPrefix &&
 				!projects.some(function (p) {
@@ -4590,7 +4765,6 @@
 			if (tagsPopoverOpen) renderTagsPopover();
 		}
 		if (msg.type === 'error') {
-			kbMeta.textContent = msg.message || 'Error';
 			detailLoading = false;
 			if (!projects.length) {
 				root.innerHTML =
@@ -4604,6 +4778,5 @@
 		}
 	});
 
-	kbMeta.textContent = 'Connecting\u2026';
 	vscode.postMessage({ type: 'ready' });
 })();

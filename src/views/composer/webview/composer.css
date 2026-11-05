@@ -1,85 +1,165 @@
-body {
-	font-family: var(--vscode-font-family);
-	color: var(--vscode-editor-foreground);
-	background: var(--vscode-editor-background);
-	margin: 0;
-	padding: 16px 20px 24px;
-	box-sizing: border-box;
+/* Composer — Project View / Retriever visual language: centered, ghost buttons. */
+:root {
+	--bg: var(--vscode-editor-background);
+	--fg: var(--vscode-foreground);
+	--muted: var(--vscode-descriptionForeground);
+	--border: var(--vscode-panel-border, var(--vscode-widget-border));
+	--list-hover: var(--vscode-list-hoverBackground);
+	--input: var(--vscode-input-background);
+	--input-border: var(--vscode-input-border, transparent);
+	--input-fg: var(--vscode-input-foreground);
+	--font: var(--vscode-font-family);
+	--fs: var(--vscode-font-size);
+	--link: var(--vscode-textLink-foreground, #3794ff);
+	--danger: var(--vscode-errorForeground, #f14c4c);
+	--menu-bg: var(--vscode-menu-background, var(--vscode-editorWidget-background, #252526));
+	--menu-fg: var(--vscode-menu-foreground, var(--vscode-editor-foreground));
+	--menu-border: var(--vscode-menu-border, var(--vscode-editorWidget-border, #454545));
+	--menu-sel: var(--vscode-menu-selectionBackground, var(--vscode-editor-selectionBackground));
 }
-
-.composer {
-	max-width: 640px;
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+	font-family: var(--font);
+	font-size: var(--fs);
+	color: var(--fg);
+	background: var(--bg);
 	display: flex;
 	flex-direction: column;
-	gap: 12px;
 }
 
-h1 {
-	font-size: 1.25rem;
-	margin: 0 0 8px;
-}
-
-.hint,
-.meta {
-	color: var(--vscode-descriptionForeground);
-	font-size: 12px;
-	line-height: 1.45;
-	margin: 0;
-}
-
-.kb-row {
+header {
 	display: flex;
 	align-items: center;
-	gap: 10px;
-	margin: 0 0 8px;
-	flex-wrap: nowrap;
+	gap: 12px;
+	padding: 10px 14px;
+	border-bottom: 1px solid var(--border);
+	flex-shrink: 0;
+}
+header h1 {
+	margin: 0;
+	font-size: 13px;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+	text-transform: uppercase;
+	opacity: 0.9;
+}
+header #select-kb { margin-left: auto; }
+
+button {
+	border: none;
+	background: transparent;
+	color: var(--fg);
+	padding: 4px 10px;
+	border-radius: 2px;
+	cursor: pointer;
+	font: inherit;
+}
+/*
+ * Theme-relative shade (no fixed colors): mix a little foreground into the
+ * editor background so buttons stay visible on both light and dark themes.
+ */
+button.ghost {
+	background: color-mix(in srgb, var(--fg) 10%, var(--bg));
+	color: var(--fg);
+	border: 1px solid color-mix(in srgb, var(--fg) 22%, var(--border));
+}
+button.ghost:hover {
+	background: color-mix(in srgb, var(--fg) 16%, var(--bg));
+}
+button.ghost.danger {
+	color: var(--danger);
+}
+button.ghost.danger:hover {
+	background: color-mix(in srgb, var(--fg) 16%, var(--bg));
+}
+button.danger[hidden] {
+	display: none !important;
 }
 
-.kb-row .kb-path {
+.layout {
 	flex: 1;
-	min-width: 0;
-	margin: 0;
+	min-height: 0;
+	overflow: auto;
+	padding: 20px 24px 32px;
+}
+.center {
+	max-width: 720px;
+	margin: 0 auto;
+}
+.composer {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+.page-title {
+	margin: 0 0 6px;
+	font-size: 18px;
+	font-weight: 600;
+	text-align: center;
+}
+.page-sub {
+	margin: 0 0 4px;
+	color: var(--muted);
+	font-size: 12px;
+	line-height: 1.45;
+	text-align: center;
+}
+
+.meta,
+.kb-path {
+	color: var(--muted);
 	font-size: 12px;
 	line-height: 1.4;
+	margin: 0 0 8px;
+	text-align: center;
 	word-break: break-word;
 }
 
-button#select-kb {
-	padding: 3px 10px;
-	font-size: 11px;
-	border-radius: 4px;
-	flex-shrink: 0;
-	white-space: nowrap;
-}
-
-.box {
-	border: 1px solid var(--vscode-panel-border);
-	border-radius: 10px;
-	padding: 12px 14px;
-	background: var(--vscode-editorWidget-background);
+.field {
 	display: flex;
 	flex-direction: column;
 	gap: 6px;
 }
-
-.box-body textarea {
-	min-height: 160px;
+.field label {
+	font-size: 11px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--muted);
 }
 
-/* Metadata chips */
-.metadata-chips {
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
+input,
+textarea {
+	width: 100%;
+	box-sizing: border-box;
+	border: 1px solid var(--input-border, var(--border));
+	border-radius: 3px;
+	background: var(--input);
+	color: var(--input-fg);
+	padding: 8px 10px;
+	font-family: var(--vscode-editor-font-family, var(--font));
+	font-size: var(--vscode-editor-font-size, 13px);
+	line-height: 1.45;
+	tab-size: 4;
+}
+input:focus,
+textarea:focus {
+	outline: 1px solid var(--vscode-focusBorder, var(--link));
+	outline-offset: -1px;
+}
+textarea {
+	resize: vertical;
+	min-height: 180px;
 }
 
-/* The chip container stacks the two rows (heading metadata on top, tags/relations below). */
+.metadata-chips,
 #chips {
 	display: flex;
 	flex-direction: column;
 	gap: 4px;
 }
-
 .chip-row {
 	display: flex;
 	flex-wrap: wrap;
@@ -87,262 +167,190 @@ button#select-kb {
 	gap: 5px;
 }
 
-/* Metadata chips — mirrors the .d.md editor's chip picker: a type chip, one chip per
- * field already present (`key: value`), and a faint "+ key" chip for each addable one. */
+/* Metadata chips — mirrors the .d.md editor picker. */
 .composer-chip {
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
 	padding: 2px 9px;
 	border-radius: 10px;
-	border: 1px solid var(--vscode-editorWidget-border, #454545);
-	background: var(--vscode-editor-inactiveSelectionBackground, rgba(128, 128, 128, 0.12));
+	border: 1px solid var(--border);
+	background: transparent;
 	font-size: 12px;
 	line-height: 1.4;
 	white-space: nowrap;
 	user-select: none;
 }
-
-.composer-chip-key {
-	color: var(--vscode-descriptionForeground);
-}
-
-.composer-chip-value {
-	color: var(--vscode-editor-foreground);
-}
-
+.composer-chip-key { color: var(--muted); }
+.composer-chip-value { color: var(--fg); }
 .composer-chip-type {
 	font-style: italic;
-	color: var(--vscode-textLink-foreground, #3794ff);
+	color: var(--link);
 	border-style: dashed;
 	cursor: pointer;
 }
-
 .composer-chip-type:hover {
-	border-color: var(--vscode-focusBorder, #007fd4);
+	border-color: var(--vscode-focusBorder, var(--link));
+	background: var(--list-hover);
 }
-
-.composer-chip-editable {
-	cursor: pointer;
-}
-
+.composer-chip-editable { cursor: pointer; }
 .composer-chip-editable:hover {
-	border-color: var(--vscode-focusBorder, #007fd4);
+	border-color: var(--vscode-focusBorder, var(--link));
+	background: var(--list-hover);
 }
-
-.composer-chip-static {
-	opacity: 0.75;
-}
-
+.composer-chip-static { opacity: 0.75; }
 .composer-chip-add {
 	border-style: dashed;
-	color: var(--vscode-descriptionForeground);
+	color: var(--muted);
 	cursor: pointer;
 	opacity: 0.8;
 }
-
 .composer-chip-add:hover {
-	color: var(--vscode-textLink-foreground, #3794ff);
-	border-color: var(--vscode-textLink-foreground, #3794ff);
+	color: var(--link);
+	border-color: var(--link);
 	opacity: 1;
+	background: var(--list-hover);
+}
+.composer-chip-required { border-style: solid; }
+
+.button-row {
+	position: relative;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding-top: 4px;
+	min-height: 32px;
+}
+.button-row-center {
+	display: flex;
+	gap: 8px;
+	flex-wrap: wrap;
+	justify-content: center;
+	align-items: center;
+}
+.button-row-end {
+	position: absolute;
+	right: 0;
+	top: 50%;
+	transform: translateY(-50%);
+}
+.button-row .ghost {
+	padding: 6px 12px;
+	font-size: 12px;
+}
+.button-row .danger {
+	margin-left: 0;
 }
 
-.composer-chip-required {
-	border-style: solid;
+.status {
+	color: var(--link);
+	font-size: 12px;
+	text-align: center;
+	min-height: 1em;
+}
+.error {
+	color: var(--danger);
+	font-size: 12px;
+	text-align: center;
+	min-height: 1em;
 }
 
-/* Popover menu for editing a chip's value. */
+/* Popovers */
 .composer-popover {
 	position: fixed;
 	z-index: 10001;
 	min-width: 160px;
 	max-width: 260px;
 	padding: 4px;
-	background: var(--vscode-menu-background, var(--vscode-editorWidget-background, #252526));
-	border: 1px solid var(--vscode-menu-border, var(--vscode-editorWidget-border, #454545));
+	background: var(--menu-bg);
+	border: 1px solid var(--menu-border);
 	border-radius: 4px;
 	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-	color: var(--vscode-menu-foreground, var(--vscode-editor-foreground));
+	color: var(--menu-fg);
 	font-size: 13px;
 	user-select: none;
 }
-
 .composer-popover-item {
 	padding: 4px 10px;
 	border-radius: 3px;
 	cursor: pointer;
 	white-space: nowrap;
 }
-
-.composer-popover-item:hover {
-	background: var(--vscode-menu-selectionBackground, var(--vscode-editor-selectionBackground));
-}
-
-.composer-popover-item.is-danger {
-	color: var(--vscode-errorForeground, #f14c4c);
-}
-
-/* A popover value row (enum options) — flex so its tick sits right-aligned. */
+.composer-popover-item:hover { background: var(--menu-sel); }
+.composer-popover-item.is-danger { color: var(--danger); }
 .composer-popover-item.composer-popover-value {
 	display: flex;
 	align-items: center;
 	gap: 8px;
 }
-
-.composer-popover-item.is-selected {
-	background: var(--vscode-menu-selectionBackground, var(--vscode-editor-selectionBackground));
-}
-
-/* The tick marking the currently selected value / heading type. */
+.composer-popover-item.is-selected { background: var(--menu-sel); }
 .composer-popover-tick {
 	margin-left: auto;
-	color: var(--vscode-textLink-foreground, #3794ff);
+	color: var(--link);
 	font-weight: 600;
 }
-
-/* "Heading type" picker (title + colored-dot option rows). */
 .composer-popover-title {
 	padding: 4px 10px 6px;
 	font-size: 0.85em;
-	color: var(--vscode-descriptionForeground);
+	color: var(--muted);
 }
-
 .composer-type-option {
 	display: flex;
 	align-items: center;
 	gap: 6px;
 }
-
-.composer-type-option.is-selected {
-	background: var(--vscode-menu-selectionBackground, var(--vscode-editor-selectionBackground));
-}
-
+.composer-type-option.is-selected { background: var(--menu-sel); }
 .composer-type-dot {
 	font-size: 0.7em;
-	color: var(--vscode-textLink-foreground, #3794ff);
+	color: var(--link);
 	flex: 0 0 auto;
 }
-
 .composer-popover-input {
 	display: block;
 	width: calc(100% - 16px);
 	margin: 4px 6px;
 	padding: 3px 6px;
 	box-sizing: border-box;
-	background: var(--vscode-input-background, #3c3c3c);
-	color: var(--vscode-input-foreground, #cccccc);
-	border: 1px solid var(--vscode-input-border, transparent);
+	background: var(--input);
+	color: var(--input-fg);
+	border: 1px solid var(--input-border, var(--border));
 	border-radius: 3px;
 	outline: none;
 }
-
 .composer-popover-input:focus {
-	border-color: var(--vscode-focusBorder, #007fd4);
+	border-color: var(--vscode-focusBorder, var(--link));
 }
-
-/* Scrollable tag list inside the tags dropdown, so a long result set never overflows. */
 .composer-tags-list {
 	max-height: 260px;
 	overflow-y: auto;
 }
-
-/* "Create new tag" input pinned at the bottom of the tags dropdown. */
 .composer-popover-create {
-	border-top: 1px solid var(--vscode-menu-border, var(--vscode-editorWidget-border, #454545));
+	border-top: 1px solid var(--menu-border);
 	margin-top: 4px;
 	padding-top: 4px;
 }
-
-/* Input + "+ Create" button side by side. */
 .composer-popover-create-row {
 	display: flex;
 	align-items: center;
 	gap: 6px;
 	padding: 0 6px 4px;
 }
-
 .composer-popover-create-row .composer-popover-input {
 	flex: 1;
 	width: auto;
 	margin: 0;
 }
-
 .composer-popover-create-btn {
 	flex: 0 0 auto;
-	background: var(--vscode-button-background, #0e639c);
-	color: var(--vscode-button-foreground, #ffffff);
-	border: none;
+	background: color-mix(in srgb, var(--fg) 10%, var(--bg));
+	color: var(--fg);
+	border: 1px solid color-mix(in srgb, var(--fg) 22%, var(--border));
 	border-radius: 3px;
 	padding: 3px 8px;
 	font-size: 12px;
 	cursor: pointer;
 	white-space: nowrap;
 }
-
 .composer-popover-create-btn:hover {
-	background: var(--vscode-button-hoverBackground, #1177bb);
-}
-
-label {
-	font-size: 12px;
-	color: var(--vscode-descriptionForeground);
-}
-
-input,
-textarea {
-	width: 100%;
-	box-sizing: border-box;
-	border: 1px solid var(--vscode-input-border);
-	border-radius: 6px;
-	background: var(--vscode-input-background);
-	color: var(--vscode-input-foreground);
-	padding: 10px 12px;
-	font-family: var(--vscode-editor-font-family, var(--vscode-font-family));
-	font-size: var(--vscode-editor-font-size, 13px);
-	line-height: 1.45;
-	tab-size: 4;
-}
-
-textarea {
-	resize: vertical;
-}
-
-.button-row {
-	display: flex;
-	gap: 8px;
-	flex-wrap: wrap;
-}
-
-button {
-	border: none;
-	border-radius: 6px;
-	padding: 10px 12px;
-	cursor: pointer;
-	background: var(--vscode-button-background);
-	color: var(--vscode-button-foreground);
-}
-
-button.secondary {
-	background: var(--vscode-button-secondaryBackground);
-	color: var(--vscode-button-secondaryForeground);
-}
-
-button.danger {
-	background: var(--vscode-button-secondaryBackground);
-	color: var(--vscode-errorForeground);
-	margin-left: auto;
-}
-
-button.danger[hidden] {
-	display: none !important;
-}
-
-.status {
-	color: var(--vscode-textLink-foreground);
-	font-size: 12px;
-}
-
-.error {
-	color: var(--vscode-errorForeground);
-	font-size: 12px;
+	background: color-mix(in srgb, var(--fg) 16%, var(--bg));
 }

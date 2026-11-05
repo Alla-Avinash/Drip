@@ -8,26 +8,26 @@
 						<option value="entire">Entire KB</option>
 						<option value="custom">Custom paths…</option>
 					</select>
-					<button type="button" class="secondary storage-corpus-edit hidden" id="st-corpus-edit" title="Change custom paths" hidden>Edit</button>
+					<button type="button" class="ghost storage-corpus-edit hidden" id="st-corpus-edit" title="Change custom paths" hidden>Edit</button>
 				</div>
 			</div>
 			<div id="st-custom-corpus" class="storage-custom-corpus" hidden>
 				<p class="meta storage-custom-sub">Add files/folders from inside the .driplock KB only. Session-only (not saved).</p>
 				<div class="storage-custom-toolbar">
-					<button type="button" class="secondary" id="st-custom-add">Add files or folders…</button>
+					<button type="button" class="ghost" id="st-custom-add">Add files or folders…</button>
 				</div>
 				<ul id="st-custom-entries" class="storage-custom-entries"></ul>
 				<p id="st-custom-empty" class="meta">No paths yet.</p>
 				<div class="storage-custom-footer">
-					<button type="button" class="secondary" id="st-custom-cancel">Cancel</button>
-					<button type="button" id="st-custom-done">Done</button>
+					<button type="button" class="ghost" id="st-custom-cancel">Cancel</button>
+					<button type="button" class="ghost" id="st-custom-done">Done</button>
 				</div>
 			</div>
 			<div class="storage-toolbar-actions">
-				<button id="suggestions-btn" type="button">Suggestions</button>
-				<button type="button" class="secondary" id="ai-paths-btn" title="Top 4 folders, files or headings from the stored embeddings">AI</button>
-				<button type="button" class="secondary" id="btn-custom-select">Browse</button>
-				<button type="button" class="secondary" id="llm-suggest-btn" title="Let your LLM (DRIP Settings → Lightweight LLM) choose where this note goes">Suggest with LLM</button>
+				<button id="suggestions-btn" type="button" class="ghost">Suggestions</button>
+				<button type="button" class="ghost" id="ai-paths-btn" title="Top 4 folders, files or headings from the stored embeddings">AI</button>
+				<button type="button" class="ghost" id="btn-custom-select">Browse</button>
+				<button type="button" class="ghost" id="llm-suggest-btn" title="Let your LLM (DRIP Settings → Lightweight LLM) choose where this note goes">Suggest with LLM</button>
 			</div>
 			<div id="error" class="error"></div>
 			<div id="llm-plan-panel" class="llm-plan-panel" hidden></div>
@@ -43,9 +43,9 @@
 				<div id="suggested-headings-wrap" hidden>
 					<div class="heading-tree-toolbar">
 						<span class="meta" style="margin:0;font-size:11px;">Headings</span>
-						<button type="button" id="ht-expand-flow">Expand all</button>
-						<button type="button" id="ht-collapse-flow">Collapse all</button>
-						<button type="button" id="ht-refresh-flow" class="secondary">Refresh</button>
+						<button type="button" class="ghost" id="ht-expand-flow">Expand all</button>
+						<button type="button" class="ghost" id="ht-collapse-flow">Collapse all</button>
+						<button type="button" class="ghost" id="ht-refresh-flow">Refresh</button>
 						<label class="ht-persistent-toggle" title="Show only persistent (# .…) headings"><input type="checkbox" class="ht-persistent-only" /> Persistent only</label>
 					</div>
 					<div class="ht-tree-resize-wrap">
@@ -67,9 +67,9 @@
 				<div id="picker-heading-wrap" hidden style="margin-top:10px;">
 					<div class="heading-tree-toolbar">
 						<span class="meta" style="margin:0;font-size:11px;">Headings</span>
-						<button type="button" id="ht-expand-picker">Expand all</button>
-						<button type="button" id="ht-collapse-picker">Collapse all</button>
-						<button type="button" id="ht-refresh-picker" class="secondary">Refresh</button>
+						<button type="button" class="ghost" id="ht-expand-picker">Expand all</button>
+						<button type="button" class="ghost" id="ht-collapse-picker">Collapse all</button>
+						<button type="button" class="ghost" id="ht-refresh-picker">Refresh</button>
 						<label class="ht-persistent-toggle" title="Show only persistent (# .…) headings"><input type="checkbox" class="ht-persistent-only" /> Persistent only</label>
 					</div>
 					<div class="ht-tree-resize-wrap">
@@ -82,12 +82,12 @@
 				<div class="create-row">
 					<label for="shared-new-folder-name">New folder</label>
 					<input type="text" id="shared-new-folder-name" placeholder="Folder name" autocomplete="off" />
-					<button type="button" id="shared-create-folder" class="secondary">Create</button>
+					<button type="button" id="shared-create-folder" class="ghost">Create</button>
 				</div>
 				<div class="create-row">
 					<label for="shared-new-file-name">New file</label>
 					<input type="text" id="shared-new-file-name" placeholder="Note title" autocomplete="off" />
-					<button type="button" id="shared-create-file">Create</button>
+					<button type="button" id="shared-create-file" class="ghost">Create</button>
 					<span class="new-file-format">
 						<label><input type="radio" name="shared-new-file-format" value=".d.txt" checked /> .d.txt</label>
 						<label><input type="radio" name="shared-new-file-format" value=".d.md" /> .d.md</label>
@@ -96,8 +96,8 @@
 			</div>
 			<div class="storage-actions">
 				<div class="storage-actions-buttons">
-					<button id="save-draft-storage" type="button" class="secondary">Save draft</button>
-					<button id="ingest-note-storage" type="button">Ingest</button>
+					<button id="save-draft-storage" type="button" class="ghost">Save draft</button>
+					<button id="ingest-note-storage" type="button" class="ghost">Ingest</button>
 				</div>
 				<div id="storage-status" class="storage-status-below" aria-live="polite"></div>
 			</div>
@@ -112,9 +112,9 @@
 			</div>
 		</div>
 		<div class="im-toolbar">
-			<button type="button" id="im-suggest">Suggestions</button>
-			<button type="button" class="secondary" id="im-ai" title="Top matches from stored embeddings">AI</button>
-			<button type="button" class="secondary" id="im-browse" title="Browse the project structure">Browse</button>
+			<button type="button" class="ghost" id="im-suggest">Suggestions</button>
+			<button type="button" class="ghost" id="im-ai" title="Top matches from stored embeddings">AI</button>
+			<button type="button" class="ghost" id="im-browse" title="Browse the project structure">Browse</button>
 		</div>
 		<div class="im-query" id="im-query" hidden></div>
 		<div class="im-crumbs" id="im-crumbs"></div>
@@ -131,8 +131,8 @@
 		<div class="im-error" id="im-error" hidden></div>
 		<div class="im-actions">
 			<span class="im-selection" id="im-selection"></span>
-			<button type="button" class="secondary" id="im-cancel" title="Cancel move">Cancel</button>
-			<button type="button" id="im-move" disabled>Move</button>
+			<button type="button" class="ghost" id="im-cancel" title="Cancel move">Cancel</button>
+			<button type="button" class="ghost" id="im-move" disabled>Move</button>
 		</div>
 	</div>
 	

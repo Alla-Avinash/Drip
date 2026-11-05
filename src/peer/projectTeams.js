@@ -233,6 +233,8 @@ function teamsForWebview(rec, peerId) {
 }
 
 function memberCapsSafe(rec, peerId) {
+	// Empty caps ⇒ UI treats every action as allowed (solo / not shared).
+	if (!rec || !rec.shared) return {};
 	try {
 		const { memberCaps } = require('./projectRoles');
 		return memberCaps(rec, peerId);

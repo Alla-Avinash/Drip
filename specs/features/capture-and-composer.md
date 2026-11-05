@@ -30,7 +30,7 @@ The Composer is where a user drafts a new note or captures a selection/clipboard
 
 ### Composer panel
 
-- A panel for writing a note draft before saving it into the KB.
+- A panel for writing a note draft before saving it into the KB. Layout matches Project View / Retriever: a slim top bar (**Composer** + **Select Knowledge Base**), centered title and short hint, then the form fields. Action buttons (**Save Draft**, **New Note**, **Ingest Note**, **Delete Draft**) are outline (ghost) controls — no filled primary colors.
 - The heading field shows the clean title (no `.d.txt` type shortcut).
 - The metadata section mirrors the `.d.md` editor's chip picker, split into two rows: heading-level metadata on top, tags and relations below. The top row is the dashed type chip (showing the current type, or `persistent` when untyped) followed by one chip per heading attribute already present (`key: value`) and a faint dashed `+ key` chip for each attribute not yet present. The bottom row is one chip per relation field present (`tags`, `pre-req`, …) and a `+ key` chip for each missing relation. Clicking the type chip opens the "Heading type" picker listing `persistent`, `concept`, and `task` (the current one ticked).
 - Picking a type (including `persistent`) clears the previous type's heading attributes — a heading carries exactly one type, so its type-specific attributes no longer apply. Tags and relations live on their own row and stay.

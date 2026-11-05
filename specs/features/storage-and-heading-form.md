@@ -15,6 +15,7 @@ Two right-sidebar views: **Storage** for browsing the KB and placing/ingesting n
 - Ingest a note from the Composer into the chosen destination.
 - Shows ingest suggestions (optionally ranked by embeddings).
 - Receives and syncs note/settings state from the editor.
+- Buttons use the same outline (ghost) style as Composer / Project View / Retriever — no filled primary colors.
 
 ### New-file format
 

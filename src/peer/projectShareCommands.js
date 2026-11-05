@@ -1080,9 +1080,13 @@ async function shareStateForWebview(kbRoot, folderPrefix) {
 	const folderUri = projectFolderUriFromPrefix(kbRoot, folderPrefix);
 	const rec = await require('./projectSidecar').readProjectRecord(folderUri);
 	const me = await require('./peerIdentity').ensurePeerIdentity();
-	const teamsState = rec
-		? require('./projectTeams').teamsForWebview(rec, me.peerId)
-		: { teams: [], defaultTeamId: '', myTeamIds: [], canViewAll: false, caps: {} };
+	// Solo projects often keep a `.drip` sidecar (file ids / tags). Role caps must
+	// not apply then — missing members would otherwise look like a viewer and hide
+	// New issue / Move / Sub in Project View.
+	const teamsState =
+		summary.shared && rec
+			? require('./projectTeams').teamsForWebview(rec, me.peerId)
+			: { teams: [], defaultTeamId: '', myTeamIds: [], canViewAll: false, caps: {} };
 	const myTeamIds = new Set(teamsState.myTeamIds || []);
 	const viewAll = !!teamsState.canViewAll || summary.role === 'admin';
 	const members = (summary.members || [])

@@ -41,6 +41,7 @@ header h1 {
 	text-transform: uppercase;
 	opacity: 0.9;
 }
+header #btnRefresh { margin-left: auto; }
 header .meta { color: var(--muted); font-size: 12px; flex: 1; }
 button {
 	border: none;
@@ -102,6 +103,10 @@ button.ghost {
 	align-items: stretch; /* override .toolbar's align-items:center so the search bar stays full-width */
 	gap: 8px;
 	margin-bottom: 16px;
+}
+/* Features view only: more breathing room under the search / filter row. */
+.features-toolbar {
+	margin-bottom: 28px;
 }
 .issue-toolbar-row {
 	display: flex;
@@ -655,6 +660,41 @@ button.ghost {
 	letter-spacing: 0.04em;
 	color: var(--muted);
 }
+/* Features-view section label (no box — feature cards below already have borders). */
+.features-list-head {
+	align-items: center;
+}
+.features-list-actions {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	margin-left: 10px;
+}
+.feat-new-feature {
+	flex: none;
+	font-size: 11px;
+	padding: 3px 10px;
+	border-radius: 4px;
+	cursor: pointer;
+	border: 1px solid var(--border);
+	background: transparent;
+	color: var(--fg);
+	white-space: nowrap;
+}
+.feat-new-feature:hover,
+.feat-new-feature.open {
+	background: var(--list-hover);
+}
+.section-head-actions {
+	margin-left: auto;
+}
+.section-summary-title {
+	font-size: 12px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--fg);
+}
 .count {
 	font-size: 11px;
 	padding: 1px 6px;
@@ -681,6 +721,17 @@ button.ghost {
 .card > summary::-webkit-details-marker { display: none; }
 .card > summary:hover { background: var(--list-hover); }
 .card[open] > summary { border-bottom: 1px solid var(--border); }
+/* ISSUES row + each feature name row — same tint as Issues list column heads.
+   Must follow `.card > summary` so the shade is not cleared by that rule. */
+.card.issues-inbox-card > summary.section-summary,
+.card.feature-card > summary {
+	padding: 8px 12px;
+	background: var(--list-hover, transparent);
+}
+.card.issues-inbox-card > summary.section-summary:hover,
+.card.feature-card > summary:hover {
+	background: var(--list-hover);
+}
 .chip {
 	font-size: 10px;
 	text-transform: uppercase;

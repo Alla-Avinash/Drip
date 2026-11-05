@@ -106,7 +106,6 @@ function getProjectViewHtml(webview, extensionUri) {
 <body>
 <header>
 	<h1>Project View</h1>
-	<span class="meta" id="kbMeta">Loading…</span>
 	<button type="button" class="ghost" id="btnRefresh">Refresh</button>
 </header>
 <div class="layout">
@@ -207,6 +206,12 @@ class DripProjectViewPanel {
 						break;
 					case 'openFeatureOverview':
 						await this.openFeatureOverview(message);
+						break;
+					case 'openIssuesOverview':
+						await this.openIssuesOverview(message);
+						break;
+					case 'createFeature':
+						await this.createFeature(message);
 						break;
 					case 'joinProject':
 						await vscode.commands.executeCommand('drip.joinProject');
@@ -591,6 +596,50 @@ class DripProjectViewPanel {
 			uri = vscode.Uri.joinPath(folderUri, projectIndexFileName(path.basename(folderUri.fsPath)));
 		}
 		await vscode.commands.executeCommand('vscode.open', uri);
+	}
+
+	/**
+	 * Open the project's `_issues.d.txt` inbox (create it first if missing).
+	 * @param {{ folderPrefix?: string }} message
+	 */
+	async openIssuesOverview(message) {
+		const kbRoot = this.kbRoot();
+		const prefix = String(message.folderPrefix || this._selectedPrefix || '');
+		if (!kbRoot || !prefix) return;
+		const folderUri = vscode.Uri.joinPath(
+			kbRoot,
+			...prefix.replace(/\/+$/, '').split('/').filter(Boolean)
+		);
+		const { ensureProjectIssuesFile } = require('../../../document/project/projectIssuesMailbox');
+		const uri = await ensureProjectIssuesFile(folderUri, { kbRoot, context: this.context });
+		if (uri) await vscode.commands.executeCommand('vscode.open', uri);
+	}
+
+	/**
+	 * Create a feature folder (`.f`) or standalone feature file inside this project.
+	 * @param {{ folderPrefix?: string, kind?: string }} message
+	 */
+	async createFeature(message) {
+		const kbRoot = this.kbRoot();
+		const prefix = String(message.folderPrefix || this._selectedPrefix || '');
+		if (!kbRoot || !prefix || !this.state) return;
+		const folderUri = vscode.Uri.joinPath(
+			kbRoot,
+			...prefix.replace(/\/+$/, '').split('/').filter(Boolean)
+		);
+		const kind = String(message.kind || '').toLowerCase() === 'file' ? 'file' : 'folder';
+		try {
+			if (kind === 'file') {
+				await this.state.createFeatureFile(folderUri);
+			} else {
+				await this.state.createFeatureFolder(folderUri);
+			}
+		} catch (err) {
+			const msg = err && err.message ? err.message : String(err);
+			await vscode.window.showErrorMessage(msg);
+			return;
+		}
+		await this.loadProject(prefix);
 	}
 
 	/**

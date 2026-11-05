@@ -1207,6 +1207,11 @@ const vscode = acquireVsCodeApi();
 			!cachedPathSegments.length &&
 			!browsePickerOpen();
 		if (atIdleNoContext) {
+			addSep();
+			const hint = document.createElement('span');
+			hint.className = 'path-muted';
+			hint.textContent = 'choose a destination';
+			el.appendChild(hint);
 			return;
 		}
 
@@ -2215,10 +2220,10 @@ const vscode = acquireVsCodeApi();
 					})
 					.join('') +
 				'</ol><div class="llm-plan-actions">' +
-				'<button type="button" id="llm-split-yes">Split into ' + split.length + ' notes</button>' +
-				'<button type="button" class="secondary" id="llm-split-no">Keep as one note</button></div></div>';
+				'<button type="button" class="ghost" id="llm-split-yes">Split into ' + split.length + ' notes</button>' +
+				'<button type="button" class="ghost" id="llm-split-no">Keep as one note</button></div></div>';
 		}
-		html += '<div class="llm-plan-actions"><button type="button" class="secondary" id="llm-dismiss">Dismiss</button></div>';
+		html += '<div class="llm-plan-actions"><button type="button" class="ghost" id="llm-dismiss">Dismiss</button></div>';
 		html += llmTimingHtml(result);
 		llmPlanPanelEl.hidden = false;
 		llmPlanPanelEl.className = 'llm-plan-panel llm-act-' + act.cls;
