@@ -782,6 +782,20 @@ async function allocateNextEntityNumber(kbRoot, noteUri) {
 		} catch (err) {
 			console.error('[DRIP] project file id allocate', err);
 		}
+		try {
+			const { isTodayNotePath } = require('../projectIndex');
+			const rel = require('path')
+				.relative(kbRoot.fsPath, noteUri.fsPath)
+				.replace(/\\/g, '/');
+			if (isTodayNotePath(rel)) {
+				const { allocateNextTodayFileEntityNumber } = require('../dripIndexDb');
+				const { initEmptyDripTodayFile } = require('../dripTodayDb');
+				await initEmptyDripTodayFile(kbRoot);
+				return allocateNextTodayFileEntityNumber(kbRoot);
+			}
+		} catch (err) {
+			console.error('[DRIP] today file id allocate', err);
+		}
 	}
 	const { allocateNextFileEntityNumber, initEmptyDripIndexFile } = require('../dripIndexDb');
 	await initEmptyDripIndexFile(kbRoot);

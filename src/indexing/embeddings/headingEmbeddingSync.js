@@ -42,14 +42,17 @@ function openDripIndexDb(...args) {
 
 /**
  * Open the heading DB for a job's zone: `projects.drip` for project headings,
- * `index.drip` for document headings.
+ * `today.drip` for Today day notes, `index.drip` for document headings.
  * @param {import('vscode').Uri} kbRootUri
- * @param {'document' | 'project'} zone
+ * @param {'document' | 'project' | 'today'} zone
  * @returns {Promise<{ db: import('../db/dripSqlite').DripSqliteDatabase, close: () => void }>}
  */
 async function openHeadingEmbeddingDb(kbRootUri, zone) {
 	if (zone === 'project') {
 		return require('../dripProjectDb').openDripProjectsDb(kbRootUri);
+	}
+	if (zone === 'today') {
+		return require('../dripTodayDb').openDripTodayDb(kbRootUri);
 	}
 	return openDripIndexDb(kbRootUri);
 }
@@ -196,7 +199,8 @@ async function awaitHeadingEmbeddingsReady(kbRootUri, opts) {
  * @param {{ fileId: number, headingId: number, reason: string }} job
  */
 async function processOneJob(kbRootUri, job) {
-	const zone = job.zone === 'project' ? 'project' : 'document';
+	const zone =
+		job.zone === 'project' ? 'project' : job.zone === 'today' ? 'today' : 'document';
 	if (job.reason === 'delete') {
 		const handle = await openHeadingEmbeddingDb(kbRootUri, zone);
 		try {
@@ -286,12 +290,12 @@ function collectMissingHeadingEmbeddings(db) {
 }
 
 /**
- * Enqueue every heading (document + project) that has no embedding_id yet.
+ * Enqueue every heading (document + project + Today) that has no embedding_id yet.
  * @param {import('vscode').Uri} kbRootUri
  * @returns {Promise<number>} number enqueued
  */
 async function enqueueMissingHeadingEmbeddings(kbRootUri) {
-	/** @type {{ fileId: number, headingId: number, zone?: 'document' | 'project' }[]} */
+	/** @type {{ fileId: number, headingId: number, zone?: 'document' | 'project' | 'today' }[]} */
 	const missing = [];
 
 	const handle = await openDripIndexDb(kbRootUri);
@@ -314,6 +318,19 @@ async function enqueueMissingHeadingEmbeddings(kbRootUri) {
 		}
 	} catch (err) {
 		console.warn('[DRIP] project heading embedding scan failed', err && err.message);
+	}
+
+	try {
+		const todayHandle = require('../dripTodayDb').openDripTodayDb(kbRootUri);
+		try {
+			for (const m of collectMissingHeadingEmbeddings(todayHandle.db)) {
+				missing.push({ ...m, zone: 'today' });
+			}
+		} finally {
+			todayHandle.close();
+		}
+	} catch (err) {
+		console.warn('[DRIP] today heading embedding scan failed', err && err.message);
 	}
 
 	enqueueHeadingEmbeddingUpserts(kbRootUri, missing);

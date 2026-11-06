@@ -1,5 +1,10 @@
 'use strict';
 
+/**
+ * Today notes — personal day logs and day-tasks under `.drip.dailynotes/`.
+ * Indexed only in `today.drip` (never in index.drip / projects.drip).
+ */
+
 const path = require('path');
 const vscode = require('vscode');
 const { buildNewNoteFile } = require('../document/dripNoteKbOps.js');
@@ -20,12 +25,12 @@ function getDailyNotesRootUri(kbRootUri) {
 }
 
 /**
- * Display folder name e.g. "January 2026".
- * @param {number} year
+ * Month folder name under the year folder, e.g. "November".
+ * @param {number} _year unused (year is the parent folder)
  * @param {number} month 0-based
  */
-function monthFolderName(year, month) {
-	return `${MONTH_NAMES[month]} ${year}`;
+function monthFolderName(_year, month) {
+	return MONTH_NAMES[month] || 'Unknown';
 }
 
 /**
@@ -51,12 +56,33 @@ function dailyNotePathSegments(date) {
 }
 
 /**
- * DB / KB-relative path: `dailynotes.drip/<year>/<Month YYYY>/<file>`.
+ * DB / KB-relative path: `.drip.dailynotes/<year>/<Month YYYY>/<file>`.
  * @param {Date} date
  */
 function dailyNoteRelPath(date) {
 	const [year, folder, file] = dailyNotePathSegments(date);
 	return `${DAILY_NOTES_DIR}/${year}/${folder}/${file}`;
+}
+
+/**
+ * Friendly day label for Today UI, e.g. "5 November 2026"
+ * from `…/2026/November/11-05-2026.d.txt`.
+ * @param {string} relPath
+ */
+function todayDisplayPath(relPath) {
+	const p = String(relPath || '').replace(/\\/g, '/');
+	const pre = `${DAILY_NOTES_DIR}/`;
+	const rest = p.startsWith(pre) ? p.slice(pre.length) : p;
+	const m = rest.match(/(?:^|\/)(\d{2})-(\d{2})-(\d{4})\.d\.(?:txt|md)$/i);
+	if (m) {
+		const month0 = parseInt(m[1], 10) - 1;
+		const day = parseInt(m[2], 10);
+		const year = parseInt(m[3], 10);
+		if (month0 >= 0 && month0 < 12 && day >= 1 && day <= 31 && Number.isFinite(year)) {
+			return `${day} ${MONTH_NAMES[month0]} ${year}`;
+		}
+	}
+	return rest;
 }
 
 /**
@@ -98,7 +124,7 @@ async function uriExists(uri) {
 
 /**
  * Ensure year/month folders exist and open/create today's note using the same
- * `buildNewNoteFile` + fileid allocation path as normal KB notes.
+ * `buildNewNoteFile` path as normal notes, but with Today file-id allocation.
  *
  * @param {import('vscode').Uri} kbRootUri
  * @param {Date} [now]
@@ -133,7 +159,7 @@ async function ensureTodayDailyNote(kbRootUri, now = new Date(), options = {}) {
 	}
 
 	const label = dailyNoteFilename(now).replace(/\.d\.txt$/i, '');
-	const n = await allocateNextEntityNumber(kbRootUri);
+	const n = await allocateNextEntityNumber(kbRootUri, uri);
 	const text = buildNewNoteFile(
 		{ title: label, content: '', metadataFilename: label },
 		{ fileEntityNumber: n }
@@ -142,7 +168,7 @@ async function ensureTodayDailyNote(kbRootUri, now = new Date(), options = {}) {
 	try {
 		await indexNewNoteImmediately(kbRootUri, uri, options.context);
 	} catch (err) {
-		console.error('[DRIP] immediate index after daily note create', err);
+		console.error('[DRIP] immediate index after Today note create', err);
 	}
 
 	let initialText = text;
@@ -165,15 +191,27 @@ function isDailyNoteUnchangedFromCreate(text, initialText) {
 }
 
 /**
- * @param {string} folderName
+ * @param {string} folderName "November" or legacy "November 2026"
+ * @param {number} [yearFromParent] year folder when name is month-only
  * @returns {{ year: number, month0: number } | null}
  */
-function parseMonthFolderName(folderName) {
-	const m = String(folderName || '').match(/^([A-Za-z]+)\s+(\d{4})$/);
-	if (!m) return null;
-	const monthIdx = MONTH_NAMES.findIndex(n => n.toLowerCase() === m[1].toLowerCase());
+function parseMonthFolderName(folderName, yearFromParent) {
+	const raw = String(folderName || '').trim();
+	const withYear = raw.match(/^([A-Za-z]+)\s+(\d{4})$/);
+	if (withYear) {
+		const monthIdx = MONTH_NAMES.findIndex(n => n.toLowerCase() === withYear[1].toLowerCase());
+		if (monthIdx < 0) return null;
+		return { year: parseInt(withYear[2], 10), month0: monthIdx };
+	}
+	const monthOnly = raw.match(/^([A-Za-z]+)$/);
+	if (!monthOnly) return null;
+	const monthIdx = MONTH_NAMES.findIndex(n => n.toLowerCase() === monthOnly[1].toLowerCase());
 	if (monthIdx < 0) return null;
-	return { year: parseInt(m[2], 10), month0: monthIdx };
+	const y = Number(yearFromParent);
+	return {
+		year: Number.isFinite(y) ? y : new Date().getFullYear(),
+		month0: monthIdx
+	};
 }
 
 /**
@@ -211,16 +249,17 @@ async function loadDailyMonthNodes(yearUri) {
 	} catch {
 		return [];
 	}
+	const yearFromParent = parseInt(path.basename(yearUri.fsPath), 10);
 	/** @type {{ kind: 'dailyMonth', label: string, uri: import('vscode').Uri }[]} */
 	const result = [];
 	for (const [name, kind] of entries) {
 		if (kind !== vscode.FileType.Directory) continue;
-		if (!parseMonthFolderName(name)) continue;
+		if (!parseMonthFolderName(name, yearFromParent)) continue;
 		result.push({ kind: 'dailyMonth', label: name, uri: vscode.Uri.joinPath(yearUri, name) });
 	}
 	result.sort((a, b) => {
-		const pa = parseMonthFolderName(a.label);
-		const pb = parseMonthFolderName(b.label);
+		const pa = parseMonthFolderName(a.label, yearFromParent);
+		const pb = parseMonthFolderName(b.label, yearFromParent);
 		if (!pa || !pb) return 0;
 		return pb.year * 12 + pb.month0 - (pa.year * 12 + pa.month0);
 	});
@@ -240,17 +279,52 @@ async function loadDailyNoteNodes(monthUri) {
 	/** @type {{ kind: 'dailyNote', label: string, uri: import('vscode').Uri, date: string }[]} */
 	const result = [];
 	for (const [name, kind] of entries) {
-		if (kind !== vscode.FileType.File || !name.toLowerCase().endsWith('.d.txt')) continue;
-		const label = name.replace(/\.d\.txt$/i, '');
+		if (kind !== vscode.FileType.File) continue;
+		const lower = name.toLowerCase();
+		if (!lower.endsWith('.d.txt') && !lower.endsWith('.d.md')) continue;
+		const stem = name.replace(/\.d\.(txt|md)$/i, '');
+		const friendly = todayDisplayPath(`${DAILY_NOTES_DIR}/x/x/${name}`);
 		result.push({
 			kind: 'dailyNote',
-			label,
+			label: friendly.includes(' ') ? friendly : stem,
 			uri: vscode.Uri.joinPath(monthUri, name),
-			date: label
+			date: stem
 		});
 	}
 	result.sort((a, b) => b.label.localeCompare(a.label));
 	return result;
+}
+
+/**
+ * Days in a month that have a Today note file (for the calendar).
+ * @param {import('vscode').Uri} kbRootUri
+ * @param {number} year
+ * @param {number} month0
+ * @returns {Promise<Set<number>>} day-of-month numbers that have a note
+ */
+async function listDaysWithNotes(kbRootUri, year, month0) {
+	const folder = monthFolderName(year, month0);
+	const monthUri = vscode.Uri.joinPath(getDailyNotesRootUri(kbRootUri), String(year), folder);
+	/** @type {Set<number>} */
+	const days = new Set();
+	let entries = [];
+	try {
+		entries = await vscode.workspace.fs.readDirectory(monthUri);
+	} catch {
+		return days;
+	}
+	const prefix = `${String(month0 + 1).padStart(2, '0')}-`;
+	const suffix = `-${year}`;
+	for (const [name, kind] of entries) {
+		if (kind !== vscode.FileType.File) continue;
+		const lower = name.toLowerCase();
+		if (!lower.endsWith('.d.txt') && !lower.endsWith('.d.md')) continue;
+		const stem = name.replace(/\.d\.(txt|md)$/i, '');
+		if (!stem.startsWith(prefix) || !stem.endsWith(suffix)) continue;
+		const day = parseInt(stem.slice(3, 5), 10);
+		if (Number.isFinite(day) && day >= 1 && day <= 31) days.add(day);
+	}
+	return days;
 }
 
 module.exports = {
@@ -259,6 +333,7 @@ module.exports = {
 	dailyNoteUri,
 	dailyNoteRelPath,
 	dailyNoteFilename,
+	todayDisplayPath,
 	isDailyNoteUri,
 	toRelPath,
 	isDailyNoteUnchangedFromCreate,
@@ -266,5 +341,7 @@ module.exports = {
 	loadDailyNotesTree,
 	loadDailyMonthNodes,
 	loadDailyNoteNodes,
-	parseMonthFolderName
+	parseMonthFolderName,
+	listDaysWithNotes,
+	monthFolderName
 };

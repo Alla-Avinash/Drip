@@ -30,12 +30,16 @@ const DRIP_FOCUS_CHAT_COMMAND_ID = 'drip.focusChat';
 const DRIP_ADD_SELECTION_TO_CHAT_COMMAND_ID = 'drip.addSelectionToChat';
 const DRIP_SELECT_KB_COMMAND_ID = 'drip.selectKnowledgeBase';
 const DRIP_OPEN_RECENT_FILE_COMMAND_ID = 'drip.openRecentFile';
+/** Sidebar folder tree for `.drip.dailynotes` (year / month / day). Calendar opens from Components → Today. */
 const DRIP_DAILY_NOTES_VIEW_ID = 'drip.dailyNotes';
 const DRIP_PROJECTS_VIEW_ID = 'drip.projects';
 const DRIP_OPEN_TODAY_DAILY_NOTE_COMMAND_ID = 'drip.openTodayDailyNote';
-/** KB-root folder for daily notes (hidden from Knowledge Base tree). */
-const DAILY_NOTES_DIR = 'dailynotes.drip';
-	/** KB-root folder for every `.p` project (hidden from Knowledge Base tree). */
+const DRIP_OPEN_TODAY_CALENDAR_COMMAND_ID = 'drip.openTodayCalendar';
+/** Editor-area webview panel for the Today calendar. */
+const DRIP_TODAY_CALENDAR_PANEL_ID = 'drip.todayCalendar';
+/** KB-root folder for Today notes (hidden from Knowledge Base tree). */
+const DAILY_NOTES_DIR = '.drip.dailynotes';
+/** KB-root folder for every `.p` project (hidden from Knowledge Base tree). */
 const PROJECTS_DIR = '.drip.project';
 const DRAFTS_KEY = 'drip.drafts';
 const KB_ROOT_KEY = 'drip.kbRoot';
@@ -73,6 +77,8 @@ module.exports = {
 	DRIP_DAILY_NOTES_VIEW_ID,
 	DRIP_PROJECTS_VIEW_ID,
 	DRIP_OPEN_TODAY_DAILY_NOTE_COMMAND_ID,
+	DRIP_OPEN_TODAY_CALENDAR_COMMAND_ID,
+	DRIP_TODAY_CALENDAR_PANEL_ID,
 	DAILY_NOTES_DIR,
 	PROJECTS_DIR,
 	DRAFTS_KEY,

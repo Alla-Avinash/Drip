@@ -401,6 +401,16 @@ function registerDripnoteTagCompletion(context) {
 			if (document.languageId !== 'dripnote') {
 				return undefined;
 			}
+			// Today day notes: no tags / relations — only task + persistent/plain headings.
+			try {
+				const { DAILY_NOTES_DIR } = require('../../../shared/constants');
+				const fp = String(document.uri.fsPath || '').replace(/\\/g, '/');
+				if (fp.split('/').includes(DAILY_NOTES_DIR)) {
+					return undefined;
+				}
+			} catch {
+				/* ignore */
+			}
 			try {
 				const lineText = document.lineAt(position.line).text;
 				const kv = lineText.match(/^\s*([a-z][a-z0-9_-]*)\s*:\s*([^#]*)$/i);

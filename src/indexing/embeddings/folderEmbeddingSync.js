@@ -68,7 +68,8 @@ function enqueueFolderEmbeddingUpserts(kbRootUri, folderPaths) {
  * @param {string} noteRelPath
  */
 function enqueueFolderEmbeddingsForNotePath(kbRootUri, noteRelPath) {
-	if (isProjectNotePath(noteRelPath)) return;
+	const { isTodayNotePath } = require('../projectIndex');
+	if (isProjectNotePath(noteRelPath) || isTodayNotePath(noteRelPath)) return;
 	enqueueFolderEmbeddingUpserts(kbRootUri, ancestorFolderPathsOfNote(noteRelPath));
 }
 

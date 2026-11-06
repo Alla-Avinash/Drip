@@ -16,13 +16,13 @@ const {
 	DRIP_OPEN_RECENT_FILE_COMMAND_ID,
 	DRIP_DAILY_NOTES_VIEW_ID,
 	DRIP_OPEN_TODAY_DAILY_NOTE_COMMAND_ID,
+	DRIP_OPEN_TODAY_CALENDAR_COMMAND_ID,
 	DRIP_CHAT_VIEW_ID,
 	DRIP_STORAGE_VIEW_ID
 } = require('../shared/constants');
 const {
 	ensureTodayDailyNote,
-	isDailyNoteUri,
-	isDailyNoteUnchangedFromCreate
+	isDailyNoteUri
 } = require('../startup/dailyNotesDrip');
 const { DripState } = require('../state/state');
 const { DripTreeDataProvider } = require('../views/lhs/knowledgebase/tree');
@@ -164,6 +164,10 @@ async function activate(context) {
 		context,
 		state
 	);
+	const runTodayCleanupIfDue = require('../startup/todayCleanup').registerTodayCleanupSweep(
+		context,
+		state
+	);
 	setHeadingFormExtensionContext(context);
 	setHeadingFormKbRootGetter(() => state.getKnowledgeBaseRoot && state.getKnowledgeBaseRoot());
 	registerHeadingFormAutoFlush(context);
@@ -201,6 +205,7 @@ async function activate(context) {
 				.resumeSharedProjectListeners(kb)
 				.catch(() => {});
 			runIssueArchiveSweepIfDue();
+			runTodayCleanupIfDue();
 		}
 	});
 	require('../integrations/mcp/mcpBridge').registerDripMcp(context, state, {
@@ -339,32 +344,18 @@ async function activate(context) {
 		void trackRecentFromDocument(vscode.window.activeTextEditor.document);
 	}
 
-	// Discard brand-new daily notes that were never edited before closing
+	// Discard Today day notes that are still only the shell (metadata + h0 / whitespace)
 	context.subscriptions.push(
 		vscode.workspace.onDidCloseTextDocument(async doc => {
 			const key = doc.uri.toString();
-			if (!newDailyNoteInitialText.has(key)) return;
-			const initialText = newDailyNoteInitialText.get(key) || '';
 			newDailyNoteInitialText.delete(key);
 			const kbRoot = state.getKnowledgeBaseRoot();
 			if (!kbRoot) return;
 			if (!isDailyNoteUri(kbRoot, doc.uri)) return;
 			try {
-				const buf = await vscode.workspace.fs.readFile(doc.uri);
-				const text = Buffer.from(buf).toString('utf8');
-				if (isDailyNoteUnchangedFromCreate(text, initialText)) {
-					const { removeFileFromDripIndex } = require('../indexing/dripIndexDb');
-					const rel = require('path')
-						.relative(kbRoot.fsPath, doc.uri.fsPath)
-						.replace(/\\/g, '/');
-					try {
-						await removeFileFromDripIndex(kbRoot, rel);
-					} catch {
-						/* best-effort */
-					}
-					await vscode.workspace.fs.delete(doc.uri, { useTrash: false });
-					dailyNotesTreeProvider.refresh();
-				}
+				const { deleteTodayNoteIfEmpty } = require('../startup/todayCleanup');
+				const deleted = await deleteTodayNoteIfEmpty(kbRoot, doc.uri);
+				if (deleted) dailyNotesTreeProvider.refresh();
 			} catch {
 				// best-effort
 			}
@@ -696,8 +687,12 @@ async function activate(context) {
 					newDailyNoteInitialText.set(uri.toString(), initialText);
 				}
 			} catch (err) {
-				void vscode.window.showErrorMessage(`Could not open daily note: ${err instanceof Error ? err.message : String(err)}`);
+				void vscode.window.showErrorMessage(`Could not open Today note: ${err instanceof Error ? err.message : String(err)}`);
 			}
+		}),
+		vscode.commands.registerCommand(DRIP_OPEN_TODAY_CALENDAR_COMMAND_ID, () => {
+			const { openTodayCalendarPanel } = require('../views/lhs/today/panel');
+			openTodayCalendarPanel(context, state);
 		}),
 		vscode.commands.registerCommand('drip.copyPath', async item => {
 			await state.copyPath(item);

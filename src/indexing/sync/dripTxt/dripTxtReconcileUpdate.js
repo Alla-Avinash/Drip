@@ -325,7 +325,7 @@ async function persistReconcileUpdate(kbRootUri, noteUri, text, fileId, mode, co
 	// Project notes upsert by path so a colliding KB `@fN` cannot steal that files row
 	// or get written back into the project file header.
 	let persistedId = fileId;
-	if (mode === MODE_EXISTING || zone === 'project') {
+	if (mode === MODE_EXISTING || zone === 'project' || zone === 'today') {
 		persistedId = await applyParsedNoteToIndex(kbRootUri, relPath, parsed, context, {
 			incremental: true,
 			embeddingUpserts

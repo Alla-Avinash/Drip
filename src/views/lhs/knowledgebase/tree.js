@@ -19,6 +19,7 @@ const COMPONENT_ENTRIES = [
 	{ id: 'retriever', label: 'Retriever', command: 'drip.openRetriever', icon: 'search' },
 	{ id: 'tagsGraph', label: 'Tags Graph', command: 'drip.openTagsPanel', icon: 'graph' },
 	{ id: 'projectView', label: 'Project View', command: 'drip.openProjectView', icon: 'folder-library' },
+	{ id: 'today', label: 'Today', command: 'drip.openTodayCalendar', icon: 'calendar' },
 	{ id: 'settings', label: 'DRIP Settings', command: 'drip.openDripSettingsView', icon: 'gear' }
 ];
 
@@ -250,7 +251,7 @@ class DripTreeDataProvider {
 			const years = await loadDailyNotesTree(kbRoot);
 			if (!years.length) {
 				const item = new vscode.TreeItem('No daily notes yet', vscode.TreeItemCollapsibleState.None);
-				item.description = 'Use + to create today\'s note';
+				item.description = 'Use + to open today\'s log';
 				item.iconPath = new vscode.ThemeIcon('calendar');
 				item.contextValue = 'dripDailyEmpty';
 				return [item];
@@ -287,7 +288,7 @@ class DripTreeDataProvider {
 				item.iconPath = new vscode.ThemeIcon('file-text');
 				item.command = {
 					command: 'vscode.open',
-					title: 'Open Daily Note',
+					title: 'Open Today Note',
 					arguments: [node.uri]
 				};
 				item.contextValue = 'dripDailyNote';

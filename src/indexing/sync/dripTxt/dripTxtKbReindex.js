@@ -10,8 +10,9 @@
 
 const vscode = require('vscode');
 const { forEachKnowledgeBaseNotePath } = require('../../kbFilesystem');
-const { resetDripIndexDatabase } = require('../../dripIndexDb');
+const { resetDripIndexDatabase, rebuildTodayDripIndex } = require('../../dripIndexDb');
 const { resetDripProjectsDatabase } = require('../../dripProjectDb');
+const { resetDripTodayDatabase } = require('../../dripTodayDb');
 const { clearHeadingAllocCache } = require('../../dripTxt/dripTxtHeadingIdentity.js');
 const { reconcileUpdate } = require('./dripTxtReconcileUpdate.js');
 
@@ -57,6 +58,7 @@ async function runKbReconcileReindex(kbRootUri, context, options) {
 		clearHeadingAllocCache();
 		await resetDripIndexDatabase(kbRootUri);
 		await resetDripProjectsDatabase(kbRootUri);
+		await resetDripTodayDatabase(kbRootUri);
 	}
 
 	progress?.report({ message: 'Listing notes…' });
@@ -101,6 +103,21 @@ async function runKbReconcileReindex(kbRootUri, context, options) {
 	}
 
 	const cancelled = !!(options.token && options.token.isCancellationRequested);
+
+	// Today notes are excluded from the KB walk — rebuild their separate index here.
+	if (!cancelled) {
+		try {
+			progress?.report({ message: 'Rebuilding Today index…' });
+			await rebuildTodayDripIndex(kbRootUri, context);
+		} catch (err) {
+			console.error('[DRIP] today.drip rebuild failed', err);
+			errors.push({
+				path: '(today.drip)',
+				message: err && err.message ? String(err.message) : String(err)
+			});
+			failed += 1;
+		}
+	}
 
 	// Report the file-reconcile result first (before the slower embedding pass), so
 	// the user sees how many notes were rewritten/unaffected right away.

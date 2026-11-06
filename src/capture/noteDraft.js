@@ -270,6 +270,28 @@ function mdContentToNeutral(contentText, rootLevel = 1) {
 }
 
 /**
+ * Emit a `.d.txt` metadata block under a heading: marker at level+1 tabs, fields at level+2.
+ * @param {string} typeId
+ * @param {{ key: string, value: string }[]} fields
+ * @param {number} headingLevel
+ * @returns {string[]}
+ */
+function txtMetadataLinesAtLevel(typeId, fields, headingLevel) {
+	const level = Math.max(0, Math.floor(Number(headingLevel) || 0));
+	const raw = draftToTxtMetadata(typeId, fields);
+	if (!String(raw || '').trim()) return [];
+	/** @type {string[]} */
+	const out = [];
+	for (const bl of String(raw).split('\n')) {
+		if (!bl.trim()) continue;
+		const stripped = bl.replace(/^\t+/, '');
+		const isMarker = /^\.[a-zA-Z][a-zA-Z0-9_-]*$/.test(stripped);
+		out.push('\t'.repeat(level + (isMarker ? 1 : 2)) + stripped);
+	}
+	return out;
+}
+
+/**
  * Convert neutral content lines into `.d.txt` lines, re-levelling headings relative to
  * `baseLevel` (the new note's own heading level) and indenting prose one tab deeper than its
  * owning heading. A hidden comment under a heading is turned back into the `.d.txt` metadata
@@ -284,7 +306,30 @@ function contentToTxtLines(contentText, baseLevel) {
 	const lines = String(contentText || '').split('\n');
 	const out = [];
 	let cur = base;
-	for (let i = 0; i < lines.length; i++) {
+	let i = 0;
+
+	// Leading typed metadata block (from draftToTxtMetadata under an already-written heading):
+	// marker at base+1, fields at base+2 — never stack tabs from the draft block itself.
+	while (i < lines.length) {
+		const raw = String(lines[i] || '');
+		if (!raw.trim()) {
+			if (out.length) break;
+			i += 1;
+			continue;
+		}
+		const stripped = raw.replace(/^\t+/, '');
+		const isMarker = /^\.[a-zA-Z][a-zA-Z0-9_-]*$/.test(stripped);
+		const isKv = /^[a-zA-Z][a-zA-Z0-9_-]*\s*:/.test(stripped);
+		if (!isMarker && !isKv) break;
+		out.push('\t'.repeat(base + (isMarker ? 1 : 2)) + stripped);
+		i += 1;
+	}
+	if (i < lines.length && !String(lines[i] || '').trim() && out.length) {
+		out.push('');
+		i += 1;
+	}
+
+	for (; i < lines.length; i++) {
 		const line = String(lines[i]);
 		if (!line.trim()) {
 			out.push('');
@@ -313,17 +358,12 @@ function contentToTxtLines(contentText, baseLevel) {
 			const title = prefix ? `${prefix} ${rawTitle}` : rawTitle;
 			out.push(`${'\t'.repeat(cur)}${marker} ${title}`);
 			if (hasMeta) {
-				const block = draftToTxtMetadata(typeId || 'persistent', fields);
-				for (const bl of block.split('\n')) {
-					if (!bl.trim()) continue;
-					out.push('\t'.repeat(cur + 1) + bl);
-				}
+				out.push(...txtMetadataLinesAtLevel(typeId || 'persistent', fields, cur));
 			}
 			continue;
 		}
-		// Preserve any existing leading tabs so a `.d.txt` metadata block (`.marker` at
-		// column 0, `key: value` at one tab) keeps its field indentation when re-indented.
-		out.push('\t'.repeat(cur + 1) + line);
+		// Body prose under the current heading: one tab deeper than the heading level.
+		out.push('\t'.repeat(cur + 1) + line.replace(/^\t+/, ''));
 	}
 	return out;
 }
@@ -644,6 +684,7 @@ module.exports = {
 	shortcutForTypeId,
 	draftToTxtMetadata,
 	draftToMdCommentText,
+	txtMetadataLinesAtLevel,
 	txtContentToNeutral,
 	contentToTxtLines,
 	contentToMdLines,

@@ -5,8 +5,8 @@
  *
  * `index.drip` holds the shared `files` registry (every KB note, document *and* project),
  * document headings (concept/task), tags, relations, and embeddings. Project-scoped data
- * (projects, features, issues, project headings) lives in `projects.drip` — see
- * `dripProjectSchema.js` — so project headings never surface in global search.
+ * lives in `projects.drip`. Today day-logs (`.drip.dailynotes`) live in `today.drip`
+ * with this same document schema — never in `index.drip` or `projects.drip`.
  *
  * Heading identity in `.d.txt` files: `@hN` on the line **above** the `#`/`#N` heading (not below).
  * Per-file heading id allocator: `index_meta.heading_alloc_<file_id>` → JSON `{ "next": N, "free": […] }`.

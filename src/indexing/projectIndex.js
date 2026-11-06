@@ -25,6 +25,7 @@ const {
 	normalizeIssueEntityId,
 	parseIssueTitleEntityId
 } = require('../document/project/projectStructureRules');
+const { DAILY_NOTES_DIR } = require('../shared/constants');
 
 /**
  * @param {string} filePath
@@ -170,10 +171,23 @@ function isProjectNotePath(filePath) {
 }
 
 /**
+ * True when a path is under the Today folder (`.drip.dailynotes`).
+ * Today notes index only into `today.drip`.
  * @param {string} filePath
- * @returns {'project' | 'document'}
+ * @returns {boolean}
+ */
+function isTodayNotePath(filePath) {
+	const rel = String(filePath || '').replace(/\\/g, '/');
+	const first = rel.split('/').filter(Boolean)[0];
+	return first === DAILY_NOTES_DIR;
+}
+
+/**
+ * @param {string} filePath
+ * @returns {'today' | 'project' | 'document'}
  */
 function classifyNoteZone(filePath) {
+	if (isTodayNotePath(filePath)) return 'today';
 	return isProjectNotePath(filePath) ? 'project' : 'document';
 }
 
@@ -546,6 +560,7 @@ module.exports = {
 	projectFolderPrefixFromPath,
 	featureFolderPrefixFromPath,
 	isProjectNotePath,
+	isTodayNotePath,
 	classifyNoteZone,
 	allocateProjectId,
 	ensureProjectRow,

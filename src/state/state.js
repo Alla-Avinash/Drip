@@ -276,7 +276,7 @@ class DripState {
 
 	/**
 	 * The KB root that passed startup verification (a real `.driplock` folder).
-	 * Dependent views (Daily Notes, Drafts, Project View) read this instead of the raw
+	 * Dependent views (Today, Drafts, Project View) read this instead of the raw
 	 * saved path, so they only show data once the folder is confirmed valid.
 	 * @returns {import('vscode').Uri | undefined}
 	 */

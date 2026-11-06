@@ -40,7 +40,7 @@ Until one of those fires, DRIP is inactive.
 
 1. **Global services** — set up the embeddings model cache, initialize multi-graph storage, and register the editor language providers (tag completion, semantic tokens, metadata diagnostics/completion, custom decorations, heading identity display) plus the `.d.md` custom markdown editor provider.
 2. **State + sync** — create the session state, register index sync and startup check, register persistent-heading soft-lock and project/feature folder watchers, then sync the tag-graph checkpoint.
-3. **Sidebar trees** — create the five sidebar trees (Components, Knowledge Base, Daily Notes, Drafts, Recents) and wire drag-drop and refresh.
+3. **Sidebar trees** — create the sidebar trees (Components, Projects, Knowledge Base, Daily Notes, Drafts, Recents) and wire drag-drop and refresh. Today calendar opens from Components.
 4. **Editor + references** — register image paste, reference assist/definitions, document links, link drop-in, and document symbols.
 5. **Webviews + commands** — register the Heading Form, Storage, and Chat providers, and register every command (open Composer/Retriever/Project View/Tags/Settings, GitHub backup, KB CRUD, index commands, embedding benchmark).
 

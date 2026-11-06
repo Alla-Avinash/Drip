@@ -6,14 +6,15 @@
 
 Notes live as plain `.d.txt` files in a `.driplock` folder. The SQLite index (`index.drip`) is built *from* those files and can always be rebuilt from disk. This keeps data portable and diff-friendly while still enabling fast search.
 
-### 2. Two local SQLite indexes, split by scope
+### 2. Three local SQLite indexes, split by scope
 
-Document data and project data live in two SQLite files under `.dripindex/`:
+Document, project, and Today data live in separate SQLite files under `.dripindex/`:
 
-- `index.drip` — the shared `files` registry (every note), document headings (concept/task), tags, relations, and embeddings. Global search reads only this file, so project headings never surface in it.
+- `index.drip` — the shared `files` registry for KB + project notes, document headings (concept/task), tags, relations, and embeddings. Global Retriever search reads only this file, so project headings and Today notes never surface in it.
 - `projects.drip` — projects, features, issues, and project headings. It is opened only when the Project View (or a project operation) needs it.
+- `today.drip` — notes under `.drip.dailynotes` only (personal day logs and day-tasks), including their heading embeddings. Same document heading schema (concept/task); never mixed into KB or project search.
 
-`index.drip` mints `@fN` for knowledge-base notes. Each project folder mints its own `@fN` sequence (written in the file, remembered in the sidecar). `projects.drip` records those ids; it does not mint them. If a project `@fN` and a knowledge-base `@fN` collide in the local `files` table, the index may use a different row id for the project note — the file is not rewritten. Heading-number memory is keyed the same way (knowledge-base file vs project folder + `@fN`). Once a project is shared, reconcile refreshes the local index only and does not rewrite those files. This keeps project files identical across peers without changing how ordinary notes get ids.
+`index.drip` mints `@fN` for knowledge-base notes. Each project folder mints its own `@fN` sequence (written in the file, remembered in the sidecar). Today notes mint `@fN` from `today.drip` only. `projects.drip` records project ids; it does not mint them. If a project `@fN` and a knowledge-base `@fN` collide in the local `files` table, the index may use a different row id for the project note — the file is not rewritten. Heading-number memory is keyed the same way (knowledge-base file vs project folder + `@fN`, or Today scope). Once a project is shared, reconcile refreshes the local index only and does not rewrite those files. This keeps project files identical across peers without changing how ordinary notes get ids.
 
 ### 3. Stable, hidden IDs for identity
 
@@ -94,9 +95,9 @@ src/
   peer/           local identity, project sidecar, operations, share/sync, internet relay
   retrieval/      retriever query, quick open, embeddings benchmark
   shared/         constants, utilities, edit guards
-  startup/        KB selection, settings, daily notes, drafts, github backup, startup check
+  startup/        KB selection, settings, Today (daily notes), drafts, github backup, startup check
   state/          session state (DripState + documentFileOps helpers + tagGraphState mixin)
-  views/          editor services (dripMdEditor/ + dripTxt/), lhs (KB/projects/retriever), rhs (storage/heading/chat), composer, storage, tags (graph panels), settings
+  views/          editor services (dripMdEditor/ + dripTxt/), lhs (KB/projects/retriever/today), rhs (storage/heading/chat), composer, storage, tags (graph panels), settings
 scripts/          build-webview.mjs (esbuild bundle → dist/); launch-peer-b.mjs (isolated second editor for sharing tests)
 dist/             compiled webview assets (git-ignored, flat *.js/*.css)
 ```

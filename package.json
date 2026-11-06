@@ -3,7 +3,7 @@
 	"displayName": "DRIP — Personal Knowledge Base & Note Capture",
 	"icon": "icons/drip_icon.png",
 	"description": "Capture, organize and search a personal knowledge base of plain-text or markdown notes — with concepts, projects, issues, tags and an optional LLM that files quick captures.",
-	"version": "3.2.2",
+	"version": "3.3.2",
 	"publisher": "AvinashAlla",
 	"license": "UNLICENSED",
 	"engines": {
@@ -37,6 +37,8 @@
 		"onView:drip.drafts",
 		"onView:drip.recents",
 		"onView:drip.dailyNotes",
+		"onCommand:drip.openTodayCalendar",
+		"onWebviewPanel:drip.todayCalendar",
 		"onView:drip.storage",
 		"onView:drip.headingForm",
 		"onView:drip.chat",
@@ -157,9 +159,15 @@
 			},
 			{
 				"command": "drip.openTodayDailyNote",
-				"title": "New Daily Note",
+				"title": "Open Today",
 				"category": "DRIP",
 				"icon": "$(add)"
+			},
+			{
+				"command": "drip.openTodayCalendar",
+				"title": "Open Today Calendar",
+				"category": "DRIP",
+				"icon": "$(calendar)"
 			},
 			{
 				"command": "drip.openRecentFile",

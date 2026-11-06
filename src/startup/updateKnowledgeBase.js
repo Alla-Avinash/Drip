@@ -25,6 +25,8 @@ async function updateKnowledgeBase(context, kbRootUri, options) {
 	await ensureDripIndexSkeleton(kbRootUri);
 	await initEmptyDripIndexFile(kbRootUri);
 	await initEmptyDripProjectsFile(kbRootUri);
+	const { initEmptyDripTodayFile } = require('../indexing/dripTodayDb');
+	await initEmptyDripTodayFile(kbRootUri);
 
 	const needsUpdate = force || (await dripIndexNeedsRebuild(kbRootUri));
 	if (!needsUpdate) {

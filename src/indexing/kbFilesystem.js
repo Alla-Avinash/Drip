@@ -12,7 +12,8 @@ function isDotImgRasterImage(name) {
 }
 
 /**
- * Hide `dailynotes.drip` from the Knowledge Base tree only (still indexed on disk).
+ * Hide `.drip.dailynotes` from the Knowledge Base tree.
+ * Today notes are indexed only in `today.drip`, not in the KB/project indexes.
  * @param {import('vscode').Uri} rootUri
  * @param {import('vscode').Uri} currentUri
  * @param {string} name
@@ -266,6 +267,10 @@ function isHardExcludedKbRelativePath(relativePath) {
 	}
 	const parts = normalized.split('/').filter(Boolean);
 	if (parts.some(p => String(p || '') === '.dripindex' || String(p || '') === '.drip')) {
+		return true;
+	}
+	// Today folder is its own index (`today.drip`) — never part of KB/project walks.
+	if (parts[0] === DAILY_NOTES_DIR) {
 		return true;
 	}
 	if (parts.some(p => String(p || '').toLowerCase().endsWith('.driplock'))) {

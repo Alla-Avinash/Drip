@@ -142,8 +142,12 @@ async function notifyDraftSaved(sidebarProvider, draft, statusMessage) {
 	postToStorage({ type: 'storageActionStatus', message: statusMessage || '' });
 }
 
-/** @param {*} sidebarProvider */
-async function notifyAfterIngest(sidebarProvider, summary) {
+/**
+ * @param {*} sidebarProvider
+ * @param {string} summary
+ * @param {{ targetPath?: string, state?: any } | null | undefined} [extras]
+ */
+async function notifyAfterIngest(sidebarProvider, summary, extras) {
 	await sidebarProvider.refresh();
 	lastStorageSelection = undefined;
 	lastComposerNote = null;
@@ -169,6 +173,12 @@ async function notifyAfterIngest(sidebarProvider, summary) {
 		postToStorage({ type: 'composerNote', note: lastComposerNote });
 	}
 	postToStorage({ type: 'storageActionStatus', message: summary });
+	try {
+		const { refreshTodayCalendarIfOpen } = require('./lhs/today/panel');
+		await refreshTodayCalendarIfOpen(extras && extras.state, extras && extras.targetPath);
+	} catch (err) {
+		console.error('[DRIP] Today refresh after ingest', err);
+	}
 }
 
 class DripStorageWebviewProvider {
@@ -367,7 +377,10 @@ class DripStorageWebviewProvider {
 						}
 						const result = await this.state.ingestNote(note, selection);
 						const summary = `Note ${result.mode === 'append' ? 'appended to' : 'created at'} ${result.targetPath}`;
-						await notifyAfterIngest(this.sidebarProvider, summary);
+						await notifyAfterIngest(this.sidebarProvider, summary, {
+							state: this.state,
+							targetPath: result.targetPath
+						});
 						break;
 					}
 					case 'moveIssueBrowse': {
@@ -700,7 +713,10 @@ class DripComposerPanel {
 		}
 		const result = await this.state.ingestNote(note, selection);
 		const summary = `Note ${result.mode === 'append' ? 'appended to' : 'created at'} ${result.targetPath}`;
-		await notifyAfterIngest(this.sidebarProvider, summary);
+		await notifyAfterIngest(this.sidebarProvider, summary, {
+			state: this.state,
+			targetPath: result.targetPath
+		});
 	}
 
 	async postCapture(capture) {

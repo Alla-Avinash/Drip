@@ -2,13 +2,13 @@
 
 ## What it is
 
-DRIP maintains a local SQLite index (`.dripindex/index.drip`) that mirrors the KB's notes so they can be searched, sorted, and queried quickly — without reparsing the whole KB.
+DRIP maintains local SQLite indexes under `.dripindex/` that mirror notes on disk so they can be searched, sorted, and queried quickly — without reparsing everything. KB notes use `index.drip`, project structure uses `projects.drip`, and Today day-logs use `today.drip`.
 
 ## How to access it
 
 - Mostly background — it runs on save and startup automatically.
 - **Update index** on the Knowledge Base toolbar forces a full rebuild (keeps `index.drip`).
-- **Reset/reindex** on the Knowledge Base toolbar wipes `index.drip` and `projects.drip`, then re-parses every note and re-encodes all embeddings.
+- **Reset/reindex** on the Knowledge Base toolbar wipes `index.drip`, `projects.drip`, and `today.drip`, then re-parses notes and re-encodes KB embeddings (Today is reindexed into `today.drip` only).
 
 ## What the index stores
 

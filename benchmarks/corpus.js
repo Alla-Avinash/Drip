@@ -70,7 +70,7 @@ const CORPUS = [
 		title: 'Daily notes layout',
 		tags: ['journal', 'daily'],
 		ancestors: ['Workflow'],
-		body: 'Year and month folders under dailynotes.drip with one file per day.',
+		body: 'Year and month folders under .drip.dailynotes with one file per day.',
 		probeQuery: 'daily journal note folders'
 	},
 	{

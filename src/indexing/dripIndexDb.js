@@ -18,10 +18,13 @@ const {
 	ensureProjectRow,
 	upsertIssueRow,
 	issueKeyFromHeadingTitle,
-	classifyNoteZone
+	classifyNoteZone,
+	isTodayNotePath
 } = require('./projectIndex');
 const { openDripProjectsDb } = require('./dripProjectDb');
+const { openDripTodayDb } = require('./dripTodayDb');
 const { openDripSqlite } = require('./db/dripSqlite');
+const { DAILY_NOTES_DIR } = require('../shared/constants');
 const {
 	deleteFileEmbeddings,
 	deleteHeadingEmbedding,
@@ -70,8 +73,8 @@ function ensureSchema(db) {
 
 /**
  * Typed metadata tables owned by a zone. Project notes index issue metadata only;
- * document notes index concept/task metadata only.
- * @param {'project' | 'document'} zone
+ * document and Today notes index concept/task metadata only.
+ * @param {'project' | 'document' | 'today'} zone
  * @returns {string[]}
  */
 function typedMetadataTablesForZone(zone) {
@@ -79,19 +82,61 @@ function typedMetadataTablesForZone(zone) {
 }
 
 /**
- * Tag embedding upsert targets with their zone so the drain encodes them into the
- * right DB (`index.drip` for documents, `projects.drip` for project headings).
- * @template {{ fileId: number, headingId: number }} T
+ * Stamp heading-embedding upsert targets with their zone so the drain encodes
+ * into the right DB: `index.drip` (document), `projects.drip` (project), or
+ * `today.drip` (Today day notes). Today vectors never enter KB/project indexes.
+ * @template {{ fileId: number, headingId: number, zone?: string }} T
  * @param {T[]} targets
- * @param {'project' | 'document'} zone
+ * @param {'project' | 'document' | 'today'} zone
  * @returns {T[]}
  */
-function tagEmbeddingTargetsZone(targets, zone) {
-	const z = zone === 'project' ? 'project' : 'document';
+function headingEmbeddingTargetsZone(targets, zone) {
+	const z = zone === 'project' ? 'project' : zone === 'today' ? 'today' : 'document';
 	for (const t of targets || []) {
 		if (t && typeof t === 'object') t.zone = z;
 	}
-	return targets;
+	return targets || [];
+}
+
+/**
+ * @param {import('vscode').Uri} kbRootUri
+ * @param {'project' | 'document' | 'today'} zone
+ * @returns {Promise<{
+ *   fileHandle: { db: import('./db/dripSqlite').DripSqliteDatabase, save: () => Promise<void>, close: () => void },
+ *   scopeHandle: { db: import('./db/dripSqlite').DripSqliteDatabase, save: () => Promise<void>, close: () => void },
+ *   closeAll: () => void
+ * }>}
+ */
+async function openHandlesForZone(kbRootUri, zone) {
+	if (zone === 'today') {
+		const today = openDripTodayDb(kbRootUri);
+		return {
+			fileHandle: today,
+			scopeHandle: today,
+			closeAll() {
+				today.close();
+			}
+		};
+	}
+	const fileHandle = await openDripIndexDb(kbRootUri);
+	if (zone === 'project') {
+		const scopeHandle = openDripProjectsDb(kbRootUri);
+		return {
+			fileHandle,
+			scopeHandle,
+			closeAll() {
+				scopeHandle.close();
+				fileHandle.close();
+			}
+		};
+	}
+	return {
+		fileHandle,
+		scopeHandle: fileHandle,
+		closeAll() {
+			fileHandle.close();
+		}
+	};
 }
 
 /**
@@ -683,7 +728,9 @@ async function listDiskNotePaths(kbRootUri) {
 			if (!note?.uri?.fsPath) {
 				return;
 			}
-			paths.push(normalizeRelPath(kbRootUri.fsPath, note.uri.fsPath));
+			const rel = normalizeRelPath(kbRootUri.fsPath, note.uri.fsPath);
+			if (isTodayNotePath(rel)) return;
+			paths.push(rel);
 		},
 		{ yieldEvery: 40 }
 	);
@@ -715,34 +762,66 @@ async function allocateNextFileEntityNumber(kbRootUri) {
 	return withFileIdAllocationLock(kbRootUri, async () => {
 		const handle = await openDripIndexDb(kbRootUri);
 		try {
-			const counterRow = queryOne(
-				handle.db,
-				`SELECT value FROM index_meta WHERE key = 'next_file_id'`,
-				[]
-			);
-			const maxRow = queryOne(handle.db, 'SELECT COALESCE(MAX(id), -1) FROM files', []);
-			const maxId = maxRow && Number.isFinite(Number(maxRow[0])) ? Number(maxRow[0]) : -1;
-			let counter = counterRow ? parseInt(String(counterRow[0]), 10) : NaN;
-			if (!Number.isFinite(counter) || counter < 0) {
-				counter = 0;
-			}
-
-			let next = Math.max(counter, maxId + 1, 0);
-			for (;;) {
-				const taken = queryOne(handle.db, 'SELECT 1 FROM files WHERE id = ?', [next]);
-				if (!taken) break;
-				next += 1;
-			}
-
-			handle.db.run(`INSERT OR REPLACE INTO index_meta(key, value) VALUES ('next_file_id', ?)`, [
-				String(next + 1)
-			]);
-			await handle.save();
-			return next;
+			return allocateNextIdInHandle(handle);
 		} finally {
 			handle.close();
 		}
 	});
+}
+
+/**
+ * Allocate the next `@fN` from `today.drip` (Today notes only).
+ * @param {import('vscode').Uri} kbRootUri
+ * @returns {Promise<number>}
+ */
+async function allocateNextTodayFileEntityNumber(kbRootUri) {
+	const key = `today:${String(kbRootUri && kbRootUri.fsPath ? kbRootUri.fsPath : '')}`;
+	const prev = fileIdAllocationLocks.get(key) || Promise.resolve();
+	const run = prev.catch(() => undefined).then(async () => {
+		const { initEmptyDripTodayFile } = require('./dripTodayDb');
+		await initEmptyDripTodayFile(kbRootUri);
+		const handle = openDripTodayDb(kbRootUri);
+		try {
+			return allocateNextIdInHandle(handle);
+		} finally {
+			handle.close();
+		}
+	});
+	fileIdAllocationLocks.set(
+		key,
+		run.then(
+			() => undefined,
+			() => undefined
+		)
+	);
+	return run;
+}
+
+/**
+ * @param {{ db: import('./db/dripSqlite').DripSqliteDatabase, save: () => Promise<void> }} handle
+ * @returns {Promise<number>}
+ */
+async function allocateNextIdInHandle(handle) {
+	const counterRow = queryOne(handle.db, `SELECT value FROM index_meta WHERE key = 'next_file_id'`, []);
+	const maxRow = queryOne(handle.db, 'SELECT COALESCE(MAX(id), -1) FROM files', []);
+	const maxId = maxRow && Number.isFinite(Number(maxRow[0])) ? Number(maxRow[0]) : -1;
+	let counter = counterRow ? parseInt(String(counterRow[0]), 10) : NaN;
+	if (!Number.isFinite(counter) || counter < 0) {
+		counter = 0;
+	}
+
+	let next = Math.max(counter, maxId + 1, 0);
+	for (;;) {
+		const taken = queryOne(handle.db, 'SELECT 1 FROM files WHERE id = ?', [next]);
+		if (!taken) break;
+		next += 1;
+	}
+
+	handle.db.run(`INSERT OR REPLACE INTO index_meta(key, value) VALUES ('next_file_id', ?)`, [
+		String(next + 1)
+	]);
+	await handle.save();
+	return next;
 }
 
 /**
@@ -789,8 +868,27 @@ async function resolveSequentialFileEntityForKbNote(kbRootUri, noteUri, text) {
 		console.error('[DRIP] project file id for missing header', err);
 	}
 
-	await initEmptyDripIndexFile(kbRootUri);
 	const relPath = normalizeRelPath(kbRootUri.fsPath, noteUri.fsPath);
+	if (isTodayNotePath(relPath)) {
+		const { initEmptyDripTodayFile } = require('./dripTodayDb');
+		await initEmptyDripTodayFile(kbRootUri);
+		const todayHandle = openDripTodayDb(kbRootUri);
+		try {
+			const row = queryOne(todayHandle.db, 'SELECT id FROM files WHERE path = ?', [relPath]);
+			if (row) {
+				const fileNum = Number(row[0]);
+				if (Number.isFinite(fileNum)) {
+					return { fileNum, fileEntityId: formatFileEntityId(fileNum) };
+				}
+			}
+		} finally {
+			todayHandle.close();
+		}
+		const fileNum = await allocateNextTodayFileEntityNumber(kbRootUri);
+		return { fileNum, fileEntityId: formatFileEntityId(fileNum) };
+	}
+
+	await initEmptyDripIndexFile(kbRootUri);
 	const handle = await openDripIndexDb(kbRootUri);
 	try {
 		const row = queryOne(handle.db, 'SELECT id FROM files WHERE path = ?', [relPath]);
@@ -857,8 +955,22 @@ function formatHeadingAllocatorState(state) {
  * @param {number} fileId
  * @returns {Promise<{ next: number, free: number[] }>}
  */
+/**
+ * Heading allocators for Today notes live in `today.drip`; everything else uses `index.drip`.
+ * @param {import('vscode').Uri} kbRootUri
+ * @param {string} [scopeKey]
+ */
+async function openHeadingAllocatorDb(kbRootUri, scopeKey) {
+	if (String(scopeKey || '') === DAILY_NOTES_DIR) {
+		const { initEmptyDripTodayFile } = require('./dripTodayDb');
+		await initEmptyDripTodayFile(kbRootUri);
+		return openDripTodayDb(kbRootUri);
+	}
+	return openDripIndexDb(kbRootUri);
+}
+
 async function readFileHeadingAllocator(kbRootUri, fileId, scopeKey) {
-	const handle = await openDripIndexDb(kbRootUri);
+	const handle = await openHeadingAllocatorDb(kbRootUri, scopeKey);
 	try {
 		const key = headingAllocatorMetaKey(fileId, scopeKey);
 		const row = queryOne(handle.db, `SELECT value FROM index_meta WHERE key = ?`, [key]);
@@ -874,7 +986,7 @@ async function readFileHeadingAllocator(kbRootUri, fileId, scopeKey) {
  * @param {{ next: number, free: number[] }} state
  */
 async function writeFileHeadingAllocator(kbRootUri, fileId, state, scopeKey) {
-	const handle = await openDripIndexDb(kbRootUri);
+	const handle = await openHeadingAllocatorDb(kbRootUri, scopeKey);
 	try {
 		const key = headingAllocatorMetaKey(fileId, scopeKey);
 		handle.db.run(`INSERT OR REPLACE INTO index_meta(key, value) VALUES (?, ?)`, [
@@ -957,7 +1069,145 @@ async function syncFileHeadingAllocatorFromUsedIds(kbRootUri, fileId, usedNonH0I
 }
 
 /**
- * Full rebuild of both index.drip and projects.drip from KB notes on disk.
+ * Drop any Today-folder rows that still linger in `index.drip` (they belong only in today.drip).
+ * @param {import('vscode').Uri} kbRootUri
+ */
+async function purgeTodayPathsFromDocumentIndex(kbRootUri) {
+	const handle = await openDripIndexDb(kbRootUri);
+	/** @type {string[]} */
+	const stale = [];
+	try {
+		const result = handle.db.exec('SELECT path FROM files');
+		if (result.length) {
+			for (const row of result[0].values) {
+				const p = String(row[0] || '').replace(/\\/g, '/');
+				if (isTodayNotePath(p)) stale.push(p);
+			}
+		}
+		for (const rel of stale) {
+			const row = queryOne(handle.db, 'SELECT id FROM files WHERE path = ?', [rel]);
+			if (!row) continue;
+			const fileId = Number(row[0]);
+			handle.db.run('BEGIN');
+			try {
+				deleteFileHeadingScopedRows(handle.db, fileId, 'document');
+				handle.db.run('DELETE FROM files WHERE id = ?', [fileId]);
+				handle.db.run('COMMIT');
+			} catch (err) {
+				try {
+					handle.db.run('ROLLBACK');
+				} catch {
+					/* ignore */
+				}
+				throw err;
+			}
+		}
+		if (stale.length) await handle.save();
+	} finally {
+		handle.close();
+	}
+}
+
+/**
+ * Full rebuild of `today.drip` from `.drip.dailynotes` on disk.
+ * @param {import('vscode').Uri} kbRootUri
+ * @param {import('vscode').ExtensionContext | null | undefined} [context]
+ */
+async function rebuildTodayDripIndex(kbRootUri, context) {
+	const { initEmptyDripTodayFile, resetDripTodayDatabase } = require('./dripTodayDb');
+	const { walkKbNoteFiles } = require('./kbFilesystem');
+	await resetDripTodayDatabase(kbRootUri);
+	await initEmptyDripTodayFile(kbRootUri);
+	const todayHandle = openDripTodayDb(kbRootUri);
+	const knownTagsLower = collectKnownTagNamesLower(context);
+	const usedFileIds = new Set();
+	let nextFileId = 0;
+	try {
+		todayHandle.db.run('BEGIN');
+		const tagIdByLower = syncTagsTableFromGraph(todayHandle.db, context, { replaceAll: true });
+		const { metadataTypeIdByLower, relationTypeIdByLower } = loadTypeLookupMaps(todayHandle.db);
+		const { getDailyNotesRootUri } = require('../startup/dailyNotesDrip');
+		const root = getDailyNotesRootUri(kbRootUri);
+		try {
+			await vscode.workspace.fs.stat(root);
+		} catch {
+			todayHandle.db.run('COMMIT');
+			await todayHandle.save();
+			return;
+		}
+		await walkKbNoteFiles(
+			root,
+			root,
+			async note => {
+				if (!note?.uri?.fsPath || !note.text) return;
+				const relPath = normalizeRelPath(kbRootUri.fsPath, note.uri.fsPath);
+				if (!isTodayNotePath(relPath)) return;
+				if (relPath.toLowerCase().endsWith('.d.md')) return;
+				let stat;
+				try {
+					stat = await vscode.workspace.fs.stat(note.uri);
+				} catch {
+					stat = undefined;
+				}
+				const parsed = parseNoteForIndex(
+					note.text,
+					relPath,
+					path.basename(note.uri.fsPath),
+					{ ctimeMs: stat?.ctime, mtimeMs: stat?.mtime },
+					{ knownTagsLower }
+				);
+				let fileId = parsed.fileId;
+				const validFileId = fileId != null && Number.isFinite(fileId) && fileId >= 0;
+				if (!validFileId || usedFileIds.has(fileId)) {
+					fileId = nextFileId;
+					nextFileId += 1;
+				} else {
+					nextFileId = Math.max(nextFileId, fileId + 1);
+				}
+				usedFileIds.add(fileId);
+				todayHandle.db.run(
+					`INSERT INTO files (id, path, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+					[
+						fileId,
+						parsed.file.path,
+						parsed.file.name,
+						parsed.file.created_at,
+						parsed.file.updated_at
+					]
+				);
+				insertParsedHeadingsAndReferences(
+					todayHandle.db,
+					fileId,
+					parsed,
+					tagIdByLower,
+					metadataTypeIdByLower,
+					relationTypeIdByLower,
+					'today'
+				);
+			},
+			{ respectDripignore: false }
+		);
+		todayHandle.db.run('COMMIT');
+		const maxRow = queryOne(todayHandle.db, 'SELECT COALESCE(MAX(id), -1) FROM files', []);
+		const nextFileIdCounter = maxRow ? Number(maxRow[0]) + 1 : 0;
+		todayHandle.db.run(`INSERT OR REPLACE INTO index_meta(key, value) VALUES ('next_file_id', ?)`, [
+			String(nextFileIdCounter)
+		]);
+		await todayHandle.save();
+	} catch (err) {
+		try {
+			todayHandle.db.run('ROLLBACK');
+		} catch {
+			/* ignore */
+		}
+		throw err;
+	} finally {
+		todayHandle.close();
+	}
+}
+
+/**
+ * Full rebuild of index.drip, projects.drip, and today.drip from notes on disk.
  * @param {import('vscode').Uri} kbRootUri
  * @param {import('vscode').ExtensionContext | null | undefined} [context]
  */
@@ -1027,6 +1277,10 @@ async function rebuildDripIndex(kbRootUri, context) {
 					return;
 				}
 				const zone = classifyNoteZone(relPath);
+				// Today notes rebuild into today.drip only (see rebuildTodayDripIndex).
+				if (zone === 'today') {
+					return;
+				}
 				let stat;
 				try {
 					stat = await vscode.workspace.fs.stat(note.uri);
@@ -1119,6 +1373,8 @@ async function rebuildDripIndex(kbRootUri, context) {
 		projectHandle.close();
 		handle.close();
 	}
+
+	await rebuildTodayDripIndex(kbRootUri, context);
 }
 
 /**
@@ -1138,8 +1394,7 @@ async function applyParsedNoteToIndex(kbRootUri, relPath, parsed, context, optio
 		options && Array.isArray(options.embeddingUpserts) ? options.embeddingUpserts : null;
 	const zone = classifyNoteZone(normalizedPath);
 
-	const fileHandle = await openDripIndexDb(kbRootUri);
-	const scopeHandle = zone === 'project' ? openDripProjectsDb(kbRootUri) : fileHandle;
+	const { fileHandle, scopeHandle, closeAll } = await openHandlesForZone(kbRootUri, zone);
 	try {
 		const fileDb = fileHandle.db;
 		const scopeDb = scopeHandle.db;
@@ -1216,7 +1471,7 @@ async function applyParsedNoteToIndex(kbRootUri, relPath, parsed, context, optio
 					);
 					if (embeddingUpserts) {
 						embeddingUpserts.push(
-							...tagEmbeddingTargetsZone(collectAllHeadingEmbeddingTargets(fileId, parsed), zone)
+							...headingEmbeddingTargetsZone(collectAllHeadingEmbeddingTargets(fileId, parsed), zone)
 						);
 					}
 				}
@@ -1254,7 +1509,7 @@ async function applyParsedNoteToIndex(kbRootUri, relPath, parsed, context, optio
 				);
 				if (embeddingUpserts) {
 					embeddingUpserts.push(
-						...tagEmbeddingTargetsZone(collectAllHeadingEmbeddingTargets(fileId, parsed), zone)
+						...headingEmbeddingTargetsZone(collectAllHeadingEmbeddingTargets(fileId, parsed), zone)
 					);
 				}
 			}
@@ -1280,10 +1535,7 @@ async function applyParsedNoteToIndex(kbRootUri, relPath, parsed, context, optio
 		fileHandle.save();
 		return fileId;
 	} finally {
-		if (scopeHandle !== fileHandle) {
-			scopeHandle.close();
-		}
-		fileHandle.close();
+		closeAll();
 	}
 }
 
@@ -1294,16 +1546,15 @@ async function applyParsedNoteToIndex(kbRootUri, relPath, parsed, context, optio
 async function removeFileFromDripIndex(kbRootUri, relPath) {
 	const normalized = String(relPath || '').replace(/\\/g, '/');
 	const zone = classifyNoteZone(normalized);
-	const handle = await openDripIndexDb(kbRootUri);
-	const scopeHandle = zone === 'project' ? openDripProjectsDb(kbRootUri) : handle;
+	const { fileHandle, scopeHandle, closeAll } = await openHandlesForZone(kbRootUri, zone);
 	try {
-		const row = queryOne(handle.db, 'SELECT id FROM files WHERE path = ?', [normalized]);
+		const row = queryOne(fileHandle.db, 'SELECT id FROM files WHERE path = ?', [normalized]);
 		if (!row) {
 			return;
 		}
 		const fileId = Number(row[0]);
-		handle.db.run('BEGIN');
-		if (scopeHandle !== handle) {
+		fileHandle.db.run('BEGIN');
+		if (scopeHandle !== fileHandle) {
 			scopeHandle.db.run('BEGIN');
 		}
 		try {
@@ -1313,30 +1564,27 @@ async function removeFileFromDripIndex(kbRootUri, relPath) {
 				scopeHandle.db.run('UPDATE projects SET index_file_id = NULL WHERE index_file_id = ?', [fileId]);
 				scopeHandle.db.run('UPDATE features SET index_file_id = NULL WHERE index_file_id = ?', [fileId]);
 			}
-			handle.db.run('DELETE FROM files WHERE id = ?', [fileId]);
-			if (scopeHandle !== handle) {
+			fileHandle.db.run('DELETE FROM files WHERE id = ?', [fileId]);
+			if (scopeHandle !== fileHandle) {
 				scopeHandle.db.run('COMMIT');
 			}
-			handle.db.run('COMMIT');
-			await handle.save();
+			fileHandle.db.run('COMMIT');
+			await fileHandle.save();
 		} catch (err) {
 			try {
-				if (scopeHandle !== handle) scopeHandle.db.run('ROLLBACK');
+				if (scopeHandle !== fileHandle) scopeHandle.db.run('ROLLBACK');
 			} catch {
 				// ignore
 			}
 			try {
-				handle.db.run('ROLLBACK');
+				fileHandle.db.run('ROLLBACK');
 			} catch {
 				// ignore
 			}
 			throw err;
 		}
 	} finally {
-		if (scopeHandle !== handle) {
-			scopeHandle.close();
-		}
-		handle.close();
+		closeAll();
 	}
 }
 
@@ -1385,8 +1633,7 @@ async function replaceParsedNoteAtFileId(kbRootUri, fileId, parsed, context, opt
 		options && Array.isArray(options.embeddingUpserts) ? options.embeddingUpserts : null;
 	const zone = classifyNoteZone(normalizedPath);
 
-	const fileHandle = await openDripIndexDb(kbRootUri);
-	const scopeHandle = zone === 'project' ? openDripProjectsDb(kbRootUri) : fileHandle;
+	const { fileHandle, scopeHandle, closeAll } = await openHandlesForZone(kbRootUri, zone);
 	try {
 		const fileDb = fileHandle.db;
 		const scopeDb = scopeHandle.db;
@@ -1440,7 +1687,7 @@ async function replaceParsedNoteAtFileId(kbRootUri, fileId, parsed, context, opt
 			);
 			if (embeddingUpserts) {
 				embeddingUpserts.push(
-					...tagEmbeddingTargetsZone(collectAllHeadingEmbeddingTargets(id, parsed), zone)
+					...headingEmbeddingTargetsZone(collectAllHeadingEmbeddingTargets(id, parsed), zone)
 				);
 			}
 			bumpNextFileIdCounter(fileDb, id);
@@ -1464,10 +1711,7 @@ async function replaceParsedNoteAtFileId(kbRootUri, fileId, parsed, context, opt
 		fileHandle.save();
 		return id;
 	} finally {
-		if (scopeHandle !== fileHandle) {
-			scopeHandle.close();
-		}
-		fileHandle.close();
+		closeAll();
 	}
 }
 
@@ -1501,6 +1745,7 @@ async function resetDripIndexDatabase(kbRootUri) {
 module.exports = {
 	SCHEMA_VERSION,
 	allocateNextFileEntityNumber,
+	allocateNextTodayFileEntityNumber,
 	allocateHeadingIdForFile,
 	applyParsedNoteToIndex,
 	collectKnownTagNamesLower,
@@ -1511,7 +1756,9 @@ module.exports = {
 	listIndexedFilePaths,
 	lookupFileRowById,
 	openDripIndexDb,
+	purgeTodayPathsFromDocumentIndex,
 	rebuildDripIndex,
+	rebuildTodayDripIndex,
 	replaceParsedNoteAtFileId,
 	resetDripIndexDatabase,
 	recomputeHeadingAllocatorState,

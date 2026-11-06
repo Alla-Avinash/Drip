@@ -111,7 +111,7 @@ async function runStartupCheckInner(context, state) {
 		return { ok: false, issues: ['not-driplock'] };
 	}
 
-	// The saved folder is a real `.driplock` KB. Promote it so dependent views (Daily Notes,
+	// The saved folder is a real `.driplock` KB. Promote it so dependent views (Today,
 	// Drafts, Project View) can use it. We re-verify on every startup so a stale/invalid saved
 	// path never leaks to the rest of the UI.
 	state.setVerifiedKnowledgeBaseRoot(kbRoot);

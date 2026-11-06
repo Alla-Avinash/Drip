@@ -76,16 +76,18 @@ async function applyHeadingFormModel(editor, model) {
 	const lines = doc.getText().replace(/\r\n/g, '\n').split('\n');
 	/** @type {Record<string, unknown>} */
 	let attributes = model.attributes && typeof model.attributes === 'object' ? { ...model.attributes } : {};
-	if (typeId === 'issue') {
-		const zoneUid = String((zone.attributes && zone.attributes.uid) || '').trim();
-		const modelUid = String(attributes.uid || '').trim();
-		if (zoneUid) attributes.uid = zoneUid;
-		else if (modelUid) attributes.uid = modelUid;
-		try {
-			const { ensureIssueParentAttribute } = require('../../../document/project/issueParentLink');
-			attributes = ensureIssueParentAttribute(attributes, doc.getText(), zone.headingLine);
-		} catch (err) {
-			console.error('[DRIP] stamp issue parent on apply', err);
+	if (typeId === 'issue' || typeId === 'task') {
+		if (typeId === 'issue') {
+			const zoneUid = String((zone.attributes && zone.attributes.uid) || '').trim();
+			const modelUid = String(attributes.uid || '').trim();
+			if (zoneUid) attributes.uid = zoneUid;
+			else if (modelUid) attributes.uid = modelUid;
+			try {
+				const { ensureIssueParentAttribute } = require('../../../document/project/issueParentLink');
+				attributes = ensureIssueParentAttribute(attributes, doc.getText(), zone.headingLine);
+			} catch (err) {
+				console.error('[DRIP] stamp issue parent on apply', err);
+			}
 		}
 		try {
 			const { withCompletedStamp } = require('../../../document/project/issueCompletedStamp');
@@ -95,7 +97,7 @@ async function applyHeadingFormModel(editor, model) {
 			}
 			attributes = withCompletedStamp(existing, attributes);
 		} catch (err) {
-			console.error('[DRIP] stamp issue completed on apply', err);
+			console.error('[DRIP] stamp completed on apply', err);
 		}
 	}
 

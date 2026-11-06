@@ -12,7 +12,7 @@ Work is organized into **projects**, and each project is broken into **features*
 
 ## Where projects live
 
-Every project folder sits inside one special folder at the knowledge-base root: **`.drip.project`**. That folder is created when a knowledge base is selected. It is hidden from the Knowledge Base tree (same idea as `dailynotes.drip`) and is the only home for `.p` folders.
+Every project folder sits inside one special folder at the knowledge-base root: **`.drip.project`**. That folder is created when a knowledge base is selected. It is hidden from the Knowledge Base tree (same idea as `.drip.dailynotes`) and is the only home for `.p` folders.
 
 `.drip.project` is not the `projects.drip` SQLite index. The folder is the files; the SQLite file is the derived project index.
 

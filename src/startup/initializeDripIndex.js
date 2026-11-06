@@ -7,6 +7,8 @@ const { getDefaultKnowledgeBaseSettingsObject, buildBundledKnowledgeBaseSettings
 const DRIPINDEX_DIR = '.dripindex';
 const INDEX_FILE = 'index.drip';
 const PROJECTS_FILE = 'projects.drip';
+/** Separate index for `.drip.dailynotes` (Today) — not mixed into KB or project search. */
+const TODAY_FILE = 'today.drip';
 const GRAPHS_DIR = 'graphs.drip';
 const SETTINGS_FILE = 'settings.drip.json';
 const DRAFTS_DIR = 'drafts.drip';
@@ -182,6 +184,12 @@ async function ensureDripIndexSkeleton(kbRootUri) {
 		createdParts.push(`${DRIPINDEX_DIR}/${PROJECTS_FILE}`);
 	}
 
+	const todayUri = vscode.Uri.joinPath(dripIndexUri, TODAY_FILE);
+	const todayMissing = !(await uriExists(todayUri));
+	if (todayMissing) {
+		createdParts.push(`${DRIPINDEX_DIR}/${TODAY_FILE}`);
+	}
+
 	const graphsDirUri = vscode.Uri.joinPath(dripIndexUri, GRAPHS_DIR);
 	if (!(await uriExists(graphsDirUri))) {
 		await vscode.workspace.fs.createDirectory(graphsDirUri);
@@ -245,6 +253,11 @@ async function ensureDripIndexSkeleton(kbRootUri) {
 		await initEmptyDripProjectsFile(kbRootUri);
 	}
 
+	if (todayMissing) {
+		const { initEmptyDripTodayFile } = require('../indexing/dripTodayDb');
+		await initEmptyDripTodayFile(kbRootUri);
+	}
+
 	return {
 		created: createdParts.length > 0,
 		dripIndexUri,
@@ -256,6 +269,7 @@ module.exports = {
 	DRIPINDEX_DIR,
 	INDEX_FILE,
 	PROJECTS_FILE,
+	TODAY_FILE,
 	GRAPHS_DIR,
 	SETTINGS_FILE,
 	DRAFTS_DIR,

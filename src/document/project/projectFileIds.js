@@ -49,6 +49,12 @@ function projectFolderUriForNote(kbRootUri, noteUri) {
  */
 function headingAllocScopeForNote(kbRootUri, noteUri) {
 	if (!kbRootUri || !noteUri) return '';
+	const { isTodayNotePath } = require('../../indexing/projectIndex');
+	const { DAILY_NOTES_DIR } = require('../../shared/constants');
+	const rel = require('path')
+		.relative(kbRootUri.fsPath, noteUri.fsPath)
+		.replace(/\\/g, '/');
+	if (isTodayNotePath(rel)) return DAILY_NOTES_DIR;
 	return projectFolderPrefixForPath(kbRootUri.fsPath, noteUri.fsPath) || '';
 }
 

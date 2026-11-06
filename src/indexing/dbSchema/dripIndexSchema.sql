@@ -16,9 +16,9 @@
 --
 -- Scope: this is the *document* index. It holds the shared `files` registry (every
 -- KB note, document AND project), document headings (concept/task), tags, relations,
--- and embeddings. Project-scoped data (projects, features, issues, project headings)
--- lives in a second file, `projects.drip` — see dripProjectSchema.sql — so project
--- headings never surface in the global document search.
+-- and embeddings. Project-scoped data lives in `projects.drip`. Today day-logs live in
+-- `today.drip` (same document schema shape) — see dripTodayDb.js — so neither project
+-- headings nor Today notes surface in the global document search.
 --
 -- NOTE: This file is documentation only. It is NOT executed by the extension.
 --       If you change the runtime schema, keep this file in sync.

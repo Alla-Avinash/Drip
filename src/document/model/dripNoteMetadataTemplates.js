@@ -29,9 +29,10 @@ const DEFAULT_METADATA_TYPES = [
 		shortcut: 't',
 		color: '',
 		attributes: {
-			status: { kind: 'enum', values: ['in-progress', 'to-do'], default: '' },
+			status: { kind: 'enum', values: ['in-progress', 'to-do', 'completed'], default: '' },
 			priority: { kind: 'enum', values: ['high', 'low'], default: '' },
 			deadline: { kind: 'datetime', default: '' },
+			completed: { kind: 'datetime', default: '', required: false, label: 'Completed' },
 			category: { kind: 'enum', values: [], default: '' }
 		}
 	},
@@ -223,6 +224,17 @@ function normalizeMetadataType(raw) {
 			default: String(rule.default != null ? rule.default : '').trim(),
 			required: Boolean(rule.required)
 		};
+	}
+	if (id === 'task') {
+		if (!attributes.completed) {
+			attributes.completed = { kind: 'datetime', default: '', required: false };
+		}
+		const status = attributes.status;
+		if (status && status.kind === 'enum') {
+			const values = Array.isArray(status.values) ? status.values.map(v => String(v).toLowerCase()) : [];
+			if (!values.includes('completed')) values.push('completed');
+			status.values = values;
+		}
 	}
 	if (id === 'issue') {
 		attributes.parent = { ...ISSUE_PARENT_ATTRIBUTE_RULE, values: [] };
@@ -427,8 +439,9 @@ function lockedSpecialTypeIdForPath(fsPath) {
  * Built-in document heading types allowed for a note at this path — the single shared
  * "file check" both `.d.txt` and `.d.md` use to decide which heading types a note may
  * carry. Index notes allow only their special type; notes inside a project/feature
- * folder allow `issue`; normal KB notes allow `concept` and `task`. Custom user types
- * are handled separately (always allowed regardless of location).
+ * folder allow `issue`; Today day notes allow only `task` (plus untyped persistent /
+ * non-persistent headings — no concept/tags/other types); normal KB notes allow
+ * `concept` and `task`.
  *
  * @param {string} [fsPath]
  * @returns {Set<string>}
@@ -439,6 +452,13 @@ function allowedHeadingTypeIdsForPath(fsPath) {
 	const subfolder = specialProjectSubfolderTypeIdForPath(fsPath);
 	if (subfolder) return new Set([subfolder]);
 	if (isPathInsideProjectFolder(fsPath)) return new Set(['issue']);
+	{
+		const { DAILY_NOTES_DIR } = require('../../shared/constants');
+		const p = String(fsPath || '').replace(/\\/g, '/');
+		if (p.split('/').includes(DAILY_NOTES_DIR)) {
+			return new Set(['task']);
+		}
+	}
 	return new Set(['concept', 'task']);
 }
 
