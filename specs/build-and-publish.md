@@ -53,8 +53,20 @@ Because it is N-API, `better-sqlite3` does not break when VS Code ships a new El
 
 - `VSCE_PAT` — a Personal Access Token from the publisher's Azure DevOps account with **Marketplace → Manage** scope. Set once in **GitHub repo → Settings → Secrets and variables → Actions**.
 
+## GitHub runner machines
+
+Each platform job picks a GitHub-hosted OS image that matches the CPU it must package for:
+
+- `win32-x64` → `windows-latest`
+- `darwin-x64` → `macos-15-intel` (Intel Mac; last Intel image GitHub will keep, through ~Fall 2027)
+- `darwin-arm64` → `macos-15` (Apple Silicon)
+- `linux-x64` → `ubuntu-latest`
+
+Older labels such as `macos-13` and `macos-14` are retired. Using them fails immediately with "configuration … is not supported" before any step runs.
+
 ## When a run fails
 
 - The summary "Node.js 20 is deprecated" and "runner queue" messages are harmless warnings, not errors.
 - The real error is always in the single step marked with a red ✕ — open that step and read its text.
 - Common causes: version already published (bump `version` in `package.json`), or `better-sqlite3`'s prebuilt binary was deleted/not packaged (keep `prebuilds/`, don't use `--no-dependencies`).
+- If the job fails before any step with "configuration … is not supported", the `runs-on` runner label was retired — update it to a current label from the list above.

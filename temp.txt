@@ -1,0 +1,784 @@
+initial design 
+import {
+  Check,
+  ChevronRight,
+  CircleDot,
+  ExternalLink,
+  FileCode2,
+  FileText,
+  GitBranch,
+  Layers3,
+  Tag,
+  Tags,
+} from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+
+import "./3479c0e2-b6f1-4b23-b682-a81b10dc1441.css";
+import "./DRIP-heading-card.screen.css";
+
+export default function DRIPHeadingCard() {
+  return (
+    <div data-appearance="light">
+      <div className="bg-background text-foreground p-6 w-full h-fit h-fit min-h-screen w-screen min-w-screen max-w-screen overflow-visible">
+        <div className="flex mb-8 justify-between items-end gap-4">
+          <div>
+            <div className="font-medium uppercase text-muted-foreground text-xs tracking-wider flex mb-1 items-center gap-2">
+              <Layers3 className="size-3.5" />
+              <span>DRIP / reusable result</span>
+            </div>
+            <h1 className="font-semibold text-xl tracking-tight mb-1">
+              Heading result card
+            </h1>
+            <p className="text-muted-foreground text-sm leading-5 max-w-xl">
+              One composition for Retriever, Today, Project View, Daily log, and
+              future lists.
+            </p>
+          </div>
+          <Badge
+            variant="outline"
+            className="text-muted-foreground border-border shrink-0"
+          >
+            editor webview
+          </Badge>
+        </div>
+        <div className="grid mb-8 gap-8 lg:grid-cols-2">
+          <section aria-label="compact card specimen">
+            <div className="flex mb-3 justify-between items-center gap-3">
+              <div>
+                <p className="font-medium text-sm">Compact</p>
+                <p className="text-muted-foreground text-xs">
+                  Today side list · narrow Retriever
+                </p>
+              </div>
+              <Badge variant="secondary" className="rounded-sm text-xs">
+                280–420 px
+              </Badge>
+            </div>
+            <div
+              aria-label="heading result card"
+              tabIndex="0"
+              className="transition-colors cursor-pointer rounded-md border border-border outline-none p-3 focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <div className="flex items-start gap-3">
+                <div className="rounded-full bg-primary mt-1 shrink-0 size-1.5" />
+                <div className="grow shrink min-w-0 basis-[0%]">
+                  <div className="flex mb-2 items-start gap-2">
+                    <p className="font-semibold text-ellipsis whitespace-nowrap text-sm grow shrink min-w-0 basis-[0%] overflow-hidden">
+                      Refactor note parser for nested headings
+                    </p>
+                    <ChevronRight className="text-muted-foreground shrink-0 size-4" />
+                  </div>
+                  <div className="flex mb-2 flex-wrap items-center gap-1.5 min-w-0">
+                    <Badge
+                      variant="outline"
+                      className="rounded-sm bg-primary/10 text-primary text-xs border-primary/40"
+                    >
+                      task
+                    </Badge>
+                    <Badge variant="secondary" className="rounded-sm text-xs">
+                      high
+                    </Badge>
+                    <Badge
+                      variant="secondary"
+                      className="font-mono tabular-nums rounded-sm text-xs"
+                    >
+                      14 Nov
+                    </Badge>
+                  </div>
+                  <div className="text-muted-foreground text-xs flex mb-2 items-center gap-2 min-w-0">
+                    <Tag className="shrink-0 size-3.5" />
+                    <span className="text-ellipsis whitespace-nowrap overflow-hidden">
+                      parser · markdown · vscode
+                    </span>
+                  </div>
+                  <div className="text-muted-foreground text-xs flex items-center gap-2 min-w-0">
+                    <FileText className="shrink-0 size-3.5" />
+                    <span className="font-mono text-ellipsis whitespace-nowrap overflow-hidden">
+                      kb/ingestion/parser.d.md
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="border-x-border/70 border-t border-t-border/70 border-b-border/70 flex mt-3 pt-2 justify-between items-center">
+                <span className="text-primary text-xs hidden">
+                  Opened in note
+                </span>
+                <span className="text-muted-foreground text-xs">
+                  Click to open heading
+                </span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-muted-foreground text-xs px-2 gap-1.5 h-7 hover:bg-accent hover:text-accent-foreground"
+                >
+                  <Check className="size-3.5" />
+                  <span className="hidden">Done</span>
+                  <span>Mark done</span>
+                </Button>
+              </div>
+            </div>
+          </section>
+          <section aria-label="comfortable card specimen">
+            <div className="flex mb-3 justify-between items-center gap-3">
+              <div>
+                <p className="font-medium text-sm">Comfortable</p>
+                <p className="text-muted-foreground text-xs">
+                  Main Retriever · Tasks board
+                </p>
+              </div>
+              <Badge variant="secondary" className="rounded-sm text-xs">
+                500–900 px
+              </Badge>
+            </div>
+            <div
+              aria-label="heading result card"
+              tabIndex="0"
+              className="transition-colors cursor-pointer rounded-md bg-card border border-primary/50 outline-none p-4 hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <div className="flex items-start gap-3">
+                <div className="rounded-xs bg-primary/10 text-primary flex mt-1 justify-center items-center shrink-0 size-5">
+                  <CircleDot className="size-3.5" />
+                </div>
+                <div className="grow shrink min-w-0 basis-[0%]">
+                  <div className="flex mb-3 items-start gap-3">
+                    <div className="grow shrink min-w-0 basis-[0%]">
+                      <p className="font-semibold text-ellipsis whitespace-nowrap text-card-foreground text-base overflow-hidden">
+                        Add heading backlinks to Retriever results
+                      </p>
+                      <p className="text-ellipsis whitespace-nowrap text-muted-foreground text-xs mt-1 overflow-hidden">
+                        Issue · linked note heading
+                      </p>
+                    </div>
+                    <ChevronRight className="text-muted-foreground mt-0.5 shrink-0 size-4" />
+                  </div>
+                  <div className="flex mb-3 flex-wrap items-center gap-1.5">
+                    <Badge
+                      variant="outline"
+                      className="rounded-sm bg-primary/10 text-primary text-xs border-primary/40"
+                    >
+                      issue
+                    </Badge>
+                    <Badge variant="secondary" className="rounded-sm text-xs">
+                      open
+                    </Badge>
+                    <Badge variant="secondary" className="rounded-sm text-xs">
+                      medium
+                    </Badge>
+                  </div>
+                  <div className="grid mb-3 gap-x-6 gap-y-2 sm:grid-cols-2">
+                    <div className="text-xs flex items-baseline gap-2 min-w-0">
+                      <span className="text-muted-foreground shrink-0">
+                        Deadline
+                      </span>
+                      <span className="font-mono text-ellipsis whitespace-nowrap tabular-nums text-card-foreground overflow-hidden">
+                        18 Nov 2026
+                      </span>
+                    </div>
+                    <div className="text-xs flex items-baseline gap-2 min-w-0">
+                      <span className="text-muted-foreground shrink-0">
+                        Category
+                      </span>
+                      <span className="text-ellipsis whitespace-nowrap text-card-foreground overflow-hidden">
+                        retrieval
+                      </span>
+                    </div>
+                    <div className="text-xs flex items-baseline gap-2 min-w-0">
+                      <span className="text-muted-foreground shrink-0">
+                        Status
+                      </span>
+                      <span className="text-ellipsis whitespace-nowrap text-card-foreground overflow-hidden">
+                        In progress
+                      </span>
+                    </div>
+                    <div className="text-xs flex items-baseline gap-2 min-w-0">
+                      <span className="text-muted-foreground shrink-0">
+                        Score
+                      </span>
+                      <span className="font-mono text-ellipsis whitespace-nowrap tabular-nums text-card-foreground overflow-hidden">
+                        0.94
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-xs border-x-border/70 border-t border-t-border/70 border-b-border/70 mb-3 pt-3">
+                    <div className="flex mb-2 items-start gap-2 min-w-0">
+                      <Tags className="text-muted-foreground mt-0.5 shrink-0 size-3.5" />
+                      <span className="text-muted-foreground shrink-0">
+                        Tags
+                      </span>
+                      <div className="flex flex-wrap gap-1 min-w-0">
+                        <Badge
+                          variant="outline"
+                          className="font-normal rounded-sm text-card-foreground text-xs border-border px-1.5 py-0"
+                        >
+                          search
+                        </Badge>
+                        <Badge
+                          variant="outline"
+                          className="font-normal rounded-sm text-card-foreground text-xs border-border px-1.5 py-0"
+                        >
+                          backlinks
+                        </Badge>
+                        <Badge
+                          variant="outline"
+                          className="font-normal rounded-sm text-card-foreground text-xs border-border px-1.5 py-0"
+                        >
+                          knowledge-base
+                        </Badge>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2 min-w-0">
+                      <GitBranch className="text-muted-foreground mt-0.5 shrink-0 size-3.5" />
+                      <span className="text-muted-foreground shrink-0">
+                        Relations
+                      </span>
+                      <span className="text-ellipsis whitespace-nowrap text-card-foreground overflow-hidden">
+                        <span className="text-muted-foreground">pre-req:</span>
+                        javascript ·
+                        <span className="text-muted-foreground">parent:</span>
+                        i-12
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-muted-foreground text-xs border-x-border/70 border-t border-t-border/70 border-b-border/70 flex pt-3 items-center gap-2 min-w-0">
+                    <FileCode2 className="shrink-0 size-3.5" />
+                    <span className="font-mono text-ellipsis whitespace-nowrap overflow-hidden">
+                      projects/drip/retriever.d.txt · # Add heading backlinks
+                    </span>
+                    <ExternalLink className="shrink-0 size-3.5" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+        <div className="border-x-border border-t border-t-border border-b-border pt-6">
+          <div className="flex mb-3 items-center gap-2">
+            <p className="font-medium text-sm">State cues</p>
+            <span className="text-muted-foreground text-xs">
+              same anatomy, restrained emphasis
+            </span>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-5">
+            <div className="rounded-sm bg-card text-muted-foreground text-xs border border-border px-2.5 py-2">
+              Default
+            </div>
+            <div className="rounded-sm bg-accent/40 text-accent-foreground text-xs border border-border px-2.5 py-2">
+              Hover
+            </div>
+            <div className="ring-2 ring-ring/60 rounded-sm bg-card text-primary text-xs border border-primary px-2.5 py-2">
+              Focus
+            </div>
+            <div className="rounded-sm bg-accent/30 text-foreground text-xs border border-primary/60 px-2.5 py-2">
+              Selected
+            </div>
+            <div className="line-through rounded-sm bg-muted/40 text-muted-foreground text-xs border border-border px-2.5 py-2">
+              Completed
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+---------------------------------------------
+
+modified 
+
+import {
+  Check,
+  ChevronRight,
+  CircleDot,
+  ExternalLink,
+  FileCode2,
+  FileText,
+  GitBranch,
+  Layers3,
+  Tag,
+  Tags,
+} from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+
+import "./3479c0e2-b6f1-4b23-b682-a81b10dc1441.css";
+import "./DRIP-heading-card.screen.css";
+
+export default function DRIPHeadingCard() {
+  return (
+    <div data-appearance="light">
+      <div className="bg-background text-foreground p-6 w-full h-fit h-fit min-h-screen w-screen min-w-screen max-w-screen overflow-visible">
+        <div className="flex mb-8 justify-between items-end gap-4">
+          <div>
+            <div className="font-medium uppercase text-muted-foreground text-xs tracking-wider flex mb-1 items-center gap-2">
+              <Layers3 className="size-3.5" />
+              <span>DRIP / reusable result</span>
+            </div>
+            <h1 className="font-semibold text-xl tracking-tight mb-1">
+              Heading result card
+            </h1>
+            <p className="text-muted-foreground text-sm leading-5 max-w-xl">
+              One composition for Retriever, Today, Project View, Daily log, and
+              future lists.
+            </p>
+          </div>
+          <Badge
+            variant="outline"
+            className="text-muted-foreground border-border shrink-0"
+          >
+            editor webview
+          </Badge>
+        </div>
+        <div className="grid mb-8 gap-8 lg:grid-cols-2">
+          <section aria-label="compact card specimen">
+            <div className="flex mb-3 justify-between items-center gap-3">
+              <div>
+                <p className="font-medium text-sm">Compact</p>
+                <p className="text-muted-foreground text-xs">
+                  Today side list · narrow Retriever · fixed row height
+                </p>
+              </div>
+              <Badge variant="secondary" className="rounded-sm text-xs">
+                280–420 px
+              </Badge>
+            </div>
+            <div
+              aria-label="heading result card"
+              tabIndex="0"
+              className="transition-colors cursor-pointer rounded-md border border-border outline-none p-2.5 h-32 focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <div className="flex items-start gap-3">
+                <div className="rounded-full bg-primary mt-1 shrink-0 size-1.5" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex mb-1 items-start gap-2">
+                    <p className="font-semibold text-ellipsis whitespace-nowrap text-sm flex-1 min-w-0 overflow-hidden">
+                      Refactor note parser for nested headings
+                    </p>
+                    <ChevronRight className="text-muted-foreground shrink-0 size-4" />
+                    <Button
+                      aria-label="toggle task done"
+                      variant="ghost"
+                      size="icon"
+                      className="rounded-sm text-muted-foreground shrink-0 size-6 hover:bg-accent hover:text-accent-foreground"
+                    >
+                      <Check className="size-3.5" />
+                    </Button>
+                  </div>
+                  <div className="flex mb-1 flex-wrap items-center gap-1.5 min-w-0">
+                    <Badge
+                      variant="outline"
+                      className="rounded-sm bg-primary/10 text-primary text-xs border-primary/40"
+                    >
+                      task
+                    </Badge>
+                    <Badge variant="secondary" className="rounded-sm text-xs">
+                      high
+                    </Badge>
+                    <Badge
+                      variant="secondary"
+                      className="font-mono tabular-nums rounded-sm text-xs"
+                    >
+                      14 Nov
+                    </Badge>
+                  </div>
+                  <div className="text-muted-foreground text-xs flex mb-1 items-center gap-2 min-w-0">
+                    <Tag className="shrink-0 size-3.5" />
+                    <span className="text-ellipsis whitespace-nowrap overflow-hidden">
+                      parser · markdown · vscode
+                    </span>
+                    <GitBranch className="shrink-0 size-3.5" />
+                    <span className="text-ellipsis whitespace-nowrap overflow-hidden">
+                      parent: i-12 · pre-req: javascript
+                    </span>
+                  </div>
+                  <div className="text-muted-foreground text-xs flex items-center gap-2 min-w-0">
+                    <FileText className="shrink-0 size-3.5" />
+                    <span className="font-mono text-ellipsis whitespace-nowrap overflow-hidden">
+                      kb/ingestion/parser.d.md
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+          <section aria-label="comfortable card specimen">
+            <div className="flex mb-3 justify-between items-center gap-3">
+              <div>
+                <p className="font-medium text-sm">Comfortable</p>
+                <p className="text-muted-foreground text-xs">
+                  Main Retriever · Tasks board
+                </p>
+              </div>
+              <Badge variant="secondary" className="rounded-sm text-xs">
+                500–900 px
+              </Badge>
+            </div>
+            <div
+              aria-label="heading result card"
+              tabIndex="0"
+              className="transition-colors cursor-pointer rounded-md bg-card border border-primary/50 outline-none p-4 hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <div className="flex items-start gap-3">
+                <div className="rounded-xs bg-primary/10 text-primary flex mt-1 justify-center items-center shrink-0 size-5">
+                  <CircleDot className="size-3.5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex mb-3 items-start gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-ellipsis whitespace-nowrap text-card-foreground text-base overflow-hidden">
+                        Add heading backlinks to Retriever results
+                      </p>
+                      <p className="text-ellipsis whitespace-nowrap text-muted-foreground text-xs mt-1 overflow-hidden">
+                        Issue · linked note heading
+                      </p>
+                    </div>
+                    <ChevronRight className="text-muted-foreground mt-0.5 shrink-0 size-4" />
+                  </div>
+                  <div className="flex mb-3 flex-wrap items-center gap-1.5">
+                    <Badge
+                      variant="outline"
+                      className="rounded-sm bg-primary/10 text-primary text-xs border-primary/40"
+                    >
+                      issue
+                    </Badge>
+                    <Badge variant="secondary" className="rounded-sm text-xs">
+                      open
+                    </Badge>
+                    <Badge variant="secondary" className="rounded-sm text-xs">
+                      medium
+                    </Badge>
+                  </div>
+                  <div className="grid mb-3 gap-x-6 gap-y-2 sm:grid-cols-2">
+                    <div className="text-xs flex items-baseline gap-2 min-w-0">
+                      <span className="text-muted-foreground shrink-0">
+                        Deadline
+                      </span>
+                      <span className="font-mono text-ellipsis whitespace-nowrap tabular-nums text-card-foreground overflow-hidden">
+                        18 Nov 2026
+                      </span>
+                    </div>
+                    <div className="text-xs flex items-baseline gap-2 min-w-0">
+                      <span className="text-muted-foreground shrink-0">
+                        Category
+                      </span>
+                      <span className="text-ellipsis whitespace-nowrap text-card-foreground overflow-hidden">
+                        retrieval
+                      </span>
+                    </div>
+                    <div className="text-xs flex items-baseline gap-2 min-w-0">
+                      <span className="text-muted-foreground shrink-0">
+                        Status
+                      </span>
+                      <span className="text-ellipsis whitespace-nowrap text-card-foreground overflow-hidden">
+                        In progress
+                      </span>
+                    </div>
+                    <div className="text-xs flex items-baseline gap-2 min-w-0">
+                      <span className="text-muted-foreground shrink-0">
+                        Score
+                      </span>
+                      <span className="font-mono text-ellipsis whitespace-nowrap tabular-nums text-card-foreground overflow-hidden">
+                        0.94
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-xs border-x-border/70 border-t border-t-border/70 border-b-border/70 mb-3 pt-3">
+                    <div className="flex mb-2 items-start gap-2 min-w-0">
+                      <Tags className="text-muted-foreground mt-0.5 shrink-0 size-3.5" />
+                      <span className="text-muted-foreground shrink-0">
+                        Tags
+                      </span>
+                      <div className="flex flex-wrap gap-1 min-w-0">
+                        <Badge
+                          variant="outline"
+                          className="font-normal rounded-sm text-card-foreground text-xs border-border px-1.5 py-0"
+                        >
+                          search
+                        </Badge>
+                        <Badge
+                          variant="outline"
+                          className="font-normal rounded-sm text-card-foreground text-xs border-border px-1.5 py-0"
+                        >
+                          backlinks
+                        </Badge>
+                        <Badge
+                          variant="outline"
+                          className="font-normal rounded-sm text-card-foreground text-xs border-border px-1.5 py-0"
+                        >
+                          knowledge-base
+                        </Badge>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2 min-w-0">
+                      <GitBranch className="text-muted-foreground mt-0.5 shrink-0 size-3.5" />
+                      <span className="text-muted-foreground shrink-0">
+                        Relations
+                      </span>
+                      <span className="text-ellipsis whitespace-nowrap text-card-foreground overflow-hidden">
+                        <span className="text-muted-foreground">pre-req:</span>
+                        javascript ·
+                        <span className="text-muted-foreground">parent:</span>
+                        i-12
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-muted-foreground text-xs border-x-border/70 border-t border-t-border/70 border-b-border/70 flex pt-3 items-center gap-2 min-w-0">
+                    <FileCode2 className="shrink-0 size-3.5" />
+                    <span className="font-mono text-ellipsis whitespace-nowrap overflow-hidden">
+                      projects/drip/retriever.d.txt · # Add heading backlinks
+                    </span>
+                    <ExternalLink className="shrink-0 size-3.5" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+        <div className="border-x-border border-t border-t-border border-b-border pt-6">
+          <div className="flex mb-3 items-center gap-2">
+            <p className="font-medium text-sm">State cues</p>
+            <span className="text-muted-foreground text-xs">
+              same anatomy, restrained emphasis
+            </span>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-5">
+            <div className="rounded-sm bg-card text-muted-foreground text-xs border border-border px-2.5 py-2">
+              Default
+            </div>
+            <div className="rounded-sm bg-accent/40 text-accent-foreground text-xs border border-border px-2.5 py-2">
+              Hover
+            </div>
+            <div className="ring-2 ring-ring/60 rounded-sm bg-card text-primary text-xs border border-primary px-2.5 py-2">
+              Focus
+            </div>
+            <div className="rounded-sm bg-accent/30 text-foreground text-xs border border-primary/60 px-2.5 py-2">
+              Selected
+            </div>
+            <div className="line-through rounded-sm bg-muted/40 text-muted-foreground text-xs border border-border px-2.5 py-2">
+              Completed
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+
+
+
+--------------------------------------
+
+how to show 2 or more compact style cards in the smae interface and to see the gaps and spaces between them 
+
+import {
+  ChevronRight,
+  FileCode2,
+  FileText,
+  GitBranch,
+  Layers3,
+  Tags,
+} from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+
+import "./3479c0e2-b6f1-4b23-b682-a81b10dc1441.css";
+import "./DRIP-compact-cards.screen.css";
+
+export default function DRIPCompactCards() {
+  return (
+    <div data-appearance="light">
+      <div className="bg-background text-foreground p-6 w-full h-fit h-fit min-h-screen w-screen min-w-screen max-w-screen overflow-visible">
+        <div className="flex mb-5 justify-between items-end gap-4">
+          <div className="min-w-0">
+            <div className="font-medium uppercase text-muted-foreground text-xs tracking-wider flex mb-1 items-center gap-2">
+              <Layers3 className="size-3.5" />
+              <span>DRIP / compact result stack</span>
+            </div>
+            <h1 className="font-semibold text-xl tracking-tight">
+              Compact heading cards
+            </h1>
+            <p className="text-muted-foreground text-sm leading-5 mt-1">
+              Fixed-height rows with a shared context line for tags, relations,
+              and score.
+            </p>
+          </div>
+          <div className="text-muted-foreground text-xs flex items-center shrink-0 gap-2">
+            <span className="rounded-sm bg-muted border border-border px-2 py-1">
+              Card: 96 px
+            </span>
+            <span className="rounded-sm bg-muted border border-border px-2 py-1">
+              Gap: 8 px
+            </span>
+          </div>
+        </div>
+        <div aria-label="three compact heading result cards">
+          <div
+            aria-label="compact heading result card one"
+            tabIndex="0"
+            className="transition-colors cursor-pointer rounded-md border outline-none flex mb-2 p-2.5 items-start gap-3 h-24 group focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <div className="rounded-full bg-primary mt-1.5 shrink-0 size-1.5" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <p className="font-semibold text-ellipsis whitespace-nowrap text-card-foreground text-sm grow shrink min-w-0 basis-[0%] overflow-hidden">
+                  Refactor note parser for nested headings
+                </p>
+                <span className="text-muted-foreground text-xs shrink-0">
+                  0.94
+                </span>
+                <ChevronRight className="text-muted-foreground shrink-0 size-4" />
+              </div>
+              <div className="flex mt-1 flex-wrap items-center gap-1.5 min-w-0">
+                <Badge
+                  variant="outline"
+                  className="rounded-sm bg-primary/10 text-primary text-xs border-primary/40 px-1.5 py-0"
+                >
+                  task
+                </Badge>
+                <Badge
+                  variant="secondary"
+                  className="rounded-sm text-xs px-1.5 py-0"
+                >
+                  high
+                </Badge>
+                <span className="font-mono tabular-nums text-muted-foreground text-xs">
+                  14 Nov
+                </span>
+              </div>
+              <div className="text-muted-foreground text-xs flex mt-1 items-center gap-2 min-w-0">
+                <Tags className="shrink-0 size-3.5" />
+                <span className="text-ellipsis whitespace-nowrap overflow-hidden">
+                  parser · markdown · vscode
+                </span>
+                <GitBranch className="shrink-0 size-3.5" />
+                <span className="text-ellipsis whitespace-nowrap overflow-hidden">
+                  parent: i-12 · pre-req: javascript
+                </span>
+              </div>
+              <div className="text-muted-foreground text-xs flex mt-1 items-center gap-2 min-w-0">
+                <FileText className="shrink-0 size-3.5" />
+                <span className="font-mono text-ellipsis whitespace-nowrap overflow-hidden">
+                  kb/ingestion/parser.d.md
+                </span>
+              </div>
+            </div>
+          </div>
+          <div
+            aria-label="compact heading result card two"
+            tabIndex="0"
+            className="transition-colors cursor-pointer rounded-md border outline-none flex mb-2 p-2.5 items-start gap-3 h-24 group focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <div className="rounded-full bg-primary mt-1.5 shrink-0 size-1.5" />
+            <div className="grow shrink min-w-0 basis-[0%]">
+              <div className="flex items-center gap-2 min-w-0">
+                <p className="font-semibold text-ellipsis whitespace-nowrap text-card-foreground text-sm grow shrink min-w-0 basis-[0%] overflow-hidden">
+                  Add heading backlinks to Retriever results
+                </p>
+                <span className="text-muted-foreground text-xs shrink-0">
+                  0.87
+                </span>
+                <ChevronRight className="text-muted-foreground shrink-0 size-4" />
+              </div>
+              <div className="flex mt-1 flex-wrap items-center gap-1.5 min-w-0">
+                <Badge
+                  variant="outline"
+                  className="rounded-sm bg-primary/10 text-primary text-xs border-primary/40 px-1.5 py-0"
+                >
+                  issue
+                </Badge>
+                <Badge
+                  variant="secondary"
+                  className="rounded-sm text-xs px-1.5 py-0"
+                >
+                  open
+                </Badge>
+                <Badge
+                  variant="secondary"
+                  className="rounded-sm text-xs px-1.5 py-0"
+                >
+                  medium
+                </Badge>
+              </div>
+              <div className="text-muted-foreground text-xs flex mt-1 items-center gap-2 min-w-0">
+                <Tags className="shrink-0 size-3.5" />
+                <span className="text-ellipsis whitespace-nowrap overflow-hidden">
+                  search · backlinks · knowledge-base
+                </span>
+                <GitBranch className="shrink-0 size-3.5" />
+                <span className="text-ellipsis whitespace-nowrap overflow-hidden">
+                  pre-req: javascript · parent: i-12
+                </span>
+              </div>
+              <div className="text-muted-foreground text-xs flex mt-1 items-center gap-2 min-w-0">
+                <FileCode2 className="shrink-0 size-3.5" />
+                <span className="font-mono text-ellipsis whitespace-nowrap overflow-hidden">
+                  projects/drip/retriever.d.txt
+                </span>
+              </div>
+            </div>
+          </div>
+          <div
+            aria-label="compact heading result card three"
+            tabIndex="0"
+            className="transition-colors cursor-pointer rounded-md border outline-none flex p-2.5 items-start gap-3 h-24 group focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <div className="rounded-full bg-muted-foreground mt-1.5 shrink-0 size-1.5" />
+            <div className="grow shrink min-w-0 basis-[0%]">
+              <div className="flex items-center gap-2 min-w-0">
+                <p className="font-semibold text-ellipsis whitespace-nowrap text-card-foreground text-sm grow shrink min-w-0 basis-[0%] overflow-hidden">
+                  Define daily note rollover behavior
+                </p>
+                <span className="text-muted-foreground text-xs shrink-0">
+                  0.72
+                </span>
+                <ChevronRight className="text-muted-foreground shrink-0 size-4" />
+              </div>
+              <div className="flex mt-1 flex-wrap items-center gap-1.5 min-w-0">
+                <Badge
+                  variant="outline"
+                  className="rounded-sm text-muted-foreground text-xs border-border px-1.5 py-0"
+                >
+                  concept
+                </Badge>
+                <span className="font-mono tabular-nums text-muted-foreground text-xs">
+                  5 Nov 2026
+                </span>
+              </div>
+              <div className="text-muted-foreground text-xs flex mt-1 items-center gap-2 min-w-0">
+                <Tags className="shrink-0 size-3.5" />
+                <span className="text-ellipsis whitespace-nowrap overflow-hidden">
+                  daily-log · workflow
+                </span>
+                <GitBranch className="shrink-0 size-3.5" />
+                <span className="text-ellipsis whitespace-nowrap overflow-hidden">
+                  related: today-view
+                </span>
+              </div>
+              <div className="text-muted-foreground text-xs flex mt-1 items-center gap-2 min-w-0">
+                <FileText className="shrink-0 size-3.5" />
+                <span className="font-mono text-ellipsis whitespace-nowrap overflow-hidden">
+                  daily/2026-11-05.d.txt
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="text-muted-foreground text-xs border-x-border border-t border-t-border border-b-border flex mt-5 pt-3 justify-between items-center gap-4">
+          <span>
+            Every card reserves one context row, so optional tags and relations
+            never change the stack rhythm.
+          </span>
+          <span className="font-mono tabular-nums shrink-0">
+            96 + 8 + 96 + 8 + 96 = 304 px
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+----------------------------------------------
+
