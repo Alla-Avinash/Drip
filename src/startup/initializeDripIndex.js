@@ -6,6 +6,9 @@ const { getDefaultKnowledgeBaseSettingsObject, buildBundledKnowledgeBaseSettings
 
 const DRIPINDEX_DIR = '.dripindex';
 const INDEX_FILE = 'index.drip';
+/** Directory of one `.drip` SQLite file per project (not a single shared DB). */
+const PROJECTS_DIR = 'projects';
+/** @deprecated legacy single shared project DB name — kept for reset cleanup only */
 const PROJECTS_FILE = 'projects.drip';
 /** Separate index for `.drip.dailynotes` (Today) — not mixed into KB or project search. */
 const TODAY_FILE = 'today.drip';
@@ -21,6 +24,7 @@ const DRIP_SETTINGS_KEYS = [
 	'autoOpenComposerOnSidebarReveal',
 	'knowledgeBaseFileExtensions',
 	'defaultNewNoteExtension',
+	'archiveCompletedIssuesAfterDays',
 	'editHeadingsInFile',
 	'editHeadingsViaRhs',
 	'dripnoteAllowedMetadataKeys',
@@ -51,11 +55,21 @@ function getDripIndexRootUri(kbRootUri) {
 }
 
 /**
+ * Directory that holds one SQLite file per project.
+ * @param {import('vscode').Uri} kbRootUri
+ * @returns {import('vscode').Uri}
+ */
+function getProjectsIndexDirUri(kbRootUri) {
+	return vscode.Uri.joinPath(getDripIndexRootUri(kbRootUri), PROJECTS_DIR);
+}
+
+/**
+ * @deprecated Prefer getProjectsIndexDirUri — there is no longer one shared projects.drip.
  * @param {import('vscode').Uri} kbRootUri
  * @returns {import('vscode').Uri}
  */
 function getProjectsDripUri(kbRootUri) {
-	return vscode.Uri.joinPath(getDripIndexRootUri(kbRootUri), PROJECTS_FILE);
+	return getProjectsIndexDirUri(kbRootUri);
 }
 
 /**
@@ -178,10 +192,10 @@ async function ensureDripIndexSkeleton(kbRootUri) {
 		createdParts.push(`${DRIPINDEX_DIR}/${INDEX_FILE}`);
 	}
 
-	const projectsUri = vscode.Uri.joinPath(dripIndexUri, PROJECTS_FILE);
-	const projectsMissing = !(await uriExists(projectsUri));
+	const projectsDirUri = vscode.Uri.joinPath(dripIndexUri, PROJECTS_DIR);
+	const projectsMissing = !(await uriExists(projectsDirUri));
 	if (projectsMissing) {
-		createdParts.push(`${DRIPINDEX_DIR}/${PROJECTS_FILE}`);
+		createdParts.push(`${DRIPINDEX_DIR}/${PROJECTS_DIR}`);
 	}
 
 	const todayUri = vscode.Uri.joinPath(dripIndexUri, TODAY_FILE);
@@ -268,6 +282,7 @@ async function ensureDripIndexSkeleton(kbRootUri) {
 module.exports = {
 	DRIPINDEX_DIR,
 	INDEX_FILE,
+	PROJECTS_DIR,
 	PROJECTS_FILE,
 	TODAY_FILE,
 	GRAPHS_DIR,
@@ -279,6 +294,7 @@ module.exports = {
 	buildFreshKnowledgeBaseSettingsObject,
 	buildFreshKnowledgeBaseSettingsSnapshot,
 	getDripIndexRootUri,
+	getProjectsIndexDirUri,
 	getProjectsDripUri,
 	getGraphsDripDirectoryUri,
 	getSettingsDripFileUri,

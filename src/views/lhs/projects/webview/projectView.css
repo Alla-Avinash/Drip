@@ -57,6 +57,11 @@ button.ghost {
 	color: var(--fg);
 	border: 1px solid var(--border);
 }
+button.ghost.active {
+	background: var(--btn);
+	color: var(--btn-fg);
+	border-color: var(--btn);
+}
 .layout {
 	flex: 1;
 	min-height: 0;
@@ -1681,4 +1686,640 @@ button.ghost {
 	border: 1px solid var(--input-border, var(--border));
 	border-radius: 2px;
 	padding: 5px 7px;
+}
+
+/* Updation log / Checkpoints — date range chips */
+.updation-toolbar {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	margin: 16px 0 14px;
+}
+.updation-toolbar .chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+.updation-toolbar .chips button {
+	appearance: none;
+	border: 1px solid var(--border);
+	background: transparent;
+	color: var(--fg);
+	font: inherit;
+	font-size: 12px;
+	padding: 4px 10px;
+	border-radius: 2px;
+	cursor: pointer;
+}
+.updation-toolbar .chips button.active {
+	background: color-mix(in srgb, var(--accent, var(--btn)) 22%, transparent);
+	border-color: var(--accent, var(--btn));
+}
+.updation-custom {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 10px;
+}
+.updation-custom.hidden {
+	display: none !important;
+}
+.updation-date-field {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 12px;
+	color: var(--muted);
+}
+.updation-date-field input[type="date"] {
+	font: inherit;
+	font-size: 12px;
+	color: var(--fg);
+	background: var(--input, var(--bg));
+	border: 1px solid var(--input-border, var(--border));
+	border-radius: 2px;
+	padding: 4px 6px;
+}
+.updation-timeline {
+	display: flex;
+	flex-direction: column;
+	gap: 0;
+	padding: 4px 0 12px;
+	max-width: 720px;
+}
+.updation-row {
+	display: grid;
+	grid-template-columns: 7.5rem 18px 1fr;
+	gap: 12px;
+	align-items: stretch;
+	min-height: 48px;
+}
+.updation-date {
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--muted);
+	text-align: right;
+	padding-top: 2px;
+	line-height: 1.3;
+}
+.updation-rail {
+	position: relative;
+	display: flex;
+	justify-content: center;
+}
+.updation-rail::before {
+	content: '';
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	width: 2px;
+	background: var(--border);
+}
+.updation-row:first-child .updation-rail::before { top: 8px; }
+.updation-row:last-child .updation-rail::before { bottom: calc(100% - 10px); }
+.updation-dot {
+	position: relative;
+	z-index: 1;
+	width: 10px;
+	height: 10px;
+	margin-top: 4px;
+	border-radius: 50%;
+	background: var(--accent, var(--btn));
+	border: 2px solid var(--bg);
+	box-shadow: 0 0 0 1px var(--accent, var(--btn));
+	flex-shrink: 0;
+}
+.updation-body {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 0 0 16px;
+}
+.updation-issue {
+	appearance: none;
+	border: 1px solid transparent;
+	background: color-mix(in srgb, var(--fg) 4%, var(--bg));
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	padding: 7px 10px;
+	border-radius: 2px;
+	cursor: pointer;
+	display: flex;
+	align-items: baseline;
+	gap: 10px;
+}
+.updation-issue:hover {
+	border-color: var(--accent, var(--btn));
+	background: var(--list-hover);
+}
+.updation-ikey {
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--muted);
+	flex-shrink: 0;
+	min-width: 2.5rem;
+}
+.updation-ititle {
+	font-size: 13px;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Checkpoints — project changelog */
+.checkpoint-panel {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+.checkpoint-head {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	flex-wrap: wrap;
+	margin-bottom: 4px;
+}
+.checkpoint-head h3 {
+	margin: 0;
+	font-size: 15px;
+	font-weight: 600;
+	flex: 1;
+	min-width: 0;
+}
+.checkpoint-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+.checkpoint-card {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 2px;
+	width: 100%;
+	text-align: left;
+	padding: 10px 12px;
+	border: 1px solid var(--border);
+	background: transparent;
+	color: var(--fg);
+	font: inherit;
+	cursor: pointer;
+	border-radius: 2px;
+}
+.checkpoint-card:hover {
+	border-color: var(--accent, var(--btn));
+	background: var(--list-hover);
+}
+.checkpoint-card-title {
+	font-size: 13px;
+	font-weight: 600;
+}
+.checkpoint-write-label {
+	font-size: 12px;
+	color: var(--muted);
+}
+.checkpoint-date {
+	width: auto;
+	max-width: 12rem;
+	box-sizing: border-box;
+	padding: 6px 10px;
+	border: 1px solid var(--border);
+	background: var(--bg);
+	color: var(--fg);
+	font: inherit;
+	font-size: 13px;
+	border-radius: 2px;
+	margin-bottom: 4px;
+}
+button.ghost.danger {
+	color: var(--vscode-errorForeground, #f14c4c);
+	border-color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 45%, var(--border));
+}
+button.ghost.danger:hover {
+	background: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 12%, transparent);
+}
+.checkpoint-write {
+	width: 100%;
+	min-height: 220px;
+	resize: vertical;
+	box-sizing: border-box;
+	padding: 12px 14px;
+	border: 1px solid var(--border);
+	background: var(--bg);
+	color: var(--fg);
+	font: inherit;
+	font-size: 13px;
+	line-height: 1.5;
+	border-radius: 2px;
+}
+.checkpoint-changelog-page {
+	max-width: 720px;
+}
+.checkpoint-article {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	margin: 4px 0 8px;
+}
+.checkpoint-write-empty {
+	padding: 18px 0;
+}
+.checkpoint-story-title {
+	margin: 8px 0 2px;
+	font-size: 15px;
+	font-weight: 650;
+}
+.checkpoint-article > .checkpoint-story-title:first-child,
+.checkpoint-story-preview .checkpoint-article > .checkpoint-story-title:first-child {
+	margin-top: 0;
+}
+.checkpoint-md-h1 { font-size: 17px; }
+.checkpoint-md-h2 { font-size: 15px; }
+.checkpoint-md-h3,
+.checkpoint-md-h4,
+.checkpoint-md-h5,
+.checkpoint-md-h6 { font-size: 14px; }
+.checkpoint-story-p {
+	margin: 0;
+	font-size: 13px;
+	line-height: 1.55;
+	color: var(--fg);
+}
+.checkpoint-write-label code,
+.checkpoint-write-empty code {
+	font-size: 11px;
+	padding: 1px 4px;
+	border: 1px solid var(--border);
+	border-radius: 2px;
+}
+.checkpoint-img {
+	margin: 10px 0;
+	padding: 0;
+}
+.checkpoint-img img {
+	max-width: 100%;
+	width: auto;
+	height: auto;
+	max-height: 420px;
+	object-fit: contain;
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	display: block;
+	background: color-mix(in srgb, var(--fg) 3%, var(--bg));
+}
+.checkpoint-img-missing {
+	padding: 12px;
+	border: 1px dashed var(--border);
+	border-radius: 4px;
+}
+.checkpoint-story-preview {
+	border: 1px solid var(--border);
+	border-radius: 2px;
+	padding: 10px 12px;
+	background: color-mix(in srgb, var(--fg) 2%, var(--bg));
+	min-height: 2.5rem;
+}
+.checkpoint-story-preview .checkpoint-write-empty {
+	padding: 8px 0;
+}
+.checkpoint-section-title {
+	margin: 18px 0 8px;
+	font-size: 13px;
+	font-weight: 650;
+	padding-top: 8px;
+	border-top: 1px solid var(--border);
+}
+.checkpoint-changelog {
+	display: flex;
+	flex-direction: column;
+	gap: 0;
+	margin-top: 12px;
+}
+.checkpoint-change-heading {
+	appearance: none;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	width: 100%;
+	margin: 12px 0 2px;
+	padding: 0;
+	border: none;
+	background: transparent;
+	color: var(--fg);
+	font: inherit;
+	font-size: 14px;
+	font-weight: 700;
+	cursor: pointer;
+	text-align: left;
+}
+.checkpoint-change-heading:hover {
+	color: var(--accent, var(--fg));
+}
+.checkpoint-cat-chevron {
+	display: inline-block;
+	width: 0.9rem;
+	color: var(--muted);
+	font-size: 12px;
+}
+.checkpoint-change-group {
+	list-style: none;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin: 0 0 4px;
+	/* Indent past the category collapse/expand chevron column */
+	padding: 0 0 0 1.6rem;
+}
+.checkpoint-change-row {
+	display: grid;
+	grid-template-columns: 1em minmax(0, 1fr);
+	column-gap: 6px;
+	align-items: start;
+	width: 100%;
+	padding: 1px 4px;
+	margin: 0;
+	border: none;
+	color: var(--fg);
+}
+.checkpoint-timeline .updation-issue {
+	flex-wrap: wrap;
+	align-items: baseline;
+}
+.checkpoint-timeline-meta {
+	margin-left: auto;
+	font-size: 12px;
+}
+.checkpoint-bullet {
+	display: block;
+	width: 1em;
+	text-align: center;
+	line-height: 1.45;
+	color: var(--fg);
+	user-select: none;
+}
+.checkpoint-change-body {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 4px 8px;
+	min-width: 0;
+}
+.checkpoint-change-text {
+	font-size: 13px;
+	line-height: 1.45;
+	min-width: 0;
+}
+.checkpoint-change-text-input {
+	flex: 1 1 12rem;
+	width: 100%;
+	min-width: 8rem;
+	box-sizing: border-box;
+	padding: 0;
+	margin: 0;
+	border: 1px solid transparent;
+	background: transparent;
+	color: var(--fg);
+	font: inherit;
+	font-size: 13px;
+	line-height: 1.45;
+	border-radius: 2px;
+	cursor: text;
+	resize: none;
+	overflow: hidden;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	word-break: break-word;
+	field-sizing: content;
+}
+.checkpoint-change-text-input:hover {
+	border-color: color-mix(in srgb, var(--border) 70%, transparent);
+}
+.checkpoint-change-text-input:focus {
+	outline: none;
+	border-color: var(--accent, var(--btn));
+	background: var(--bg);
+	padding: 0 4px;
+}
+.checkpoint-feat-chip,
+.checkpoint-issue-chip {
+	display: inline-flex;
+	align-items: center;
+	max-width: 10rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 11px;
+	line-height: 1.2;
+	padding: 2px 8px;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	color: var(--muted);
+	background: color-mix(in srgb, var(--fg) 4%, transparent);
+	flex-shrink: 0;
+}
+button.checkpoint-issue-chip {
+	appearance: none;
+	font: inherit;
+	font-size: 11px;
+	font-weight: 600;
+	cursor: pointer;
+	color: var(--fg);
+}
+button.checkpoint-issue-chip:hover {
+	border-color: var(--accent, var(--btn));
+	background: var(--list-hover);
+}
+.checkpoint-issue-editor {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+.checkpoint-edit-cat-title {
+	font-size: 13px;
+	font-weight: 700;
+	margin-bottom: 2px;
+}
+.checkpoint-edit-issue {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 1px 0;
+	margin: 0;
+	border: none;
+}
+.checkpoint-edit-issue.dim {
+	opacity: 0.55;
+}
+.checkpoint-edit-issue-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+.checkpoint-edit-issue .checkpoint-pick {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+.checkpoint-desc-input {
+	width: 100%;
+	box-sizing: border-box;
+	padding: 3px 6px;
+	border: 1px solid transparent;
+	background: transparent;
+	color: var(--fg);
+	font: inherit;
+	font-size: 13px;
+	border-radius: 2px;
+}
+.checkpoint-desc-input:hover {
+	border-color: color-mix(in srgb, var(--border) 70%, transparent);
+}
+.checkpoint-desc-input:focus {
+	outline: none;
+	border-color: var(--accent, var(--btn));
+	background: var(--bg);
+}
+.checkpoint-desc-input:disabled {
+	opacity: 0.6;
+}
+.checkpoint-add-row {
+	margin-top: 8px;
+}
+.checkpoint-addable {
+	margin-top: 8px;
+	padding: 8px;
+	border: 1px solid var(--border);
+	border-radius: 2px;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+.checkpoint-addable-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	font-size: 12px;
+	font-weight: 600;
+	margin-bottom: 4px;
+}
+.checkpoint-addable-row {
+	appearance: none;
+	display: grid;
+	grid-template-columns: auto auto 1fr;
+	gap: 8px;
+	align-items: center;
+	width: 100%;
+	text-align: left;
+	padding: 4px 6px;
+	border: none;
+	background: transparent;
+	color: var(--fg);
+	font: inherit;
+	cursor: pointer;
+	border-radius: 2px;
+}
+.checkpoint-addable-row:hover {
+	background: var(--list-hover);
+}
+.checkpoint-edit-issue-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+.checkpoint-add-row {
+	margin-top: 10px;
+}
+.checkpoint-addable {
+	margin-top: 10px;
+	padding: 10px;
+	border: 1px solid var(--border);
+	border-radius: 2px;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+.checkpoint-addable-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	margin-bottom: 6px;
+	font-size: 12px;
+	font-weight: 600;
+}
+.checkpoint-addable-row {
+	appearance: none;
+	display: grid;
+	grid-template-columns: auto auto 1fr;
+	gap: 8px;
+	align-items: center;
+	width: 100%;
+	text-align: left;
+	padding: 7px 4px;
+	border: none;
+	border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+	background: transparent;
+	color: var(--fg);
+	font: inherit;
+	cursor: pointer;
+}
+.checkpoint-addable-row:hover {
+	background: var(--list-hover);
+}
+.checkpoint-tree {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+.checkpoint-cat-title {
+	font-size: 13px;
+	font-weight: 700;
+	margin-bottom: 6px;
+}
+.checkpoint-feat {
+	margin: 0 0 8px 12px;
+}
+.checkpoint-feat-title {
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--muted);
+	margin-bottom: 4px;
+}
+.checkpoint-issues {
+	list-style: none;
+	margin: 0;
+	padding: 0 0 0 8px;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+.checkpoint-pick {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font: inherit;
+	cursor: pointer;
+}
+.checkpoint-issue-open {
+	appearance: none;
+	border: 1px solid transparent;
+	background: transparent;
+	color: var(--fg);
+	font: inherit;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 4px 6px;
+	border-radius: 2px;
+	cursor: pointer;
+	text-align: left;
+	width: 100%;
+}
+.checkpoint-issue-open:hover {
+	border-color: var(--border);
+	background: var(--list-hover);
 }

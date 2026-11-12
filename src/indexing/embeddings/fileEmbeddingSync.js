@@ -46,7 +46,7 @@ async function runSync(kbRootUri) {
 					.all()
 					.map(r => String(r.path || '').replace(/\\/g, '/'))
 					// Project-zone notes (under a `.p`/`.f` folder) are excluded — they belong
-					// to `projects.drip`, not the document search this vector feed powers.
+					// to a per-project DB, not the document search this vector feed powers.
 					.filter(p => {
 						if (!p || isProjectNotePath(p)) return false;
 						const { isTodayNotePath } = require('../projectIndex');

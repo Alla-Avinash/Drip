@@ -37,17 +37,6 @@ function allocMetaKey(projectFolderPrefix) {
 }
 
 /**
- * @param {string} projectFolderPrefix
- * @returns {string} SQL LIKE pattern for files under the project
- */
-function projectPathLike(projectFolderPrefix) {
-	const p = String(projectFolderPrefix || '')
-		.replace(/\\/g, '/')
-		.replace(/\/+$/, '');
-	return `${p}/%`;
-}
-
-/**
  * @param {import('../../indexing/db/dripSqlite').DripSqliteDatabase | { native?: import('better-sqlite3').Database, prepare?: Function }} db
  * @param {string} key
  * @returns {{ nextIssue: number, nextFeature: number }}
@@ -122,45 +111,30 @@ function issueNumberFromTitle(title) {
  * @param {string} projectFolderPrefix
  * @returns {Set<number>}
  */
-function liveIssueNumbers(db, projectFolderPrefix) {
+function liveIssueNumbers(db, _projectFolderPrefix) {
 	/** @type {Set<number>} */
 	const used = new Set();
-	const prefix = String(projectFolderPrefix || '')
-		.replace(/\\/g, '/')
-		.replace(/\/+$/, '');
-	const normalized = prefix ? prefix + '/' : '';
-
+	// One project per DB — every issue_metadata row belongs to this project.
 	try {
 		if (db && db.native && typeof db.native.prepare === 'function') {
-			const project = db.native
-				.prepare(
-					`SELECT project_id AS projectId FROM projects
-					 WHERE folder_prefix = ? OR folder_prefix = ?`
-				)
-				.get(normalized, prefix);
-			if (project && project.projectId != null) {
-				const rows = db.native
-					.prepare(
-						`SELECT issue_key AS issueKey FROM issue_metadata WHERE project_id = ? AND issue_key IS NOT NULL`
-					)
-					.all(Number(project.projectId));
-				for (const row of rows || []) {
-					const m = String(row.issueKey || '')
-						.trim()
-						.match(/^i-(\d+)$/i);
-					if (m) {
-						const n = parseInt(m[1], 10);
-						if (Number.isFinite(n) && n >= 1) used.add(n);
-					}
+			const rows = db.native
+				.prepare(`SELECT issue_key AS issueKey FROM issue_metadata WHERE issue_key IS NOT NULL`)
+				.all();
+			for (const row of rows || []) {
+				const m = String(row.issueKey || '')
+					.trim()
+					.match(/^i-(\d+)$/i);
+				if (m) {
+					const n = parseInt(m[1], 10);
+					if (Number.isFinite(n) && n >= 1) used.add(n);
 				}
-				return used;
 			}
+			return used;
 		}
 	} catch {
 		/* fall through to title scan */
 	}
 
-	const like = projectPathLike(projectFolderPrefix);
 	/** @type {{ title?: string }[]} */
 	let rows = [];
 	try {
@@ -169,12 +143,10 @@ function liveIssueNumbers(db, projectFolderPrefix) {
 				.prepare(
 					`SELECT h.title AS title
 					 FROM headings h
-					 JOIN files f ON f.id = h.file_id
 					 JOIN metadata_types mt ON mt.metadata_type_id = h.metadata_type_id
-					 WHERE LOWER(mt.metadata_type_name) = 'issue'
-					   AND REPLACE(f.path, '\\', '/') LIKE ?`
+					 WHERE LOWER(mt.metadata_type_name) = 'issue'`
 				)
-				.all(like);
+				.all();
 		}
 	} catch {
 		rows = [];
@@ -207,7 +179,7 @@ function maxLiveIssueNumber(db, projectFolderPrefix) {
  * @param {{ maxIssue?: number, maxFeature?: number }} seen
  */
 async function ensureAllocAtLeast(kbRootUri, projectFolderPrefix, seen) {
-	const handle = await openDripProjectsDb(kbRootUri);
+	const handle = openDripProjectsDb(kbRootUri, projectFolderPrefix);
 	try {
 		const key = allocMetaKey(projectFolderPrefix);
 		const cur = readAlloc(handle.db, key);
@@ -233,7 +205,7 @@ async function ensureAllocAtLeast(kbRootUri, projectFolderPrefix, seen) {
  * @returns {Promise<string>} normalized `i-N`
  */
 async function allocateNextIssueEntityId(kbRootUri, projectFolderPrefix) {
-	const handle = await openDripProjectsDb(kbRootUri);
+	const handle = openDripProjectsDb(kbRootUri, projectFolderPrefix);
 	try {
 		const key = allocMetaKey(projectFolderPrefix);
 		const cur = readAlloc(handle.db, key);
@@ -303,7 +275,7 @@ async function allocateNextIssueEntityId(kbRootUri, projectFolderPrefix) {
  * @returns {Promise<string>} normalized `f-N`
  */
 async function allocateNextFeatureEntityId(kbRootUri, projectFolderPrefix) {
-	const handle = await openDripProjectsDb(kbRootUri);
+	const handle = openDripProjectsDb(kbRootUri, projectFolderPrefix);
 	try {
 		const key = allocMetaKey(projectFolderPrefix);
 		const cur = readAlloc(handle.db, key);

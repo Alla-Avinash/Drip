@@ -1,9 +1,9 @@
 'use strict';
 
 /**
- * Project View queries against `projects.drip` (the project-scoped index).
+ * Project View queries against **per-project** SQLite files under `.dripindex/projects/`.
  *
- * `projects.drip` holds projects, features, issues, and project headings. The shared
+ * Each project DB holds that project's features, issues, and headings. The shared
  * `files` registry (file id → path) lives in `index.drip`, so queries load a small
  * `id → path` map from `index.drip` and join in JS — SQLite foreign keys cannot cross
  * database files.
@@ -11,8 +11,7 @@
 
 const path = require('path');
 const { openDripIndexDb } = require('./dripIndexDb');
-const { openDripProjectsDb } = require('./dripProjectDb');
-const { isDripFeatureFolderName } = require('../document/model/dripNoteFeature.js');
+const { openDripProjectsDb, forEachProjectDb } = require('./dripProjectDb');
 const { isProjectIndexFileName } = require('../document/model/dripNoteProjectFolder.js');
 
 /**
@@ -21,6 +20,29 @@ const { isProjectIndexFileName } = require('../document/model/dripNoteProjectFol
  */
 function asRow(row) {
 	return row && typeof row === 'object' ? /** @type {Record<string, unknown>} */ (row) : {};
+}
+
+/**
+ * Normalize a `completed` EAV value to unix seconds (same shape as `deadline`).
+ * Index stores datetime fields as unix seconds text; older/hand values may still be
+ * `YYYY-MM-DD HH:mm` strings.
+ * @param {unknown} raw
+ * @returns {number | null}
+ */
+function normalizeCompletedUnixSeconds(raw) {
+	const s = String(raw == null ? '' : raw).trim();
+	if (!s) return null;
+	if (/^\d+$/.test(s)) {
+		const n = Number(s);
+		return Number.isFinite(n) && n > 0 ? n : null;
+	}
+	try {
+		const { parseDatetimeToUnixSeconds } = require('./parse/dripIndexMetadataValidate');
+		const sec = parseDatetimeToUnixSeconds(s);
+		return sec != null && Number.isFinite(sec) && sec > 0 ? sec : null;
+	} catch {
+		return null;
+	}
 }
 
 /**
@@ -61,51 +83,65 @@ async function loadFilePathMap(kbRootUri) {
  */
 async function listProjectsFromIndex(kbRootUri) {
 	if (!kbRootUri) return { projects: [] };
-	const handle = await openDripProjectsDb(kbRootUri);
-	try {
+	const pathMap = await loadFilePathMap(kbRootUri);
+	/** @type {any[]} */
+	const projects = [];
+	let synthId = 0;
+
+	await forEachProjectDb(kbRootUri, handle => {
 		const db = handle.db;
-		const rows = db.native
+		if (!db.native) return;
+		// Active issues only — once moved into `_archive` (completed_issues.archived = 1)
+		// they drop out of the project-list total and the completed/total bubble, so the
+		// fraction tracks live progress instead of growing forever.
+		const projectRows = db.native
 			.prepare(
-				`SELECT p.project_id AS projectId, p.folder_prefix AS folderPrefix, p.title AS title,
-				        p.status AS status, p.deadline AS deadline, p.priority AS priority, p.index_file_id AS indexFileId,
-				        (SELECT COUNT(*) FROM issue_metadata i WHERE i.project_id = p.project_id) AS issueCount
+				`SELECT p.folder_prefix AS folderPrefix, p.title AS title,
+				        p.status AS status, p.deadline AS deadline, p.priority AS priority,
+				        p.index_file_id AS indexFileId,
+				        (SELECT COUNT(*) FROM issue_metadata i
+				          WHERE i.issue_key IS NOT NULL
+				            AND NOT EXISTS (
+				              SELECT 1 FROM completed_issues c
+				              WHERE c.issue_key = i.issue_key AND c.archived = 1
+				            )
+				        ) AS issueCount
 				 FROM projects p
-				 ORDER BY LOWER(COALESCE(p.title, p.folder_prefix)) ASC`
+				 LIMIT 1`
 			)
 			.all();
-
-		// Per-project issue status breakdown (powers the issue bubble fraction + stats).
 		const statusRows = db.native
 			.prepare(
-				`SELECT project_id AS projectId, LOWER(COALESCE(status, '')) AS status, COUNT(*) AS n
-				 FROM issue_metadata
-				 WHERE issue_key IS NOT NULL
-				 GROUP BY project_id, LOWER(COALESCE(status, ''))`
+				`SELECT LOWER(COALESCE(i.status, '')) AS status, COUNT(*) AS n
+				 FROM issue_metadata i
+				 WHERE i.issue_key IS NOT NULL
+				   AND NOT EXISTS (
+				     SELECT 1 FROM completed_issues c
+				     WHERE c.issue_key = i.issue_key AND c.archived = 1
+				   )
+				 GROUP BY LOWER(COALESCE(i.status, ''))`
 			)
 			.all();
-		/** @type {Map<number, Record<string, number>>} */
-		const statusByProject = new Map();
-		for (const r of statusRows || []) {
-			const row = asRow(r);
-			const pid = Number(row.projectId) || 0;
-			const status = String(row.status || '').toLowerCase();
-			const n = Number(row.n) || 0;
-			if (!pid || !status) continue;
-			if (!statusByProject.has(pid)) statusByProject.set(pid, {});
-			statusByProject.get(pid)[status] = n;
+		/** @type {Record<string, number>} */
+		const issueStatusCounts = {};
+		for (const sr of statusRows || []) {
+			const srow = asRow(sr);
+			const status = String(srow.status || '').toLowerCase();
+			const n = Number(srow.n) || 0;
+			if (status) issueStatusCounts[status] = n;
 		}
-
-		const pathMap = await loadFilePathMap(kbRootUri);
-
-		const projects = (rows || []).map(r => {
+		for (const r of projectRows || []) {
 			const row = asRow(r);
-			const folderPrefix = String(row.folderPrefix || '');
+			const folderPrefix = String(row.folderPrefix || handle.folderPrefix || '');
 			const fileId = Number(row.indexFileId) || 0;
-			return {
-				projectId: Number(row.projectId) || 0,
+			synthId += 1;
+			projects.push({
+				projectId: synthId,
 				fileId,
 				headingId: 0,
-				title: String(row.title || path.posix.basename(folderPrefix.replace(/\/+$/, '')) || 'Untitled'),
+				title: String(
+					row.title || path.posix.basename(folderPrefix.replace(/\/+$/, '')) || 'Untitled'
+				),
 				path: pathMap.get(fileId) || folderPrefix,
 				folderPrefix,
 				status: row.status != null ? String(row.status) : null,
@@ -118,20 +154,24 @@ async function listProjectsFromIndex(kbRootUri) {
 					row.issueCount != null && Number.isFinite(Number(row.issueCount))
 						? Number(row.issueCount)
 						: 0,
-				issueStatusCounts: statusByProject.get(Number(row.projectId) || 0) || {}
-			};
-		});
-		return { projects };
-	} finally {
-		handle.close();
-	}
+				issueStatusCounts
+			});
+		}
+	});
+
+	projects.sort((a, b) =>
+		String(a.title || a.folderPrefix || '')
+			.toLowerCase()
+			.localeCompare(String(b.title || b.folderPrefix || '').toLowerCase())
+	);
+	return { projects };
 }
 
 /**
  * Standalone `*.f.d.txt` feature files under a project. These are never recorded in the
  * `features` registry (which only holds `.f` folders), so they are always derived from the
  * shared `files` registry in `index.drip` — even for indexes built after v16.
- * @param {import('./db/dripSqlite').DripSqliteDatabase} db projects.drip handle (for h0 headings)
+ * @param {import('./db/dripSqlite').DripSqliteDatabase} db this project's index handle (for h0 headings)
  * @param {Map<number, string>} pathMap file id → KB-relative path (from index.drip)
  * @param {string} prefix project folder prefix (no trailing slash)
  * @returns {{
@@ -218,16 +258,14 @@ async function listProjectChildrenFromIndex(kbRootUri, projectFolderPrefix) {
 		.replace(/\/+$/, '');
 	if (!kbRootUri || !prefix) return { features: [], issues: [] };
 	const like = `${prefix}/%`;
-	const handle = await openDripProjectsDb(kbRootUri);
+	const handle = openDripProjectsDb(kbRootUri, prefix);
 	try {
 		const db = handle.db;
 
 		const projectRow = db.native
-			.prepare(
-				`SELECT project_id AS projectId FROM projects WHERE folder_prefix = ? OR folder_prefix = ?`
-			)
-			.get(prefix + '/', prefix);
-		const projectId = projectRow ? Number(asRow(projectRow).projectId) : 0;
+			.prepare(`SELECT project_id AS projectId FROM projects LIMIT 1`)
+			.get();
+		const projectId = projectRow ? Number(asRow(projectRow).projectId) : 1;
 
 		// Features come from the `features` registry (`.f` folders under this project).
 		const featureRows = db.native
@@ -314,9 +352,32 @@ async function listProjectChildrenFromIndex(kbRootUri, projectFolderPrefix) {
 			/* issue_teams may be empty */
 		}
 
+		/** @type {Map<string, number>} fileId:headingId → completed unix seconds */
+		const completedByHeading = new Map();
+		try {
+			const completedRows = db.native
+				.prepare(
+					`SELECT file_id AS fileId, heading_id AS headingId, value AS value
+					 FROM metadata_remaining_keys
+					 WHERE LOWER(key) = 'completed'`
+				)
+				.all();
+			for (const raw of completedRows || []) {
+				const row = asRow(raw);
+				const fid = Number(row.fileId) || 0;
+				const hid = Number(row.headingId) || 0;
+				const sec = normalizeCompletedUnixSeconds(row.value);
+				if (!fid || sec == null) continue;
+				completedByHeading.set(`${fid}:${hid}`, sec);
+			}
+		} catch {
+			/* remaining keys table may be empty */
+		}
+
 		const issues = (issueRows || []).map(r => {
 			const row = asRow(r);
 			const fileId = Number(row.fileId) || 0;
+			const headingId = Number(row.headingId) || 0;
 			const filePath = pathMap.get(fileId) || '';
 			let featurePathPrefix = null;
 			for (const f of features) {
@@ -347,7 +408,7 @@ async function listProjectChildrenFromIndex(kbRootUri, projectFolderPrefix) {
 			return {
 				projectId: Number(row.projectId) || projectId,
 				fileId,
-				headingId: Number(row.headingId) || 0,
+				headingId,
 				title: String(row.title || issueKey || 'Untitled'),
 				path: filePath,
 				parent,
@@ -361,6 +422,9 @@ async function listProjectChildrenFromIndex(kbRootUri, projectFolderPrefix) {
 						? Number(row.deadline)
 						: null,
 				category: row.category != null ? String(row.category) : null,
+				completed: completedByHeading.has(`${fileId}:${headingId}`)
+					? completedByHeading.get(`${fileId}:${headingId}`)
+					: null,
 				featurePathPrefix,
 				team: teamByIssueKey.get(`${Number(row.projectId) || projectId}:${issueKey || ''}`) || ''
 			};
@@ -386,14 +450,9 @@ async function listProjectIssuesForParentPicker(kbRootUri, projectFolderPrefix) 
 		.replace(/\\/g, '/')
 		.replace(/\/+$/, '');
 	if (!kbRootUri || !prefix) return [];
-	const handle = await openDripProjectsDb(kbRootUri);
+	const handle = openDripProjectsDb(kbRootUri, prefix);
 	try {
 		const db = handle.db;
-		const projectRow = db.native
-			.prepare(`SELECT project_id AS projectId FROM projects WHERE folder_prefix = ? OR folder_prefix = ?`)
-			.get(prefix + '/', prefix);
-		const projectId = projectRow ? Number(asRow(projectRow).projectId) : 0;
-		if (!projectId) return [];
 		const rows = db.native
 			.prepare(
 				`SELECT i.issue_key AS issueKey, h.title AS title, i.parent_issue_key AS parentIssueKey,
@@ -401,9 +460,9 @@ async function listProjectIssuesForParentPicker(kbRootUri, projectFolderPrefix) 
 				 FROM issue_metadata i
 				 LEFT JOIN headings h
 				   ON h.file_id = i.file_id AND h.heading_id = i.heading_id
-				 WHERE i.project_id = ? AND i.issue_key IS NOT NULL`
+				 WHERE i.issue_key IS NOT NULL`
 			)
-			.all(projectId);
+			.all();
 		const pathMap = await loadFilePathMap(kbRootUri);
 		return (rows || [])
 			.map(r => {

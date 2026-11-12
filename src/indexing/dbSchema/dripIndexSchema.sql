@@ -16,7 +16,7 @@
 --
 -- Scope: this is the *document* index. It holds the shared `files` registry (every
 -- KB note, document AND project), document headings (concept/task), tags, relations,
--- and embeddings. Project-scoped data lives in `projects.drip`. Today day-logs live in
+-- and embeddings. Project-scoped data lives in `.dripindex/projects/<stem>.drip`. Today day-logs live in
 -- `today.drip` (same document schema shape) — see dripTodayDb.js — so neither project
 -- headings nor Today notes surface in the global document search.
 --
@@ -68,7 +68,7 @@ CREATE TABLE relation_types (
 -- -----------------------------------------------------------------------------
 -- headings — one row per *document* heading (identity = file_id + heading_id).
 --   parent = parent heading_id in the same file (from tab indent); NULL = root
---   Project/feature scoping lives in projects.drip.headings, not here.
+--   Project/feature scoping lives in each project's headings table, not here.
 -- -----------------------------------------------------------------------------
 CREATE TABLE headings (
 	file_id         INTEGER NOT NULL,

@@ -27,7 +27,6 @@ function registerFallbackViews(context) {
 	const treeIds = [
 		'drip.components',
 		'drip.knowledgeBase',
-		'drip.dailyNotes',
 		'drip.drafts',
 		'drip.recents'
 	];

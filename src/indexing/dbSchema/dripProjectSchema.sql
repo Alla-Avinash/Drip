@@ -4,19 +4,19 @@
 -- This file is the human-readable SQLite equivalent of dripProjectSchema.js.
 -- It documents the second, project-scoped database file.
 --
--- Database file: <kbRoot>/.dripindex/projects.drip
+-- Database file: <kbRoot>/.dripindex/projects/<stem>.drip
+--   one file per `.p` project (stem encodes folder prefix, e.g. sample--kjh.p.drip)
 --
--- Scope: everything that belongs to the project/feature/issue hierarchy — projects,
--- features, issues, and project headings — plus the lookup/EAV tables those rows
--- reference. Keeping this in a separate file means project headings never leak into
--- the global document search (which reads `index.drip` only) and are loaded only when
--- the Project View opens.
+-- Scope: that one project's features, issues, headings, and project-zone embeddings —
+-- plus the lookup/EAV tables those rows reference. Project headings never leak into
+-- global document search (which reads `index.drip` only).
 --
 -- Relationship to index.drip:
 --   - The shared `files` registry and the `@fN` file-id counter live in `index.drip`.
---   - `projects.drip` only *records* file ids; it never mints them.
+--   - A project DB only *records* file ids; it never mints them.
 --   - Because SQLite FKs cannot cross files, `file_id` columns here are plain integers
 --     with no FK into `index.drip.files`.
+--   - `project_id` is always 1 in a given file (one project per DB).
 --
 -- NOTE: This file is documentation only. It is NOT executed by the extension.
 -- =============================================================================
@@ -164,6 +164,25 @@ CREATE TABLE issue_teams (
 	FOREIGN KEY (project_id, issue_key) REFERENCES issue_metadata(project_id, issue_key) ON DELETE CASCADE
 );
 CREATE INDEX idx_issue_teams_team ON issue_teams(team);
+
+-- -----------------------------------------------------------------------------
+-- completed_issues — fast index for completed issues (claim + archive).
+--   issue_key → current file/heading, completed_at (unix seconds), archived flag,
+--   and optional checkpoint_rel (path under the project folder). Notes remain the
+--   source of truth; this table is rebuilt on index / archive / checkpoint edit.
+-- -----------------------------------------------------------------------------
+CREATE TABLE completed_issues (
+	issue_key      TEXT PRIMARY KEY,
+	file_id        INTEGER NOT NULL,
+	heading_id     INTEGER NOT NULL,
+	completed_at   INTEGER,
+	archived       INTEGER NOT NULL DEFAULT 0,
+	checkpoint_rel TEXT
+);
+CREATE INDEX idx_completed_issues_file ON completed_issues(file_id, heading_id);
+CREATE INDEX idx_completed_issues_archived ON completed_issues(archived);
+CREATE INDEX idx_completed_issues_checkpoint ON completed_issues(checkpoint_rel);
+CREATE INDEX idx_completed_issues_completed_at ON completed_issues(completed_at);
 
 -- -----------------------------------------------------------------------------
 -- concept_metadata — fixed columns for a concept heading (c-N) in a project

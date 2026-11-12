@@ -36,7 +36,6 @@
 		"onView:drip.knowledgeBase",
 		"onView:drip.drafts",
 		"onView:drip.recents",
-		"onView:drip.dailyNotes",
 		"onCommand:drip.openTodayCalendar",
 		"onWebviewPanel:drip.todayCalendar",
 		"onView:drip.storage",
@@ -106,13 +105,6 @@
 					"name": "Knowledge Base",
 					"icon": "$(folder)",
 					"visibility": "visible"
-				},
-				{
-					"id": "drip.dailyNotes",
-					"name": "Daily Notes",
-					"icon": "$(calendar)",
-					"visibility": "visible",
-					"initialSize": 5
 				},
 				{
 					"id": "drip.drafts",
@@ -509,6 +501,13 @@
 					"type": "string",
 					"default": ".d.txt",
 					"description": "Extension for newly created notes (New Note and KB/Storage flows). Choose .d.txt (default) or .d.md. Must be one of the values in drip.knowledgeBaseFileExtensions."
+				},
+				"drip.archiveCompletedIssuesAfterDays": {
+					"type": "number",
+					"default": 3,
+					"minimum": 1,
+					"maximum": 365,
+					"description": "Default days after an issue is marked completed before the weekly archive sweep moves it into _archive (done-N notes). Per-project overrides live in DRIP Settings → Project Metadata."
 				},
 				"drip.editHeadingsInFile": {
 					"type": "boolean",
@@ -1002,11 +1001,6 @@
 					"command": "drip.refreshTree",
 					"when": "view == drip.drafts",
 					"group": "navigation@1"
-				},
-				{
-					"command": "drip.openTodayDailyNote",
-					"when": "view == drip.dailyNotes",
-					"group": "navigation@1"
 				}
 			],
 			"view/title/context": [
@@ -1042,16 +1036,8 @@
 					"group": "1@1"
 				},
 				{
-					"command": "drip.createFeatureFolder",
-					"group": "1@3"
-				},
-				{
-					"command": "drip.createFeatureFile",
-					"group": "1@4"
-				},
-				{
 					"command": "drip.createNoteFile",
-					"group": "1@5"
+					"group": "1@2"
 				}
 			],
 			"drip.projects.new": [
@@ -1181,16 +1167,6 @@
 				{
 					"command": "drip.deleteItem",
 					"when": "view == drip.drafts && viewItem == dripDraft",
-					"group": "dripDelete@1"
-				},
-				{
-					"command": "drip.copyPath",
-					"when": "view == drip.dailyNotes && viewItem == dripDailyNote",
-					"group": "dripPath@1"
-				},
-				{
-					"command": "drip.deleteItem",
-					"when": "view == drip.dailyNotes && (viewItem == dripDailyNote || viewItem == dripDailyMonth || viewItem == dripDailyYear)",
 					"group": "dripDelete@1"
 				}
 			]

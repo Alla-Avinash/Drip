@@ -4,7 +4,7 @@
  * Open / init / reset the Today-scoped index at `<kb>/.dripindex/today.drip`.
  *
  * Today notes live under `.drip.dailynotes/` and are indexed here only — never in
- * `index.drip` or `projects.drip`. Schema matches the document index (concept/task).
+ * `index.drip` or a per-project DB. Schema matches the document index (concept/task).
  */
 
 const vscode = require('vscode');

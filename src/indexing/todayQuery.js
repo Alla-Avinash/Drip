@@ -366,6 +366,16 @@ function listTodayTaskBoard(kbRootUri, now = new Date()) {
 		else if (t.deadline < end) dueToday.push(t);
 		else upcoming.push(t);
 	}
+	/** @param {typeof open} list */
+	const byDeadlineAsc = list =>
+		list.sort(
+			(a, b) =>
+				Number(a.deadline) - Number(b.deadline) ||
+				String(a.title || '').localeCompare(String(b.title || ''))
+		);
+	byDeadlineAsc(overdue);
+	byDeadlineAsc(dueToday);
+	byDeadlineAsc(upcoming);
 	return { overdue, dueToday, upcoming, noDeadline, asOf: start };
 }
 
@@ -379,11 +389,53 @@ function dateFromTodayNotePath(pathOrName) {
 		.replace(/\\/g, '/')
 		.split('/')
 		.pop() || '';
-	const stem = base.replace(/\.d\.txt$/i, '');
+	const stem = base.replace(/\.d\.(txt|md)$/i, '');
 	const m = stem.match(/^(\d{2})-(\d{2})-(\d{4})$/);
 	if (!m) return null;
 	const d = new Date(parseInt(m[3], 10), parseInt(m[1], 10) - 1, parseInt(m[2], 10));
 	return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Summary for the Today's log tab: whether today's note exists + non-task headings.
+ * @param {import('vscode').Uri} kbRootUri
+ * @param {Date} [now]
+ */
+function getTodaysLogSummary(kbRootUri, now = new Date()) {
+	const path = require('path');
+	const date = now instanceof Date ? now : new Date();
+	const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+	const dayEnd = dayStart + 24 * 60 * 60 * 1000;
+	const label = date.toLocaleDateString(undefined, {
+		weekday: 'long',
+		day: 'numeric',
+		month: 'long',
+		year: 'numeric'
+	});
+	const uri = dailyNoteUri(kbRootUri, date);
+	const rel = path.relative(kbRootUri.fsPath, uri.fsPath).replace(/\\/g, '/');
+	const page = listTodayDailyLog(kbRootUri, {
+		limit: 1,
+		offset: 0,
+		fromMs: dayStart,
+		toMs: dayEnd - 1
+	});
+	const dayGroup = page.days && page.days[0] ? page.days[0] : null;
+	let hasNote = false;
+	try {
+		hasNote = require('fs').existsSync(uri.fsPath);
+	} catch {
+		hasNote = Boolean(dayGroup);
+	}
+	return {
+		label,
+		year: date.getFullYear(),
+		month0: date.getMonth(),
+		day: date.getDate(),
+		hasNote,
+		path: rel,
+		headings: dayGroup && Array.isArray(dayGroup.headings) ? dayGroup.headings : []
+	};
 }
 
 /**
@@ -459,9 +511,10 @@ function listTodayDailyLog(kbRootUri, opts = {}) {
 				displayPath: todayDisplayPath(path)
 			});
 		}
+		// Newest calendar day first (recent at the top of the timeline).
 		const all = [...byDay.values()]
 			.filter(g => g.headings.length > 0)
-			.sort((a, b) => b.dateMs - a.dateMs);
+			.sort((a, b) => Number(b.dateMs) - Number(a.dateMs) || String(b.dateKey).localeCompare(String(a.dateKey)));
 		const days = all.slice(offset, offset + limit);
 		const nextOffset = offset + days.length;
 		return {
@@ -489,5 +542,6 @@ module.exports = {
 	searchTodayHeadings,
 	listTodayTaskBoard,
 	listTodayDailyLog,
+	getTodaysLogSummary,
 	dateFromTodayNotePath
 };

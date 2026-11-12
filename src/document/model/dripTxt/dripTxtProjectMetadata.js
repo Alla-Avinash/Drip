@@ -16,6 +16,7 @@
  *     "savedAt": "…",
  *     "projects": {
  *       "sample/kjh.p/": {
+ *         "archiveCompletedIssuesAfterDays": 3,
  *         "project": { "attributes": { … } },
  *         "feature":  { "attributes": { … } },
  *         "issue":    { "attributes": { … } }

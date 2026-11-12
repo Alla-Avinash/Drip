@@ -29,7 +29,12 @@ const DEFAULT_METADATA_TYPES = [
 		shortcut: 't',
 		color: '',
 		attributes: {
-			status: { kind: 'enum', values: ['in-progress', 'to-do', 'completed'], default: '' },
+			status: {
+				kind: 'enum',
+				values: ['in-progress', 'to-do', 'completed'],
+				default: '',
+				required: true
+			},
 			priority: { kind: 'enum', values: ['high', 'low'], default: '' },
 			deadline: { kind: 'datetime', default: '' },
 			completed: { kind: 'datetime', default: '', required: false, label: 'Completed' },
@@ -228,6 +233,16 @@ function normalizeMetadataType(raw) {
 	if (id === 'task') {
 		if (!attributes.completed) {
 			attributes.completed = { kind: 'datetime', default: '', required: false };
+		}
+		if (!attributes.status) {
+			attributes.status = {
+				kind: 'enum',
+				values: ['in-progress', 'to-do', 'completed'],
+				default: '',
+				required: true
+			};
+		} else {
+			attributes.status.required = true;
 		}
 		const status = attributes.status;
 		if (status && status.kind === 'enum') {

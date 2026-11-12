@@ -5,8 +5,8 @@
  *
  * `index.drip` holds the shared `files` registry (every KB note, document *and* project),
  * document headings (concept/task), tags, relations, and embeddings. Project-scoped data
- * lives in `projects.drip`. Today day-logs (`.drip.dailynotes`) live in `today.drip`
- * with this same document schema — never in `index.drip` or `projects.drip`.
+ * lives in that project's `.dripindex/projects/….drip`. Today day-logs (`.drip.dailynotes`)
+ * live in `today.drip` with this same document schema — never in `index.drip` or a project DB.
  *
  * Heading identity in `.d.txt` files: `@hN` on the line **above** the `#`/`#N` heading (not below).
  * Per-file heading id allocator: `index_meta.heading_alloc_<file_id>` → JSON `{ "next": N, "free": […] }`.

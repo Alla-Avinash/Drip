@@ -88,6 +88,10 @@ async function postDripSettingsValuesToWebview(webview, dripState, extensionCont
 		autoOpenComposerOnSidebarReveal: c.get('autoOpenComposerOnSidebarReveal', defs.autoOpenComposerOnSidebarReveal),
 		knowledgeBaseFileExtensions: nt.getKbNoteExtensions(),
 		defaultNewNoteExtension: nt.getDefaultNewNoteExtension(),
+		archiveCompletedIssuesAfterDays: Math.min(
+			365,
+			Math.max(1, Math.floor(Number(c.get('archiveCompletedIssuesAfterDays', 3)) || 3))
+		),
 		customTypeMarkers: c.get('dripnoteCustomTypeMarkers', defs.dripnoteCustomTypeMarkers),
 		customColors: c.get('dripnoteCustomColors', defs.dripnoteCustomColors),
 		metadataTemplatesEnabled: c.get('metadataTemplatesEnabled', defs.metadataTemplatesEnabled),

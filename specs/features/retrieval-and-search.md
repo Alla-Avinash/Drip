@@ -22,7 +22,9 @@ Centered chrome:
 - Menu chips above the search box: **Scope**, **Filter**, **Tags**, **Display**, **Sort**, then **Clear** (Clear appears only when something differs from defaults).
 - Centered search box with a Project View–style search-engine icon beside it (Recommended / semantic-only / word-only, plus **Top embeddings** 1–50 when not word-only; default 20).
 - Active type / tag / relation picks as removable chips under the search row.
-- Results fill the remaining height and scroll inside that area (title/toolbar stay put). Heading rows and file sections use their natural height — expanding a file section grows the scroll area instead of squishing other sections. Idle empty state invites the user to type a search — it does not show a perpetual "Preparing…" label.
+- Results fill the remaining height and scroll inside that area (title/toolbar stay put). Heading results use a compact card: title line (bullet + title + score + chevron), optional type + main-table metadata pills with tags, optional filepath. Card height shrinks when Display toggles hide a whole row (no empty placeholder lines). Metadata pills come from typed tables (`concept` / `task` hot columns) — not EAV leftover keys — with datetimes/durations shown in readable form; active attribute filters reorder those pills first. Untyped headings show an explicit **none** type pill. Expanding a file section grows the scroll area instead of squishing other sections. Idle empty state invites the user to type a search — it does not show a perpetual "Preparing…" label.
+- File paths in cards, suggestions, and **Group by → File** labels hide note extensions (`.d.txt` / `.d.md`).
+- First search page shows **Top embeddings** results (default 20; word search uses a larger first page, still capped). **Load more** appends the next **10** results. A hard cap of **100** ranked results per search — once reached, Load more hides and nothing further is shown. The footer only reports how many results are currently shown — not the total headings in the KB.
 - **Clear** resets scope/corpus, filters, tags/relations, Display (list + shown fields), Sort (group by), search engine, and top embeddings back to defaults. It leaves the search box text alone.
 
 Menus (one open at a time; badge counts show non-default choices):
@@ -33,8 +35,8 @@ Menus (one open at a time; badge counts show non-default choices):
 - **Display** — **List** / **Board** and "Shown in results" (type marker, key-values, tags, relations, filepath).
 - **Sort** — **Group by** only (none / folder / file / type). Search engine + Top embeddings live on the icon next to the search box.
 
-- **Files scope** shows results as collapsible file sections (filename + count; expand to see matching headings). Sections start collapsed. **Headings scope** uses Group by instead.
-- Result rows and board cards stay compact (title + score, pills row, optional path).
+- **Files scope** shows results as collapsible file sections (filename without note extension + count; expand to see matching headings). Sections start collapsed. **Headings scope** uses Group by instead.
+- List and board share the same compact heading card: leading dot, title + relevance score + chevron, type/value pills, tags · relations context line, filepath.
 
 ### Heading quick open
 

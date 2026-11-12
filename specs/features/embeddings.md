@@ -24,14 +24,14 @@ DRIP can turn text into **vectors** (embeddings) locally and use vector similari
 
 - Vectors are stored as `Float32Array` BLOBs in ordinary SQLite tables — one per heading, file, folder, and tag.
 - No separate vector files or sidecar indexes exist.
-- Heading vectors are split by zone. Document-note headings stay in `index.drip`; project/feature/issue headings live in `projects.drip`; Today day-note headings live in `today.drip`. Each zone’s search only reads its own vectors, so Project View and Today never pull from the Knowledge Base index, and KB Retriever never sees project or Today headings. Project files and project folders (anything under a `.p`/`.f` folder) are still excluded from the file and folder embedding stores, which live only in `index.drip`. Exclusions happen at sync/storage time, not just at query time.
+- Heading vectors are split by zone. Document-note headings stay in `index.drip`; project/feature/issue headings live in that project's `.dripindex/projects/….drip`; Today day-note headings live in `today.drip`. Each zone’s search only reads its own vectors, so Project View and Today never pull from the Knowledge Base index, and KB Retriever never sees project or Today headings. Project files and project folders (anything under a `.p`/`.f` folder) are still excluded from the file and folder embedding stores, which live only in `index.drip`. Exclusions happen at sync/storage time, not just at query time.
 
 ### Vector search
 
 - Similarity is a single exact L2 distance scan over all stored vectors, done in JavaScript. Distance is converted to a 0–1 score with `1 / (1 + distance)`.
 - The same search path is used for every vector count — there is no threshold that switches to a different method.
 - File/folder/tag embeddings support "best place to put this" and related-tag search.
-- Project issue search (Project View search bar in Semantic/Recommended mode) runs the same L2 scan against project-zone heading vectors in `projects.drip`, scoped to that one project's issues.
+- Project issue search (Project View search bar in Semantic/Recommended mode) runs the same L2 scan against heading vectors in that project's DB file, scoped to that project's issues.
 - Today search (Today panel Search tab) uses the same word / semantic / recommended engines against Today heading vectors in `today.drip` only.
 
 ### Ranking for "best place to put this" (AI / LLM ingest)

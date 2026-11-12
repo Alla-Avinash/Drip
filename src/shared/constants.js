@@ -30,8 +30,6 @@ const DRIP_FOCUS_CHAT_COMMAND_ID = 'drip.focusChat';
 const DRIP_ADD_SELECTION_TO_CHAT_COMMAND_ID = 'drip.addSelectionToChat';
 const DRIP_SELECT_KB_COMMAND_ID = 'drip.selectKnowledgeBase';
 const DRIP_OPEN_RECENT_FILE_COMMAND_ID = 'drip.openRecentFile';
-/** Sidebar folder tree for `.drip.dailynotes` (year / month / day). Calendar opens from Components → Today. */
-const DRIP_DAILY_NOTES_VIEW_ID = 'drip.dailyNotes';
 const DRIP_PROJECTS_VIEW_ID = 'drip.projects';
 const DRIP_OPEN_TODAY_DAILY_NOTE_COMMAND_ID = 'drip.openTodayDailyNote';
 const DRIP_OPEN_TODAY_CALENDAR_COMMAND_ID = 'drip.openTodayCalendar';
@@ -74,7 +72,6 @@ module.exports = {
 	DRIP_ADD_SELECTION_TO_CHAT_COMMAND_ID,
 	DRIP_SELECT_KB_COMMAND_ID,
 	DRIP_OPEN_RECENT_FILE_COMMAND_ID,
-	DRIP_DAILY_NOTES_VIEW_ID,
 	DRIP_PROJECTS_VIEW_ID,
 	DRIP_OPEN_TODAY_DAILY_NOTE_COMMAND_ID,
 	DRIP_OPEN_TODAY_CALENDAR_COMMAND_ID,

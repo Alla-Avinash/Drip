@@ -309,6 +309,19 @@ async function applyHeadingFormModelFromMessage(model) {
 	} catch (err) {
 		console.error('[DRIP] record heading-form edit', err);
 	}
+	if (typeId === 'issue') {
+		try {
+			const { flushPendingDripIndexUpdates } = require('../../../indexing/dripTxt/dripTxtIndexSync.js');
+			await flushPendingDripIndexUpdates();
+		} catch (err) {
+			console.error('[DRIP] flush index after issue heading apply', err);
+		}
+		try {
+			require('../../lhs/projects/panel').refreshProjectViewIfShown();
+		} catch (err) {
+			console.error('[DRIP] refresh project view after issue heading apply', err);
+		}
+	}
 }
 
 module.exports = {

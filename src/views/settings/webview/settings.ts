@@ -33,6 +33,9 @@ interface Window {
 		const llmProfilesEl = document.getElementById('llm-profiles');
 		const btnLlmAddProfile = document.getElementById('btn-llm-add-profile');
 		const autoOpenEl = document.getElementById('opt-auto-open');
+		const projectArchiveCardEl = document.getElementById('project-archive-card');
+		const projectArchiveHintEl = document.getElementById('project-archive-hint');
+		const projectArchiveDaysEl = document.getElementById('project-archive-days') as HTMLInputElement | null;
 		const kbExtDtxt = document.getElementById('kb-ext-dtxt');
 		const kbExtDmd = document.getElementById('kb-ext-dmd');
 		const kbDefaultExt = document.getElementById('kb-default-ext');
@@ -63,6 +66,8 @@ interface Window {
 		/** @type {{ folderPrefix: string, title: string }[]} */
 		var projectsList = [];
 		var projectOverrides = {};
+		/** KB-wide default for archive delay (used when a project has no override). */
+		var kbArchiveDaysDefault = 3;
 		var selectedProjectKey = String(window.__dripSettingsInit.initialProject || '');
 		var selectedProjectTitle = String(window.__dripSettingsInit.initialProjectTitle || '');
 		var selectedShareProjectKey = String(window.__dripSettingsInit.initialProject || '');
@@ -698,6 +703,41 @@ interface Window {
 			return '';
 		}
 
+		function defaultArchiveDays() {
+			var n = Math.floor(Number(kbArchiveDaysDefault));
+			return !Number.isFinite(n) || n < 1 ? 3 : Math.min(365, n);
+		}
+
+		function readArchiveDaysInput() {
+			if (!projectArchiveDaysEl) return defaultArchiveDays();
+			var days = Math.floor(Number(projectArchiveDaysEl.value));
+			if (!Number.isFinite(days) || days < 1) days = defaultArchiveDays();
+			if (days > 365) days = 365;
+			projectArchiveDaysEl.value = String(days);
+			return days;
+		}
+
+		function syncProjectArchiveDaysUi() {
+			if (projectArchiveCardEl) projectArchiveCardEl.style.display = '';
+			if (projectArchiveHintEl) {
+				projectArchiveHintEl.textContent = selectedProjectKey
+					? 'Wait before the weekly Sunday sweep moves completed issues into this project’s _archive (done-N notes). Parent and feature metadata stay on the issue when it is archived. Leave this as the standard default, or set a different value for this project only.'
+					: 'Default wait before the weekly Sunday sweep moves completed issues into _archive (done-N notes). Parent and feature metadata stay on the issue when it is archived. This is the standard template default; select a project above to override it for that project only.';
+			}
+			if (!projectArchiveDaysEl) return;
+			if (!selectedProjectKey) {
+				projectArchiveDaysEl.value = String(defaultArchiveDays());
+				return;
+			}
+			var ovr = (projectOverrides && projectOverrides[selectedProjectKey]) || {};
+			var fromProject = Math.floor(Number(ovr.archiveCompletedIssuesAfterDays));
+			projectArchiveDaysEl.value = String(
+				Number.isFinite(fromProject) && fromProject >= 1
+					? Math.min(365, fromProject)
+					: defaultArchiveDays()
+			);
+		}
+
 		function renderProjectMetadataPanel() {
 			if (selectedProjectKey) {
 				projectOverrideState = buildProjectOverrideState(selectedProjectKey);
@@ -710,6 +750,7 @@ interface Window {
 				if (projectMetadataHeadingEl) projectMetadataHeadingEl.textContent = 'Default project template';
 				if (projectMetadataHintEl) projectMetadataHintEl.textContent = 'The standard template shared by all projects. Select a project above to override it.';
 			}
+			syncProjectArchiveDaysUi();
 		}
 
 		function rebuildProjectSelect() {
@@ -1287,6 +1328,7 @@ interface Window {
 
 		function collectProjectOverrideForSave() {
 			var override = {};
+			override.archiveCompletedIssuesAfterDays = readArchiveDaysInput();
 			for (var i = 0; i < projectOverrideState.length; i++) {
 				var t = projectOverrideState[i] || {};
 				var typeId = String(t.id || '').trim().toLowerCase();
@@ -1627,6 +1669,10 @@ interface Window {
 				kbExtDtxt.checked = true;
 			}
 			rebuildDefaultSelect(mergeKbExtensionsList(), message.defaultNewNoteExtension || '.d.txt');
+			{
+				var days = Math.floor(Number(message.archiveCompletedIssuesAfterDays));
+				kbArchiveDaysDefault = !Number.isFinite(days) || days < 1 ? 3 : Math.min(365, days);
+			}
 			optTemplateEnabled.checked = !!message.metadataTemplatesEnabled;
 			optTemplateAuto.checked = !!message.metadataAutoInsertTemplate;
 			optTemplateStrict.checked = !!message.metadataStrictValidation;
@@ -2060,7 +2106,15 @@ interface Window {
 					overrides: collectProjectOverrideForSave()
 				});
 			} else {
-				// The default template edits project/feature (file-level) plus issue (document).
+				// The default template edits project/feature (file-level) plus issue (document),
+				// and the standard archive-delay default for all projects.
+				var days = readArchiveDaysInput();
+				kbArchiveDaysDefault = days;
+				vscode.postMessage({
+					type: 'updateSetting',
+					key: 'archiveCompletedIssuesAfterDays',
+					value: days
+				});
 				var types = collectTypesForSave();
 				vscode.postMessage({
 					type: 'updateSetting',
@@ -2074,10 +2128,19 @@ interface Window {
 			if (selectedProjectKey) {
 				projectOverrideState = buildProjectOverrideState(selectedProjectKey);
 				renderProjectOverrideTypes();
+				// Revert archive delay to the standard template default for this project.
+				if (projectArchiveDaysEl) projectArchiveDaysEl.value = String(defaultArchiveDays());
 			} else {
 				fileLevelTypesState = normalizeTypesFromSettings(defaultFileLevelMetadataTypes);
 				resetIssueType();
 				renderFileLevelTypes();
+				kbArchiveDaysDefault = 3;
+				if (projectArchiveDaysEl) projectArchiveDaysEl.value = '3';
+				vscode.postMessage({
+					type: 'updateSetting',
+					key: 'archiveCompletedIssuesAfterDays',
+					value: 3
+				});
 				vscode.postMessage({
 					type: 'updateSetting',
 					key: 'fileLevelMetadataTypes',

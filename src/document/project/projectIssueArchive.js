@@ -1,9 +1,9 @@
 'use strict';
 
 /**
- * After 3 days completed, move an issue into the project's `_archive` folder.
- * Archive notes are flat, keep parent, and write a feature field so the old
- * location is still known.
+ * After N days completed (KB setting `archiveCompletedIssuesAfterDays`, default 3),
+ * move an issue into the project's `_archive` folder. Archive notes are flat,
+ * keep parent, and write a feature field so the old location is still known.
  */
 
 const path = require('path');
@@ -19,7 +19,12 @@ const { allocateNextEntityNumber, indexNewNoteImmediately } = require('../../ind
 const { ensureProjectsHome } = require('../../startup/projectsDrip');
 const { collectIssueIds } = require('../../peer/projectHiddenIds');
 const { readIssueBlock, updateIssueBlockText } = require('./issueBlockEdit');
-const { isCompletedStatus, isReadyToArchive, COMPLETED_FIELD } = require('./issueCompletedStamp');
+const {
+	isCompletedStatus,
+	isReadyToArchive,
+	getArchiveCompletedIssuesAfterDays,
+	COMPLETED_FIELD
+} = require('./issueCompletedStamp');
 const { formatFromPath } = require('./issueInboxLayout');
 
 const ARCHIVE_BATCH = 100;
@@ -186,11 +191,39 @@ async function archiveIssue(kbRootUri, projectFolderUri, sourceUri, issueId, opt
 	}
 	const dest = await resolveArchiveDest(kbRootUri, projectFolderUri, options.archiveRel);
 	const { moveIssueBlock } = require('./projectIssuesMailbox');
-	return moveIssueBlock(kbRootUri, sourceUri, projectFolderUri, { kind: 'archive', fileUri: dest }, issueId, {
-		context: options.context,
-		skipOpRecord: options.skipOpRecord,
-		removeParent: false
-	});
+	const result = await moveIssueBlock(
+		kbRootUri,
+		sourceUri,
+		projectFolderUri,
+		{ kind: 'archive', fileUri: dest },
+		issueId,
+		{
+			context: options.context,
+			skipOpRecord: options.skipOpRecord,
+			removeParent: false
+		}
+	);
+	if (result) {
+		try {
+			const { openDripProjectsDb } = require('../../indexing/dripProjectDb');
+			const { projectFolderPrefixFromPath } = require('../../indexing/projectIndex');
+			const { markCompletedIssueArchived } = require('../../indexing/completedIssueIndex');
+			const prefix = projectFolderPrefixFromPath(
+				path.relative(kbRootUri.fsPath, projectFolderUri.fsPath).replace(/\\/g, '/') + '/'
+			);
+			if (prefix) {
+				const handle = openDripProjectsDb(kbRootUri, prefix);
+				try {
+					markCompletedIssueArchived(handle.db, issueId);
+				} finally {
+					handle.close();
+				}
+			}
+		} catch (err) {
+			console.warn('[DRIP] completed_issues archive mark failed', err && err.message);
+		}
+	}
+	return result;
 }
 
 async function sweepOneProject(kbRootUri, projectFolderUri, context) {
@@ -198,6 +231,7 @@ async function sweepOneProject(kbRootUri, projectFolderUri, context) {
 	const { projectFolderPrefixForPath } = require('../../peer/projectSidecar');
 	const prefix = projectFolderPrefixForPath(kbRootUri.fsPath, projectFolderUri.fsPath);
 	if (!prefix) return 0;
+	const afterDays = getArchiveCompletedIssuesAfterDays(prefix);
 	let moved = 0;
 	await forEachKnowledgeBaseNotePath(kbRootUri, async note => {
 		const rel = String(note.relativePath || '').replace(/\\/g, '/');
@@ -229,7 +263,7 @@ async function sweepOneProject(kbRootUri, projectFolderUri, context) {
 				}
 				continue;
 			}
-			if (!isReadyToArchive(stamp)) continue;
+			if (!isReadyToArchive(stamp, undefined, afterDays)) continue;
 			try {
 				const result = await archiveIssue(kbRootUri, projectFolderUri, note.uri, issueId, { context });
 				if (result) moved += 1;

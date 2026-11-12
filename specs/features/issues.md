@@ -59,11 +59,13 @@ The full parent/child tree of an issue can be retrieved.
 
 ### Archive completed issues
 
-When status becomes **completed**, the issue is stamped with `completed` (date and time to the minute). If status leaves completed, that stamp is cleared. Once a week on **Sunday**, DRIP looks at every project: a completed issue whose stamp is **at least 3 days** old is **moved** into that project’s `_archive` folder. If DRIP was closed that Sunday, the job runs the next time DRIP is open. It does not run while the app is closed.
+When status becomes **completed**, the issue is stamped with `completed` (date and time to the minute). If status leaves completed, that stamp is cleared. Once a week on **Sunday**, DRIP looks at every project: a completed issue whose stamp is **at least N days** old is **moved** into that project’s `_archive` folder. **N** is set in **DRIP Settings → Project Metadata**: the **standard template** holds the default (**Archive after N days**, also `drip.archiveCompletedIssuesAfterDays`, default **3**); selecting a project there can override that default for that project only. If DRIP was closed that Sunday, the job runs the next time DRIP is open. It does not run while the app is closed.
 
 Archive notes are `done-1.d.txt` (or `.d.md` from the user’s default new-note format), about **100** issues per file, then the next file. In `.d.txt` those issues sit **flat** (no indent). `parent` stays so the tree can still be read. `feature` is written from the file it left. Children that are not completed stay where they are.
 
-On a shared project this is the same kind of **move** other members receive — they archive the same issue into the same archive file. Creating a project also creates `_archive` (empty, ready).
+Each project’s SQLite index keeps a small **completed-issues** table (`issue key → current file, completed time, archived flag, checkpoint claim`). Notes stay the source of truth; the table is refreshed when an issue is indexed, archived, or listed in a checkpoint, so claim checks and the archive sweep do not have to rescan every file. An issue can be completed but not yet archived, archived but not in a checkpoint, or both. The Project View projects list (`completed / total` bubble and status breakdown) ignores archived rows so those counts stay about open work, not lifetime volume.
+
+On a shared project this is the same kind of **move** other members receive — they archive the same issue into the same archive file. Creating a project also creates `_archive` (empty, ready). Project checkpoints (changelog notes) live in `_archive/_checkpoints/` and do not use the `done-N` archive files.
 
 ## Flow (plain steps)
 
@@ -71,4 +73,4 @@ On a shared project this is the same kind of **move** other members receive — 
 2. The user can assign it to a feature or link a parent to make it a sub-issue. Assigning the parent to a feature takes along any children still in the project inbox.
 3. The Project View and MCP tools read the issue from the index, showing the tree and metadata.
 4. On a shared project the same write is also an operation, so other members receive it (see Project sync).
-5. Marking it completed stamps the time. After 3 days it moves into `_archive` (flat, with parent and feature). Peers get that move.
+5. Marking it completed stamps the time. After the configured archive delay (default 3 days) it moves into `_archive` (flat, with parent and feature). Peers get that move.

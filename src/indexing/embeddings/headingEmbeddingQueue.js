@@ -11,7 +11,13 @@
 
 /**
  * @typedef {'upsert' | 'delete'} HeadingEmbeddingJobReason
- * @typedef {{ fileId: number, headingId: number, reason: HeadingEmbeddingJobReason, zone?: 'document' | 'project' | 'today' }} HeadingEmbeddingJob
+ * @typedef {{
+ *   fileId: number,
+ *   headingId: number,
+ *   reason: HeadingEmbeddingJobReason,
+ *   zone?: 'document' | 'project' | 'today',
+ *   folderPrefix?: string
+ * }} HeadingEmbeddingJob
  */
 
 /** @type {Map<string, Map<string, HeadingEmbeddingJob>>} kbKey → jobKey → job */
@@ -62,22 +68,27 @@ function getQueue(kbRootUri) {
  * @param {number} headingId
  * @param {HeadingEmbeddingJobReason} reason
  */
-function enqueueHeadingEmbeddingJob(kbRootUri, fileId, headingId, reason, zone) {
+function enqueueHeadingEmbeddingJob(kbRootUri, fileId, headingId, reason, zone, folderPrefix) {
 	const q = getQueue(kbRootUri);
 	const k = jobKey(fileId, headingId);
 	const z =
 		zone === 'project' ? 'project' : zone === 'today' ? 'today' : 'document';
-	q.set(k, {
+	/** @type {HeadingEmbeddingJob} */
+	const job = {
 		fileId: Number(fileId),
 		headingId: Number(headingId),
 		reason: reason === 'delete' ? 'delete' : 'upsert',
 		zone: z
-	});
+	};
+	if (z === 'project' && folderPrefix) {
+		job.folderPrefix = String(folderPrefix);
+	}
+	q.set(k, job);
 }
 
 /**
  * @param {import('vscode').Uri | string} kbRootUri
- * @param {{ fileId: number, headingId: number }[]} headings
+ * @param {{ fileId: number, headingId: number, zone?: string, folderPrefix?: string }[]} headings
  * @param {HeadingEmbeddingJobReason} reason
  */
 function enqueueHeadingEmbeddingJobs(kbRootUri, headings, reason) {
@@ -85,7 +96,14 @@ function enqueueHeadingEmbeddingJobs(kbRootUri, headings, reason) {
 		if (h == null || h.fileId == null || h.headingId == null) {
 			continue;
 		}
-		enqueueHeadingEmbeddingJob(kbRootUri, h.fileId, h.headingId, reason, h.zone);
+		enqueueHeadingEmbeddingJob(
+			kbRootUri,
+			h.fileId,
+			h.headingId,
+			reason,
+			h.zone,
+			h.folderPrefix
+		);
 	}
 }
 

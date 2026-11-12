@@ -86,7 +86,47 @@
 	let searchTypeMenuOpen = false;
 
 	// Project detail view mode: 'features' (grouped sections, default) or 'issues' (flat browser).
+	/** @type {'features' | 'issues' | 'updation' | 'checkpoints'} */
 	let detailView = 'features';
+	/** @type {'recent' | '7' | '30' | 'custom'} */
+	let updationRange = 'recent';
+	let updationFrom = '';
+	let updationTo = '';
+	/** Same range chips for the checkpoints list. */
+	/** @type {'recent' | '7' | '30' | 'custom'} */
+	let checkpointRange = 'recent';
+	let checkpointFrom = '';
+	let checkpointTo = '';
+
+	/** @type {Array<{ n: number, date: string, title: string, rel: string, issueCount: number }>} */
+	let checkpointsList = [];
+	/** @type {'list' | 'compose' | 'detail'} */
+	let checkpointMode = 'list';
+	/** When viewing a checkpoint: read view, or edit write-up + issues. */
+	let checkpointEditing = false;
+	/** Issue picker while editing — only issues already on this checkpoint (plus ones you + add). */
+	let checkpointEditPicker = null;
+	/** Optional “add more issues” panel: null | { loading: true } | { candidates: any[] }. */
+	let checkpointAddable = null;
+	/** Compose / detail state for checkpoints. */
+	let checkpointCompose = null;
+	/** @type {Record<string, boolean>} */
+	let checkpointSelectedKeys = {};
+	/** End-user changelog blurbs keyed by issue key (editable in Edit). */
+	/** @type {Record<string, string>} */
+	let checkpointDescByKey = {};
+	/** True while an inline description blur-save is in flight (skip full re-render). */
+	let checkpointInlineSaving = false;
+	/** True while an image paste is saving — take host write-up so the image markdown lands. */
+	let checkpointPastePending = false;
+	/** Collapsed category headings in the read view. */
+	/** @type {Set<string>} */
+	const collapsedCheckpointCats = new Set();
+	let checkpointDetail = null;
+	let checkpointWriteUp = '';
+	/** Editable checkpoint date (`YYYY-MM-DD`) while composing / editing. */
+	let checkpointDateDraft = '';
+	let checkpointSaveTimer = null;
 
 	// Issues-view toolbar state (mirrors the project-list toolbar, but for the project's issues).
 	let issuesQuery = '';
@@ -2591,7 +2631,7 @@
 		return '<span class="meta share-status" title="' + esc(status) + '">sharing stopped</span>';
 	}
 
-	/** Shared detail header (back / title / Overview / Tags / Features-Issues switch / New issue). */
+	/** Shared detail header (back / title / Overview / Updation log / Checkpoints / Tags / Features-Issues switch / New issue). */
 	function detailHeaderHtml(title) {
 		return (
 			'<div class="toolbar">' +
@@ -2602,6 +2642,9 @@
 			'<button type="button" class="ghost" id="btnProjectSettings" title="Project metadata and share settings">\u2699</button>' +
 			shareHeaderHtml() +
 			'<button type="button" class="ghost" id="btnOverview">Overview</button>' +
+			'<button type="button" class="ghost' +
+			(detailView === 'checkpoints' || detailView === 'updation' ? ' active' : '') +
+			'" id="btnCheckpoints">Checkpoints</button>' +
 			'<button type="button" class="ghost" id="btnTags">Tags</button>' +
 			(shareState.shared
 				? '<button type="button" class="ghost chat-btn" id="btnChat">Chat' +
@@ -2653,6 +2696,11 @@
 			btnOverview.addEventListener('click', function () {
 				vscode.postMessage({ type: 'openProjectOverview', folderPrefix: selectedPrefix });
 			});
+		const btnCheckpoints = document.getElementById('btnCheckpoints');
+		if (btnCheckpoints)
+			btnCheckpoints.addEventListener('click', function () {
+				openCheckpoints();
+			});
 		const btnTags = document.getElementById('btnTags');
 		if (btnTags)
 			btnTags.addEventListener('click', function (e) {
@@ -2666,11 +2714,14 @@
 				toggleOnlinePopover();
 			});
 		}
-		root.querySelectorAll('.vs-btn').forEach(function (btn) {
+		root.querySelectorAll('.detail-switch .vs-btn').forEach(function (btn) {
 			btn.addEventListener('click', function (e) {
 				e.stopPropagation();
-				detailView = btn.getAttribute('data-detail-view') === 'issues' ? 'issues' : 'features';
-				renderProjectDetail();
+				const next = btn.getAttribute('data-detail-view');
+				if (next === 'issues' || next === 'features') {
+					detailView = next;
+					renderProjectDetail();
+				}
 			});
 		});
 		const scope = document.getElementById('teamScope');
@@ -3614,6 +3665,1322 @@
 		bindIssuesView();
 	}
 
+	/** Open Updation log and force a fresh project reload so recent status changes show up. */
+	function openUpdationLog() {
+		detailView = 'updation';
+		detailLoading = true;
+		renderProjectDetail();
+		vscode.postMessage({
+			type: 'reloadProject',
+			folderPrefix: selectedPrefix,
+			reason: 'updationLog'
+		});
+	}
+
+	/** Open Checkpoints list (project changelog timeline). */
+	function openCheckpoints() {
+		detailView = 'checkpoints';
+		checkpointMode = 'list';
+		checkpointEditing = false;
+		checkpointEditPicker = null;
+		checkpointCompose = null;
+		checkpointSelectedKeys = {};
+		checkpointDescByKey = {};
+		checkpointDateDraft = '';
+		checkpointDetail = null;
+		checkpointWriteUp = '';
+		checkpointPastePending = false;
+		detailLoading = true;
+		renderProjectDetail();
+		vscode.postMessage({ type: 'listCheckpoints', folderPrefix: selectedPrefix });
+	}
+
+	function startNewCheckpoint() {
+		checkpointMode = 'compose';
+		checkpointEditing = false;
+		checkpointEditPicker = null;
+		checkpointCompose = null;
+		checkpointSelectedKeys = {};
+		detailLoading = true;
+		renderProjectDetail();
+		vscode.postMessage({ type: 'composeCheckpoint', folderPrefix: selectedPrefix });
+	}
+
+	function openCheckpointDetail(rel) {
+		checkpointMode = 'detail';
+		checkpointEditing = false;
+		checkpointEditPicker = null;
+		checkpointDetail = null;
+		detailLoading = true;
+		renderProjectDetail();
+		vscode.postMessage({
+			type: 'openCheckpoint',
+			folderPrefix: selectedPrefix,
+			rel: rel
+		});
+	}
+
+	/** Flatten frozen tree → editor candidate rows (instant, no host round-trip). */
+	function candidatesFromCheckpointTree(tree) {
+		/** @type {Array<{ issueKey: string, title: string, description: string, category: string, feature: string }>} */
+		const out = [];
+		(tree || []).forEach(function (cat) {
+			(cat.features || []).forEach(function (feat) {
+				(feat.issues || []).forEach(function (issue) {
+					const key = String(issue.issueKey || '');
+					if (!key) return;
+					const desc = String(issue.title || key);
+					out.push({
+						issueKey: key,
+						title: desc,
+						description: desc,
+						category: categoryLabel(cat.name),
+						feature: featureChipLabel(feat.name)
+					});
+				});
+			});
+		});
+		return out;
+	}
+
+	function beginCheckpointEdit() {
+		if (!checkpointDetail || !checkpointDetail.rel) return;
+		checkpointEditing = true;
+		checkpointAddable = null;
+		checkpointSelectedKeys = {};
+		checkpointDescByKey = {};
+		checkpointDateDraft = String(checkpointDetail.date || '').trim().slice(0, 10);
+		const candidates = candidatesFromCheckpointTree(checkpointDetail.tree || []);
+		candidates.forEach(function (c) {
+			checkpointSelectedKeys[c.issueKey] = true;
+			checkpointDescByKey[c.issueKey] = c.description;
+		});
+		checkpointEditPicker = {
+			tree: checkpointDetail.tree || [],
+			candidates: candidates
+		};
+		renderProjectDetail();
+	}
+
+	function openCheckpointAddable() {
+		if (!checkpointDetail || !checkpointDetail.rel) return;
+		checkpointAddable = { loading: true };
+		renderProjectDetail();
+		const exclude = (checkpointEditPicker && checkpointEditPicker.candidates
+			? checkpointEditPicker.candidates
+			: []
+		)
+			.map(function (c) {
+				return c.issueKey;
+			})
+			.filter(Boolean);
+		vscode.postMessage({
+			type: 'prepareCheckpointEdit',
+			folderPrefix: selectedPrefix,
+			rel: checkpointDetail.rel,
+			excludeKeys: exclude
+		});
+	}
+
+	function checkpointTreeHtml(tree, opts) {
+		const options = opts || {};
+		const selectable = !!options.selectable;
+		const selected = options.selected || {};
+		const days = Array.isArray(tree) ? tree : [];
+		if (!days.length) {
+			return selectable
+				? '<div class="empty">No completed issues left for a new checkpoint. You can still create one and write the story.</div>'
+				: '<div class="empty">No completed issues in this checkpoint.</div>';
+		}
+		let html = '<div class="checkpoint-tree">';
+		days.forEach(function (cat) {
+			html +=
+				'<div class="checkpoint-cat"><div class="checkpoint-cat-title">' +
+				esc(categoryLabel(cat.name)) +
+				'</div>';
+			(cat.features || []).forEach(function (feat) {
+				html +=
+					'<div class="checkpoint-feat"><div class="checkpoint-feat-title">' +
+					esc(featureChipLabel(feat.name)) +
+					'</div>';
+				html += '<ul class="checkpoint-issues">';
+				(feat.issues || []).forEach(function (issue) {
+					const key = String(issue.issueKey || '');
+					html += '<li>';
+					if (selectable) {
+						html +=
+							'<label class="checkpoint-pick">' +
+							'<input type="checkbox" data-checkpoint-key="' +
+							esc(key) +
+							'"' +
+							(selected[key] !== false ? ' checked' : '') +
+							' />' +
+							'<span class="updation-ikey">' +
+							esc(key) +
+							'</span> ' +
+							'<span class="updation-ititle">' +
+							esc(issue.title || '') +
+							'</span>' +
+							'</label>';
+					} else {
+						html +=
+							'<button type="button" class="checkpoint-issue-open" data-issue-key="' +
+							esc(key) +
+							'">' +
+							'<span class="updation-ikey">' +
+							esc(key) +
+							'</span> ' +
+							'<span class="updation-ititle">' +
+							esc(issue.title || '') +
+							'</span></button>';
+					}
+					html += '</li>';
+				});
+				html += '</ul></div>';
+			});
+			html += '</div>';
+		});
+		html += '</div>';
+		return html;
+	}
+
+	/** Feature chip label without `.f` / feature-file suffixes. */
+	function featureChipLabel(raw) {
+		let s = String(raw || '').trim();
+		// Strip drip type markers that sometimes leak from h0 / folder names.
+		s = s.replace(/^#+\s*/, '').replace(/^\.\s*f\b\s*/i, '');
+		s = s.replace(/\/+$/, '').trim();
+		const base = (s.split(/[/\\]/).pop() || s).trim();
+		return (
+			base
+				.replace(/\.f\.d\.(txt|md)$/i, '')
+				.replace(/\.f$/i, '')
+				.trim() || 'Other'
+		);
+	}
+
+	/** Category heading label — plain name, never a `#` markdown prefix. */
+	function categoryLabel(raw) {
+		let s = String(raw || '').trim();
+		if (!s || s === '(none)') return 'Other';
+		s = s.replace(/^#+\s*/, '').trim();
+		return s || 'Other';
+	}
+
+	/**
+	 * Category headings (collapsible) → points with feature chip + issue chip + description.
+	 * Descriptions are inline-editable (place cursor and type); blur saves.
+	 */
+	function checkpointChangelogHtml(tree) {
+		const cats = Array.isArray(tree) ? tree : [];
+		if (!cats.length) {
+			return '<div class="empty">No completed issues in this checkpoint.</div>';
+		}
+		let html = '<div class="checkpoint-changelog">';
+		cats.forEach(function (cat) {
+			const catName = categoryLabel(cat.name);
+			const collapsed = collapsedCheckpointCats.has(catName);
+			html +=
+				'<button type="button" class="checkpoint-change-heading" data-checkpoint-cat="' +
+				esc(catName) +
+				'" aria-expanded="' +
+				(collapsed ? 'false' : 'true') +
+				'">' +
+				'<span class="checkpoint-cat-chevron">' +
+				(collapsed ? '\u25B8' : '\u25BE') +
+				'</span>' +
+				esc(catName) +
+				'</button>';
+			if (collapsed) return;
+			html += '<ul class="checkpoint-change-group">';
+			(cat.features || []).forEach(function (feat) {
+				const featName = featureChipLabel(feat.name);
+				(feat.issues || []).forEach(function (issue) {
+					const key = String(issue.issueKey || '');
+					const desc =
+						checkpointDescByKey[key] != null
+							? checkpointDescByKey[key]
+							: String(issue.title || key);
+					// Read view: feature chip + description only (issue keys stay in Edit).
+					html +=
+						'<li class="checkpoint-change-row">' +
+						'<span class="checkpoint-bullet" aria-hidden="true">\u2022</span>' +
+						'<div class="checkpoint-change-body">' +
+						'<span class="checkpoint-feat-chip" title="Feature">' +
+						esc(featName) +
+						'</span>' +
+						'<textarea class="checkpoint-change-text-input" data-checkpoint-desc="' +
+						esc(key) +
+						'" rows="1" placeholder="End-user description">' +
+						esc(desc) +
+						'</textarea>' +
+						'</div></li>';
+				});
+			});
+			html += '</ul>';
+		});
+		html += '</div>';
+		return html;
+	}
+
+	/**
+	 * Edit-only issue list: include toggle + editable end-user description (not the read layout).
+	 * Only shows issues already on this checkpoint; use + to pull in more.
+	 */
+	function checkpointIssueEditorHtml() {
+		if (!checkpointEditPicker) {
+			return '<div class="empty">No issues on this checkpoint yet. Use + to add some.</div>';
+		}
+		const candidates = (checkpointEditPicker.candidates || []).filter(function (c) {
+			return checkpointSelectedKeys[c.issueKey] !== false;
+		});
+		let html = '<div class="checkpoint-issue-editor">';
+		if (!candidates.length) {
+			html += '<div class="empty">No issues on this checkpoint yet.</div>';
+		} else {
+			/** @type {Map<string, typeof candidates>} */
+			const byCat = new Map();
+			candidates.forEach(function (c) {
+				const cat = categoryLabel(c.category);
+				if (!byCat.has(cat)) byCat.set(cat, []);
+				byCat.get(cat).push(c);
+			});
+			const cats = Array.from(byCat.keys()).sort(function (a, b) {
+				if (a === 'Other') return 1;
+				if (b === 'Other') return -1;
+				return a.toLowerCase().localeCompare(b.toLowerCase());
+			});
+			cats.forEach(function (cat) {
+				const label = cat;
+				html +=
+					'<div class="checkpoint-edit-cat"><div class="checkpoint-edit-cat-title">' +
+					esc(label) +
+					'</div>';
+				byCat.get(cat).forEach(function (c) {
+					const key = String(c.issueKey || '');
+					const desc =
+						checkpointDescByKey[key] != null
+							? checkpointDescByKey[key]
+							: String(c.description || c.title || key);
+					html +=
+						'<div class="checkpoint-edit-issue">' +
+						'<div class="checkpoint-edit-issue-head">' +
+						'<span class="checkpoint-feat-chip">' +
+						esc(featureChipLabel(c.feature)) +
+						'</span>' +
+						'<span class="checkpoint-issue-chip">' +
+						esc(key) +
+						'</span>' +
+						'<button type="button" class="ghost checkpoint-remove-issue" data-remove-key="' +
+						esc(key) +
+						'" title="Remove from this checkpoint">Remove</button>' +
+						'</div>' +
+						'<input type="text" class="checkpoint-desc-input" data-checkpoint-desc="' +
+						esc(key) +
+						'" value="' +
+						esc(desc) +
+						'" placeholder="End-user description for the changelog" />' +
+						'</div>';
+				});
+				html += '</div>';
+			});
+		}
+		html +=
+			'<div class="checkpoint-add-row">' +
+			'<button type="button" class="ghost" id="btnCheckpointAddIssue">+ Add issue</button>' +
+			'</div>';
+		if (checkpointAddable && checkpointAddable.loading) {
+			html += '<div class="empty">Loading available issues\u2026</div>';
+		} else if (checkpointAddable && Array.isArray(checkpointAddable.candidates)) {
+			html += '<div class="checkpoint-addable">';
+			html +=
+				'<div class="checkpoint-addable-head"><span>Add completed issues</span>' +
+				'<button type="button" class="ghost" id="btnCheckpointAddableClose">Close</button></div>';
+			if (!checkpointAddable.candidates.length) {
+				html += '<div class="empty">No other completed issues available.</div>';
+			} else {
+				checkpointAddable.candidates.forEach(function (c) {
+					html +=
+						'<button type="button" class="checkpoint-addable-row" data-add-key="' +
+						esc(c.issueKey) +
+						'">' +
+						'<span class="checkpoint-feat-chip">' +
+						esc(featureChipLabel(c.feature)) +
+						'</span>' +
+						'<span class="checkpoint-issue-chip">' +
+						esc(c.issueKey) +
+						'</span>' +
+						'<span class="checkpoint-change-text">' +
+						esc(c.title || c.issueKey) +
+						'</span>' +
+						'</button>';
+				});
+			}
+			html += '</div>';
+		}
+		html += '</div>';
+		return html;
+	}
+
+	/**
+	 * Render one write-up text line: drip `#1`…`#6` (preferred) or markdown `#{1,6}`, else plain text.
+	 * @param {string} line
+	 * @returns {string}
+	 */
+	function writeUpLineHtml(line) {
+		const raw = String(line || '');
+		// Drip marker levels (`#1 Title`) — story sections use these, not bare `#`.
+		const dripHeading = raw.match(/^#([1-6])\s+(.+)$/);
+		if (dripHeading) {
+			const level = Math.min(6, parseInt(dripHeading[1], 10) || 1);
+			const tag = 'h' + Math.min(6, level + 2);
+			return (
+				'<' +
+				tag +
+				' class="checkpoint-story-title checkpoint-md-h' +
+				level +
+				'">' +
+				esc(dripHeading[2]) +
+				'</' +
+				tag +
+				'>'
+			);
+		}
+		// Markdown fallback (`## Title`) for older `.d.md` write-ups.
+		const mdHeading = raw.match(/^(#{1,6})\s+(.+)$/);
+		if (mdHeading) {
+			const level = Math.min(6, mdHeading[1].length);
+			const tag = 'h' + Math.min(6, level + 2);
+			return (
+				'<' +
+				tag +
+				' class="checkpoint-story-title checkpoint-md-h' +
+				level +
+				'">' +
+				esc(mdHeading[2]) +
+				'</' +
+				tag +
+				'>'
+			);
+		}
+		if (!raw.trim()) return '';
+		return '<p class="checkpoint-story-p">' + esc(raw) + '</p>';
+	}
+
+	/**
+	 * Render write-up as a changelog article: `#` headings, images, paragraphs.
+	 */
+	function resolveCheckpointImageSrc(rel, imageUris) {
+		const key = String(rel || '').trim().replace(/\\/g, '/');
+		if (!key) return '';
+		const uris = imageUris || {};
+		if (uris[key]) return uris[key];
+		// Tolerate leading ./ or mismatched slash style from older notes.
+		const bare = key.replace(/^\.\//, '');
+		if (uris[bare]) return uris[bare];
+		if (uris['./' + bare]) return uris['./' + bare];
+		const keys = Object.keys(uris);
+		for (let i = 0; i < keys.length; i++) {
+			const k = String(keys[i] || '').replace(/\\/g, '/');
+			if (k === key || k.endsWith('/' + bare) || bare.endsWith('/' + k) || k === bare) {
+				return uris[keys[i]];
+			}
+		}
+		return '';
+	}
+
+	function writeUpViewHtml(writeUp, imageUris) {
+		const text = String(writeUp || '').replace(/\r\n/g, '\n').trim();
+		if (!text) {
+			return (
+				'<div class="empty checkpoint-write-empty">No story yet. Press <strong>Edit</strong> to write it. Use <code>#1 Heading</code> for section titles, and paste screenshots into the story.</div>'
+			);
+		}
+		const chunks = text.split(/(!\[[^\]]*\]\([^)]+\))/g);
+		let html = '<div class="checkpoint-article">';
+		chunks.forEach(function (chunk) {
+			const img = chunk.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+			if (img) {
+				const rel = String(img[2] || '').trim();
+				const src = resolveCheckpointImageSrc(rel, imageUris);
+				if (src) {
+					html +=
+						'<figure class="checkpoint-img"><img src="' +
+						esc(src) +
+						'" alt="' +
+						esc(img[1] || '') +
+						'" loading="lazy" /></figure>';
+				} else {
+					html +=
+						'<figure class="checkpoint-img checkpoint-img-missing"><span class="meta">Image unavailable</span></figure>';
+				}
+				return;
+			}
+			const blocks = String(chunk || '')
+				.split(/\n{2,}/)
+				.map(function (b) {
+					return b.replace(/^\n+|\n+$/g, '');
+				})
+				.filter(Boolean);
+			blocks.forEach(function (block) {
+				const lines = block.split('\n');
+				// A block that is only heading lines (or mixed): render line-by-line so # works.
+				const hasHeading = lines.some(function (ln) {
+					const t = String(ln || '').trim();
+					return /^#[1-6]\s+\S/.test(t) || /^#{1,6}\s+\S/.test(t);
+				});
+				if (hasHeading || lines.length === 1) {
+					lines.forEach(function (ln) {
+						html += writeUpLineHtml(ln);
+					});
+					return;
+				}
+				html +=
+					'<p class="checkpoint-story-p">' +
+					esc(block).replace(/\n/g, '<br/>') +
+					'</p>';
+			});
+		});
+		html += '</div>';
+		return html;
+	}
+
+	function renderCheckpointsView(title) {
+		let html = detailHeaderHtml(title);
+		if (checkpointMode === 'compose') {
+			const dateVal = checkpointDateDraft || (checkpointCompose && checkpointCompose.date) || '';
+			html +=
+				'<div class="checkpoint-panel">' +
+				'<div class="checkpoint-head">' +
+				'<button type="button" class="ghost" id="btnCheckpointBack">\u2190 Checkpoints</button>' +
+				'<h3>New checkpoint' +
+				(dateVal ? ' · ' + esc(dateVal) : '') +
+				'</h3>' +
+				'<button type="button" id="btnCheckpointCreate">Create checkpoint</button>' +
+				'</div>' +
+				'<label class="checkpoint-write-label">Checkpoint date</label>' +
+				'<input type="date" id="checkpointDate" class="checkpoint-date" value="' +
+				esc(dateVal) +
+				'" />' +
+				'<p class="page-sub">All completed issues not yet in an earlier checkpoint are selected. Uncheck any you want to leave for the next checkpoint.</p>' +
+				(checkpointCompose
+					? checkpointTreeHtml(checkpointCompose.tree, {
+							selectable: true,
+							selected: checkpointSelectedKeys
+						})
+					: '<div class="empty">Loading completed issues\u2026</div>') +
+				'</div>';
+			root.innerHTML = html;
+			bindDetailHeader();
+			bindCheckpointCompose();
+			return;
+		}
+		if (checkpointMode === 'detail' && checkpointDetail) {
+			html +=
+				'<div class="checkpoint-panel checkpoint-changelog-page">' +
+				'<div class="checkpoint-head">' +
+				'<button type="button" class="ghost" id="btnCheckpointBack">\u2190 Checkpoints</button>' +
+				'<h3>' +
+				esc(checkpointDetail.title || (checkpointDetail.date ? 'Checkpoint ' + checkpointDetail.date : 'Checkpoint')) +
+				'</h3>';
+			if (checkpointEditing) {
+				html +=
+					'<button type="button" class="ghost" id="btnCheckpointCancelEdit">Cancel</button>' +
+					'<button type="button" id="btnCheckpointSave">Save</button>';
+			} else {
+				html +=
+					'<button type="button" id="btnCheckpointEdit">Edit</button>' +
+					'<button type="button" class="ghost danger" id="btnCheckpointDelete">Delete</button>';
+			}
+			html += '</div>';
+			if (checkpointEditing) {
+				html +=
+					'<label class="checkpoint-write-label">Checkpoint date</label>' +
+					'<input type="date" id="checkpointDate" class="checkpoint-date" value="' +
+					esc(checkpointDateDraft || checkpointDetail.date || '') +
+					'" />' +
+					'<label class="checkpoint-write-label">Story <span class="meta">(use <code>#1 Heading</code>; paste images into the box — they render in the preview below)</span></label>' +
+					'<textarea id="checkpointWriteUp" class="checkpoint-write" rows="10" placeholder="#1 Overview&#10;&#10;What shipped and why it matters.&#10;&#10;#1 Highlights">' +
+					esc(checkpointWriteUp) +
+					'</textarea>' +
+					'<div class="checkpoint-write-label">Preview</div>' +
+					'<div id="checkpointStoryPreview" class="checkpoint-story-preview">' +
+					writeUpViewHtml(checkpointWriteUp, checkpointDetail.imageUris || {}) +
+					'</div>' +
+					'<h4 class="checkpoint-section-title">Issues in this checkpoint</h4>' +
+					'<p class="page-sub">Issue keys show here in Edit. Rewrite each description for end users, remove one, or press + Add issue.</p>' +
+					checkpointIssueEditorHtml();
+			} else {
+				html +=
+					writeUpViewHtml(checkpointWriteUp, checkpointDetail.imageUris || {}) +
+					checkpointChangelogHtml(checkpointDetail.tree || []);
+			}
+			html += '</div>';
+			root.innerHTML = html;
+			bindDetailHeader();
+			bindCheckpointDetail();
+			return;
+		}
+		html +=
+			'<div class="checkpoint-panel">' +
+			'<div class="checkpoint-head">' +
+			'<h3>Checkpoints</h3>' +
+			'<button type="button" class="ghost" id="btnCheckpointUpdationLog">Updation log</button>' +
+			'<button type="button" id="btnNewCheckpoint">New checkpoint</button>' +
+			'</div>' +
+			rangeToolbarHtml({
+				range: checkpointRange,
+				from: checkpointFrom,
+				to: checkpointTo,
+				attr: 'checkpoint-range',
+				customId: 'checkpoint-custom',
+				fromId: 'checkpoint-from',
+				toId: 'checkpoint-to',
+				applyId: 'checkpoint-apply',
+				aria: 'Checkpoints range'
+			});
+		const bounds = checkpointRangeBounds();
+		const filtered = checkpointsList.filter(function (cp) {
+			const day = String(cp.date || '').trim();
+			if (!day) return checkpointRange === 'recent';
+			const p = day.split('-').map(Number);
+			if (p.length !== 3) return checkpointRange === 'recent';
+			const ms = new Date(p[0], p[1] - 1, p[2]).getTime();
+			if (bounds.fromMs != null && ms < bounds.fromMs) return false;
+			if (bounds.toMs != null && ms > bounds.toMs) return false;
+			return true;
+		});
+		if (!checkpointsList.length) {
+			html += '<div class="empty">No checkpoints yet. Create one to capture progress.</div>';
+		} else if (!filtered.length) {
+			html += '<div class="empty">No checkpoints in this range</div>';
+		} else {
+			const sorted = filtered.slice().sort(function (a, b) {
+				const da = String(a.date || '');
+				const db = String(b.date || '');
+				if (da && db && da !== db) return db.localeCompare(da);
+				if (da && !db) return -1;
+				if (!da && db) return 1;
+				return String(b.title || '').localeCompare(String(a.title || ''));
+			});
+			html += '<div class="updation-timeline checkpoint-timeline">';
+			sorted.forEach(function (cp) {
+				const dateLabel = String(cp.date || '').trim() || 'No date';
+				html +=
+					'<div class="updation-row">' +
+					'<div class="updation-date">' +
+					esc(dateLabel) +
+					'</div>' +
+					'<div class="updation-rail" aria-hidden="true"><span class="updation-dot"></span></div>' +
+					'<div class="updation-body">' +
+					'<button type="button" class="updation-issue checkpoint-timeline-item" data-rel="' +
+					esc(cp.rel) +
+					'">' +
+					'<span class="updation-ititle">' +
+					esc(cp.title || (cp.date ? 'Checkpoint ' + cp.date : 'Checkpoint')) +
+					'</span>' +
+					(cp.issueCount
+						? '<span class="meta checkpoint-timeline-meta">' +
+							esc(String(cp.issueCount)) +
+							' issue' +
+							(cp.issueCount === 1 ? '' : 's') +
+							'</span>'
+						: '') +
+					'</button></div></div>';
+			});
+			html += '</div>';
+		}
+		html += '</div>';
+		root.innerHTML = html;
+		bindDetailHeader();
+		bindCheckpointList();
+	}
+
+	function bindCheckpointList() {
+		const btnNew = document.getElementById('btnNewCheckpoint');
+		if (btnNew) btnNew.addEventListener('click', startNewCheckpoint);
+		const btnUpdation = document.getElementById('btnCheckpointUpdationLog');
+		if (btnUpdation) btnUpdation.addEventListener('click', openUpdationLog);
+		root.querySelectorAll('[data-checkpoint-range]').forEach(function (btn) {
+			btn.addEventListener('click', function () {
+				const r = btn.getAttribute('data-checkpoint-range');
+				if (r === 'recent' || r === '7' || r === '30' || r === 'custom') {
+					checkpointRange = r;
+					renderProjectDetail();
+				}
+			});
+		});
+		const apply = document.getElementById('checkpoint-apply');
+		if (apply) {
+			apply.addEventListener('click', function () {
+				const fromEl = document.getElementById('checkpoint-from');
+				const toEl = document.getElementById('checkpoint-to');
+				checkpointFrom = fromEl ? String(fromEl.value || '') : '';
+				checkpointTo = toEl ? String(toEl.value || '') : '';
+				renderProjectDetail();
+			});
+		}
+		root.querySelectorAll('.checkpoint-timeline-item').forEach(function (btn) {
+			btn.addEventListener('click', function () {
+				openCheckpointDetail(btn.getAttribute('data-rel') || '');
+			});
+		});
+	}
+
+	function bindCheckpointCompose() {
+		const back = document.getElementById('btnCheckpointBack');
+		if (back)
+			back.addEventListener('click', function () {
+				checkpointMode = 'list';
+				checkpointCompose = null;
+				checkpointDateDraft = '';
+				openCheckpoints();
+			});
+		const dateEl = document.getElementById('checkpointDate');
+		if (dateEl)
+			dateEl.addEventListener('change', function () {
+				checkpointDateDraft = String(dateEl.value || '');
+			});
+		root.querySelectorAll('input[data-checkpoint-key]').forEach(function (box) {
+			box.addEventListener('change', function () {
+				const key = box.getAttribute('data-checkpoint-key') || '';
+				if (!key) return;
+				checkpointSelectedKeys[key] = !!box.checked;
+			});
+		});
+		const create = document.getElementById('btnCheckpointCreate');
+		if (create)
+			create.addEventListener('click', function () {
+				if (!checkpointCompose) return;
+				const selected = (checkpointCompose.candidates || []).filter(function (c) {
+					return c && c.issueKey && checkpointSelectedKeys[c.issueKey] !== false;
+				});
+				const keys = selected.map(function (c) {
+					return c.issueKey;
+				});
+				const dateEl2 = document.getElementById('checkpointDate');
+				const date =
+					(dateEl2 && dateEl2.value) ||
+					checkpointDateDraft ||
+					checkpointCompose.date ||
+					'';
+				// Seed the editor instantly from the selection — no second “Loading issues…” wait.
+				checkpointDescByKey = {};
+				checkpointSelectedKeys = {};
+				selected.forEach(function (c) {
+					checkpointSelectedKeys[c.issueKey] = true;
+					checkpointDescByKey[c.issueKey] = String(c.title || c.issueKey);
+				});
+				checkpointEditPicker = {
+					tree: [],
+					candidates: selected.map(function (c) {
+						return {
+							issueKey: c.issueKey,
+							title: String(c.title || c.issueKey),
+							description: String(c.title || c.issueKey),
+							category: String(c.category || '(none)'),
+							feature: String(c.feature || 'Other')
+						};
+					})
+				};
+				checkpointAddable = null;
+				checkpointWriteUp = '';
+				checkpointDateDraft = date;
+				checkpointEditing = true;
+				detailLoading = true;
+				renderProjectDetail();
+				vscode.postMessage({
+					type: 'createCheckpoint',
+					folderPrefix: selectedPrefix,
+					date: date,
+					writeUp: '',
+					issueKeys: keys,
+					issueDescriptions: checkpointDescByKey
+				});
+			});
+	}
+
+	function bindCheckpointDetail() {
+		const back = document.getElementById('btnCheckpointBack');
+		if (back)
+			back.addEventListener('click', function () {
+				checkpointMode = 'list';
+				checkpointEditing = false;
+				checkpointDetail = null;
+				checkpointWriteUp = '';
+				openCheckpoints();
+			});
+		const editBtn = document.getElementById('btnCheckpointEdit');
+		if (editBtn) editBtn.addEventListener('click', beginCheckpointEdit);
+		const deleteBtn = document.getElementById('btnCheckpointDelete');
+		if (deleteBtn)
+			deleteBtn.addEventListener('click', function () {
+				if (!checkpointDetail || !checkpointDetail.rel) return;
+				vscode.postMessage({
+					type: 'deleteCheckpoint',
+					folderPrefix: selectedPrefix,
+					rel: checkpointDetail.rel
+				});
+			});
+		const cancelBtn = document.getElementById('btnCheckpointCancelEdit');
+		if (cancelBtn)
+			cancelBtn.addEventListener('click', function () {
+				checkpointEditing = false;
+				checkpointEditPicker = null;
+				checkpointDateDraft = '';
+				if (checkpointDetail) checkpointWriteUp = String(checkpointDetail.writeUp || checkpointWriteUp);
+				renderProjectDetail();
+				if (checkpointDetail && checkpointDetail.rel) {
+					vscode.postMessage({
+						type: 'openCheckpoint',
+						folderPrefix: selectedPrefix,
+						rel: checkpointDetail.rel
+					});
+				}
+			});
+		const dateEl = document.getElementById('checkpointDate');
+		if (dateEl)
+			dateEl.addEventListener('change', function () {
+				checkpointDateDraft = String(dateEl.value || '');
+			});
+		/** Grow a description textarea so wrapped text stays visible as one continuous bullet. */
+		function growCheckpointDesc(el) {
+			if (!el || el.tagName !== 'TEXTAREA') return;
+			el.style.height = '0px';
+			el.style.height = el.scrollHeight + 'px';
+		}
+		root.querySelectorAll('[data-checkpoint-desc]').forEach(function (input) {
+			growCheckpointDesc(input);
+			input.addEventListener('input', function () {
+				const key = input.getAttribute('data-checkpoint-desc') || '';
+				if (!key) return;
+				checkpointDescByKey[key] = input.value;
+				growCheckpointDesc(input);
+			});
+			// Read-view inline edit: place cursor, type, blur → save descriptions.
+			if (input.classList.contains('checkpoint-change-text-input')) {
+				input.addEventListener('blur', function () {
+					if (!checkpointDetail || checkpointEditing) return;
+					const key = input.getAttribute('data-checkpoint-desc') || '';
+					if (!key) return;
+					const next = String(input.value || '').trim() || key;
+					let prev = key;
+					(checkpointDetail.tree || []).forEach(function (cat) {
+						(cat.features || []).forEach(function (feat) {
+							(feat.issues || []).forEach(function (issue) {
+								if (String(issue.issueKey || '') === key) {
+									prev = String(issue.title || key);
+									issue.title = next;
+								}
+							});
+						});
+					});
+					if (next === prev) return;
+					checkpointDescByKey[key] = next;
+					const keys = checkpointDetail.issueKeys || [];
+					/** @type {Record<string, string>} */
+					const descriptions = {};
+					keys.forEach(function (k) {
+						if (checkpointDescByKey[k] != null && String(checkpointDescByKey[k]).trim()) {
+							descriptions[k] = String(checkpointDescByKey[k]).trim();
+							return;
+						}
+						let found = k;
+						(checkpointDetail.tree || []).forEach(function (cat) {
+							(cat.features || []).forEach(function (feat) {
+								(feat.issues || []).forEach(function (issue) {
+									if (String(issue.issueKey || '') === k) found = String(issue.title || k);
+								});
+							});
+						});
+						descriptions[k] = found;
+					});
+					descriptions[key] = next;
+					// Keep typing fluid: host save must not remount the inputs.
+					checkpointInlineSaving = true;
+					vscode.postMessage({
+						type: 'saveCheckpointWriteUp',
+						folderPrefix: selectedPrefix,
+						rel: checkpointDetail.rel,
+						writeUp: checkpointWriteUp,
+						date: checkpointDetail.date || '',
+						issueKeys: keys,
+						issueDescriptions: descriptions
+					});
+				});
+			}
+		});
+		root.querySelectorAll('.checkpoint-remove-issue').forEach(function (btn) {
+			btn.addEventListener('click', function () {
+				const key = btn.getAttribute('data-remove-key') || '';
+				if (!key) return;
+				checkpointSelectedKeys[key] = false;
+				if (checkpointEditPicker && Array.isArray(checkpointEditPicker.candidates)) {
+					checkpointEditPicker.candidates = checkpointEditPicker.candidates.filter(function (c) {
+						return c.issueKey !== key;
+					});
+				}
+				renderProjectDetail();
+			});
+		});
+		const addBtn = document.getElementById('btnCheckpointAddIssue');
+		if (addBtn) addBtn.addEventListener('click', openCheckpointAddable);
+		const addClose = document.getElementById('btnCheckpointAddableClose');
+		if (addClose)
+			addClose.addEventListener('click', function () {
+				checkpointAddable = null;
+				renderProjectDetail();
+			});
+		root.querySelectorAll('.checkpoint-addable-row').forEach(function (btn) {
+			btn.addEventListener('click', function () {
+				const key = btn.getAttribute('data-add-key') || '';
+				if (!key || !checkpointAddable || !Array.isArray(checkpointAddable.candidates)) return;
+				const row = checkpointAddable.candidates.find(function (c) {
+					return c.issueKey === key;
+				});
+				if (!row) return;
+				if (!checkpointEditPicker) checkpointEditPicker = { tree: [], candidates: [] };
+				if (!checkpointEditPicker.candidates) checkpointEditPicker.candidates = [];
+				const already = checkpointEditPicker.candidates.some(function (c) {
+					return c.issueKey === key;
+				});
+				if (!already) {
+					checkpointEditPicker.candidates.push({
+						issueKey: row.issueKey,
+						title: String(row.title || key),
+						description: String(row.description || row.title || key),
+						category: String(row.category || '(none)'),
+						feature: String(row.feature || 'Other')
+					});
+				}
+				checkpointSelectedKeys[key] = true;
+				checkpointDescByKey[key] = String(row.description || row.title || key);
+				checkpointAddable.candidates = checkpointAddable.candidates.filter(function (c) {
+					return c.issueKey !== key;
+				});
+				renderProjectDetail();
+			});
+		});
+		root.querySelectorAll('.checkpoint-change-heading[data-checkpoint-cat]').forEach(function (btn) {
+			btn.addEventListener('click', function () {
+				const cat = btn.getAttribute('data-checkpoint-cat') || '';
+				if (!cat) return;
+				if (collapsedCheckpointCats.has(cat)) collapsedCheckpointCats.delete(cat);
+				else collapsedCheckpointCats.add(cat);
+				renderProjectDetail();
+			});
+		});
+		const area = document.getElementById('checkpointWriteUp');
+		if (area) {
+			area.addEventListener('input', function () {
+				checkpointWriteUp = area.value;
+				const preview = document.getElementById('checkpointStoryPreview');
+				if (preview) {
+					preview.innerHTML = writeUpViewHtml(
+						checkpointWriteUp,
+						(checkpointDetail && checkpointDetail.imageUris) || {}
+					);
+				}
+			});
+			area.addEventListener('paste', function (e) {
+				const items = e.clipboardData && e.clipboardData.items;
+				if (!items || !checkpointDetail) return;
+				for (let i = 0; i < items.length; i++) {
+					const item = items[i];
+					if (!item || !String(item.type || '').startsWith('image/')) continue;
+					e.preventDefault();
+					const file = item.getAsFile();
+					if (!file) return;
+					const caretStart = typeof area.selectionStart === 'number' ? area.selectionStart : area.value.length;
+					const caretEnd = typeof area.selectionEnd === 'number' ? area.selectionEnd : caretStart;
+					checkpointWriteUp = area.value;
+					const reader = new FileReader();
+					reader.onload = function () {
+						const result = String(reader.result || '');
+						const comma = result.indexOf(',');
+						const dataBase64 = comma >= 0 ? result.slice(comma + 1) : '';
+						const mime = String(item.type || 'image/png');
+						let ext = '.png';
+						if (mime.indexOf('jpeg') >= 0 || mime.indexOf('jpg') >= 0) ext = '.jpg';
+						else if (mime.indexOf('gif') >= 0) ext = '.gif';
+						else if (mime.indexOf('webp') >= 0) ext = '.webp';
+						checkpointEditing = true;
+						checkpointPastePending = true;
+						vscode.postMessage({
+							type: 'pasteCheckpointImage',
+							folderPrefix: selectedPrefix,
+							rel: checkpointDetail.rel,
+							writeUp: checkpointWriteUp,
+							caretStart: caretStart,
+							caretEnd: caretEnd,
+							dataBase64: dataBase64,
+							mime: mime,
+							ext: ext
+						});
+					};
+					reader.readAsDataURL(file);
+					return;
+				}
+			});
+			/* Do not autofocus the story box — it steals the cursor from issue descriptions. */
+		}
+		const save = document.getElementById('btnCheckpointSave');
+		if (save)
+			save.addEventListener('click', function () {
+				if (!checkpointDetail) return;
+				const keys = checkpointEditPicker
+					? (checkpointEditPicker.candidates || [])
+							.map(function (c) {
+								return c.issueKey;
+							})
+							.filter(function (k) {
+								return checkpointSelectedKeys[k] !== false;
+							})
+					: checkpointDetail.issueKeys || [];
+				/** @type {Record<string, string>} */
+				const descriptions = {};
+				keys.forEach(function (k) {
+					const fromInput = checkpointDescByKey[k];
+					const fromCand = (checkpointEditPicker && checkpointEditPicker.candidates || []).find(
+						function (c) {
+							return c.issueKey === k;
+						}
+					);
+					descriptions[k] = String(
+						fromInput != null && String(fromInput).trim()
+							? fromInput
+							: (fromCand && (fromCand.description || fromCand.title)) || k
+					).trim();
+				});
+				const dateEl2 = document.getElementById('checkpointDate');
+				const date =
+					(dateEl2 && dateEl2.value) ||
+					checkpointDateDraft ||
+					checkpointDetail.date ||
+					'';
+				checkpointEditing = false;
+				checkpointEditPicker = null;
+				checkpointAddable = null;
+				vscode.postMessage({
+					type: 'saveCheckpointWriteUp',
+					folderPrefix: selectedPrefix,
+					rel: checkpointDetail.rel,
+					writeUp: checkpointWriteUp,
+					date: date,
+					issueKeys: keys,
+					issueDescriptions: descriptions
+				});
+			});
+		root.querySelectorAll('.checkpoint-issue-open').forEach(function (btn) {
+			btn.addEventListener('click', function (e) {
+				e.stopPropagation();
+				const key = String(btn.getAttribute('data-issue-key') || '').toLowerCase();
+				const issue = (detail.issues || []).find(function (i) {
+					return String(i.issueKey || '').toLowerCase() === key;
+				});
+				if (!issue) return;
+				openHeading(issue.path, issue.fileId, issue.headingId, issue.title);
+			});
+		});
+	}
+
+	/**
+	 * Parse issue `completed` stamp → local day start ms.
+	 * Accepts unix seconds (how the index stores datetime fields) or
+	 * `YYYY-MM-DD` / `YYYY-MM-DD HH:mm` text.
+	 * @param {unknown} raw
+	 * @returns {{ dateMs: number, dateKey: string, label: string } | null}
+	 */
+	function parseCompletedDay(raw) {
+		if (raw == null || raw === '') return null;
+		let y = 0;
+		let mo = 0;
+		let d = 0;
+		if (typeof raw === 'number' || /^\d+$/.test(String(raw).trim())) {
+			const sec = Number(raw);
+			if (!Number.isFinite(sec) || sec <= 0) return null;
+			const dt = new Date(sec * 1000);
+			if (Number.isNaN(dt.getTime())) return null;
+			y = dt.getFullYear();
+			mo = dt.getMonth();
+			d = dt.getDate();
+		} else {
+			const s = String(raw || '').trim();
+			const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{2}):(\d{2}))?/);
+			if (!m) return null;
+			y = Number(m[1]);
+			mo = Number(m[2]) - 1;
+			d = Number(m[3]);
+		}
+		const dateMs = new Date(y, mo, d).getTime();
+		if (!Number.isFinite(dateMs)) return null;
+		const dateKey =
+			String(y) +
+			'-' +
+			String(mo + 1).padStart(2, '0') +
+			'-' +
+			String(d).padStart(2, '0');
+		const label = new Date(y, mo, d).toLocaleDateString(undefined, {
+			day: 'numeric',
+			month: 'short',
+			year: 'numeric'
+		});
+		return { dateMs, dateKey, label };
+	}
+
+	/**
+	 * @param {'recent' | '7' | '30' | 'custom'} range
+	 * @param {string} fromYmd
+	 * @param {string} toYmd
+	 * @returns {{ fromMs: number|null, toMs: number|null }}
+	 */
+	function dateRangeBounds(range, fromYmd, toYmd) {
+		const now = new Date();
+		const end = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+		if (range === '7') {
+			return {
+				fromMs: new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6).getTime(),
+				toMs: end
+			};
+		}
+		if (range === '30') {
+			return {
+				fromMs: new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29).getTime(),
+				toMs: end
+			};
+		}
+		if (range === 'custom') {
+			let fromMs = null;
+			let toMs = null;
+			if (fromYmd) {
+				const p = String(fromYmd).split('-').map(Number);
+				if (p.length === 3) fromMs = new Date(p[0], p[1] - 1, p[2]).getTime();
+			}
+			if (toYmd) {
+				const p = String(toYmd).split('-').map(Number);
+				if (p.length === 3) toMs = new Date(p[0], p[1] - 1, p[2]).getTime();
+			}
+			return { fromMs: fromMs, toMs: toMs };
+		}
+		return { fromMs: null, toMs: null };
+	}
+
+	function updationRangeBounds() {
+		return dateRangeBounds(updationRange, updationFrom, updationTo);
+	}
+
+	function checkpointRangeBounds() {
+		return dateRangeBounds(checkpointRange, checkpointFrom, checkpointTo);
+	}
+
+	/**
+	 * Shared Recent / 7 days / 30 days / Custom chips.
+	 * @param {{ range: string, from: string, to: string, attr: string, customId: string, fromId: string, toId: string, applyId: string, aria: string }} opts
+	 */
+	function rangeToolbarHtml(opts) {
+		const range = opts.range;
+		const attr = opts.attr;
+		return (
+			'<div class="updation-toolbar">' +
+			'<div class="chips" role="group" aria-label="' +
+			esc(opts.aria) +
+			'">' +
+			'<button type="button" data-' +
+			attr +
+			'="recent"' +
+			(range === 'recent' ? ' class="active"' : '') +
+			'>Recent</button>' +
+			'<button type="button" data-' +
+			attr +
+			'="7"' +
+			(range === '7' ? ' class="active"' : '') +
+			'>7 days</button>' +
+			'<button type="button" data-' +
+			attr +
+			'="30"' +
+			(range === '30' ? ' class="active"' : '') +
+			'>30 days</button>' +
+			'<button type="button" data-' +
+			attr +
+			'="custom"' +
+			(range === 'custom' ? ' class="active"' : '') +
+			'>Custom</button>' +
+			'</div>' +
+			'<div id="' +
+			esc(opts.customId) +
+			'" class="updation-custom' +
+			(range === 'custom' ? '' : ' hidden') +
+			'">' +
+			'<label class="updation-date-field">From <input type="date" id="' +
+			esc(opts.fromId) +
+			'" value="' +
+			esc(opts.from) +
+			'" /></label>' +
+			'<label class="updation-date-field">To <input type="date" id="' +
+			esc(opts.toId) +
+			'" value="' +
+			esc(opts.to) +
+			'" /></label>' +
+			'<button type="button" id="' +
+			esc(opts.applyId) +
+			'" class="ghost">Apply</button>' +
+			'</div>' +
+			'</div>'
+		);
+	}
+
+	/**
+	 * Completed issues for this project, grouped by completion day (newest first).
+	 * @returns {{ dateKey: string, dateMs: number, label: string, issues: any[] }[]}
+	 */
+	function buildUpdationLogDays() {
+		const bounds = updationRangeBounds();
+		/** @type {Map<string, { dateKey: string, dateMs: number, label: string, issues: any[] }>} */
+		const byDay = new Map();
+		/** @type {any[]} */
+		const undated = [];
+		const list = scopedIssues(detail.issues || []);
+		for (let i = 0; i < list.length; i++) {
+			const issue = list[i];
+			const done = String(doneIssueStatus() || 'completed').trim().toLowerCase();
+			if (String(issue && issue.status || '').trim().toLowerCase() !== done) continue;
+			const day = parseCompletedDay(issue && issue.completed);
+			if (!day) {
+				undated.push(issue);
+				continue;
+			}
+			if (bounds.fromMs != null && day.dateMs < bounds.fromMs) continue;
+			if (bounds.toMs != null && day.dateMs > bounds.toMs) continue;
+			if (!byDay.has(day.dateKey)) {
+				byDay.set(day.dateKey, {
+					dateKey: day.dateKey,
+					dateMs: day.dateMs,
+					label: day.label,
+					issues: []
+				});
+			}
+			byDay.get(day.dateKey).issues.push(issue);
+		}
+		const days = Array.from(byDay.values()).sort(function (a, b) {
+			return b.dateMs - a.dateMs || String(b.dateKey).localeCompare(String(a.dateKey));
+		});
+		days.forEach(function (g) {
+			g.issues.sort(function (a, b) {
+				const ak = String(a.issueKey || '');
+				const bk = String(b.issueKey || '');
+				return ak.localeCompare(bk, undefined, { numeric: true });
+			});
+		});
+		if (undated.length && updationRange === 'recent') {
+			undated.sort(function (a, b) {
+				return String(a.issueKey || '').localeCompare(String(b.issueKey || ''), undefined, {
+					numeric: true
+				});
+			});
+			days.push({
+				dateKey: 'undated',
+				dateMs: 0,
+				label: 'No completion date',
+				issues: undated
+			});
+		}
+		return days;
+	}
+
+	function renderUpdationLogView(title) {
+		const days = buildUpdationLogDays();
+		let html = detailHeaderHtml(title);
+		html +=
+			'<div class="checkpoint-head">' +
+			'<button type="button" class="ghost" id="btnUpdationBackToCheckpoints">\u2190 Checkpoints</button>' +
+			'<h3>Updation log</h3>' +
+			'</div>' +
+			rangeToolbarHtml({
+				range: updationRange,
+				from: updationFrom,
+				to: updationTo,
+				attr: 'updation-range',
+				customId: 'updation-custom',
+				fromId: 'updation-from',
+				toId: 'updation-to',
+				applyId: 'updation-apply',
+				aria: 'Updation log range'
+			});
+		if (!days.length) {
+			html += '<div class="empty">No completed issues in this range</div>';
+		} else {
+			html += '<div class="updation-timeline">';
+			days.forEach(function (g) {
+				html +=
+					'<div class="updation-row">' +
+					'<div class="updation-date">' +
+					esc(g.label) +
+					'</div>' +
+					'<div class="updation-rail" aria-hidden="true"><span class="updation-dot"></span></div>' +
+					'<div class="updation-body">';
+				g.issues.forEach(function (issue) {
+					const key = String(issue.issueKey || '');
+					html +=
+						'<button type="button" class="updation-issue" data-path="' +
+						esc(issue.path || '') +
+						'" data-fid="' +
+						(Number(issue.fileId) || 0) +
+						'" data-hid="' +
+						(Number(issue.headingId) || 0) +
+						'" data-title="' +
+						esc(issue.title || key || 'Untitled') +
+						'">' +
+						'<span class="updation-ikey">' +
+						esc(key || '—') +
+						'</span>' +
+						'<span class="updation-ititle">' +
+						esc(issue.title || 'Untitled') +
+						'</span>' +
+						'</button>';
+				});
+				html += '</div></div>';
+			});
+			html += '</div>';
+		}
+		root.innerHTML = html;
+		bindDetailHeader();
+		bindUpdationLogView();
+	}
+
+	function bindUpdationLogView() {
+		const back = document.getElementById('btnUpdationBackToCheckpoints');
+		if (back) back.addEventListener('click', openCheckpoints);
+		root.querySelectorAll('[data-updation-range]').forEach(function (btn) {
+			btn.addEventListener('click', function () {
+				const r = btn.getAttribute('data-updation-range');
+				if (r === 'recent' || r === '7' || r === '30' || r === 'custom') {
+					updationRange = r;
+					renderProjectDetail();
+				}
+			});
+		});
+		const apply = document.getElementById('updation-apply');
+		if (apply) {
+			apply.addEventListener('click', function () {
+				const fromEl = document.getElementById('updation-from');
+				const toEl = document.getElementById('updation-to');
+				updationFrom = fromEl ? String(fromEl.value || '') : '';
+				updationTo = toEl ? String(toEl.value || '') : '';
+				renderProjectDetail();
+			});
+		}
+		root.querySelectorAll('.updation-issue').forEach(function (btn) {
+			btn.addEventListener('click', function () {
+				openHeading(
+					btn.getAttribute('data-path'),
+					Number(btn.getAttribute('data-fid')),
+					Number(btn.getAttribute('data-hid')),
+					btn.getAttribute('data-title')
+				);
+			});
+		});
+	}
+
 	function renderProjectDetail() {
 		const title = selectedTitle || selectedPrefix.replace(/\/+$/, '') || 'Project';
 
@@ -3625,6 +4992,16 @@
 
 		if (detailView === 'issues') {
 			renderIssuesView(title);
+			return;
+		}
+
+		if (detailView === 'updation') {
+			renderUpdationLogView(title);
+			return;
+		}
+
+		if (detailView === 'checkpoints') {
+			renderCheckpointsView(title);
 			return;
 		}
 
@@ -4645,6 +6022,19 @@
 		issueSearchPending = false;
 		clearTimeout(issueSearchDebounce);
 		detailView = 'features';
+		checkpointsList = [];
+		checkpointMode = 'list';
+		checkpointEditing = false;
+		checkpointEditPicker = null;
+		checkpointAddable = null;
+		checkpointCompose = null;
+		checkpointSelectedKeys = {};
+		checkpointDescByKey = {};
+		checkpointDateDraft = '';
+		collapsedCheckpointCats.clear();
+		checkpointDetail = null;
+		checkpointWriteUp = '';
+		clearTimeout(checkpointSaveTimer);
 		inlineSubKey = '';
 		openIssueMenuKey = '';
 		openMenu = '';
@@ -4763,6 +6153,138 @@
 		if (msg.type === 'projectTagsState') {
 			projectTags = msg.tags || [];
 			if (tagsPopoverOpen) renderTagsPopover();
+		}
+		if (msg.type === 'checkpointsList') {
+			if (msg.folderPrefix && msg.folderPrefix !== selectedPrefix) return;
+			checkpointsList = Array.isArray(msg.checkpoints) ? msg.checkpoints : [];
+			checkpointMode = 'list';
+			detailLoading = false;
+			if (detailView === 'checkpoints') renderProjectDetail();
+		}
+		if (msg.type === 'checkpointCompose') {
+			if (msg.folderPrefix && msg.folderPrefix !== selectedPrefix) return;
+			checkpointCompose = {
+				date: msg.date,
+				tree: msg.tree || [],
+				candidates: msg.candidates || []
+			};
+			checkpointDateDraft = String(msg.date || '').trim().slice(0, 10);
+			checkpointSelectedKeys = {};
+			(msg.candidates || []).forEach(function (c) {
+				if (c && c.issueKey) checkpointSelectedKeys[c.issueKey] = true;
+			});
+			checkpointMode = 'compose';
+			detailLoading = false;
+			if (detailView === 'checkpoints') renderProjectDetail();
+		}
+		if (msg.type === 'checkpointDeleted') {
+			if (msg.folderPrefix && msg.folderPrefix !== selectedPrefix) return;
+			checkpointEditing = false;
+			checkpointEditPicker = null;
+			checkpointDetail = null;
+			checkpointWriteUp = '';
+			checkpointDateDraft = '';
+			checkpointMode = 'list';
+			detailLoading = false;
+			if (detailView === 'checkpoints') renderProjectDetail();
+		}
+		if (msg.type === 'checkpointAddableReady') {
+			if (msg.folderPrefix && msg.folderPrefix !== selectedPrefix) return;
+			if (checkpointDetail && msg.rel && msg.rel !== checkpointDetail.rel) return;
+			checkpointAddable = { candidates: msg.candidates || [] };
+			if (detailView === 'checkpoints' && checkpointEditing) renderProjectDetail();
+		}
+		if (msg.type === 'checkpointDetail') {
+			if (msg.folderPrefix && msg.folderPrefix !== selectedPrefix) return;
+			const wasEditing = checkpointEditing;
+			const keptPicker = wasEditing ? checkpointEditPicker : null;
+			let cleanWriteUp = String(msg.writeUp || '');
+			// Guard against the frozen changes list leaking into the story.
+			const leak = cleanWriteUp.search(/^[ \t]*##\s+Changes\s*$/im);
+			if (leak >= 0) cleanWriteUp = cleanWriteUp.slice(0, leak).replace(/\s+$/, '');
+			const sameNote =
+				checkpointDetail && msg.rel && String(checkpointDetail.rel) === String(msg.rel);
+			// Inline description save: refresh frozen data without remounting inputs (keeps cursor flow).
+			if (checkpointInlineSaving && !wasEditing && sameNote) {
+				checkpointInlineSaving = false;
+				checkpointDetail = {
+					date: msg.date,
+					title: msg.title,
+					rel: msg.rel,
+					writeUp: cleanWriteUp,
+					tree: msg.tree || [],
+					issueKeys: msg.issueKeys || [],
+					entries: msg.entries || [],
+					imageUris: msg.imageUris || {}
+				};
+				checkpointWriteUp = cleanWriteUp;
+				(msg.tree || []).forEach(function (cat) {
+					(cat.features || []).forEach(function (feat) {
+						(feat.issues || []).forEach(function (issue) {
+							const key = String(issue.issueKey || '');
+							if (key && checkpointDescByKey[key] == null) {
+								checkpointDescByKey[key] = String(issue.title || key);
+							}
+						});
+					});
+				});
+				detailLoading = false;
+				return;
+			}
+			checkpointInlineSaving = false;
+			checkpointDetail = {
+				date: msg.date,
+				title: msg.title,
+				rel: msg.rel,
+				writeUp: cleanWriteUp,
+				tree: msg.tree || [],
+				issueKeys: msg.issueKeys || [],
+				entries: msg.entries || [],
+				imageUris: msg.imageUris || {}
+			};
+			if (checkpointPastePending) {
+				checkpointPastePending = false;
+				checkpointWriteUp = cleanWriteUp;
+			} else if (wasEditing && checkpointWriteUp) {
+				/* keep in-progress story typing */
+			} else {
+				checkpointWriteUp = cleanWriteUp;
+			}
+			if (wasEditing && !checkpointWriteUp) checkpointWriteUp = cleanWriteUp;
+			checkpointMode = 'detail';
+			checkpointCompose = null;
+			// Seed inline-edit descriptions from the frozen tree (read view).
+			if (!wasEditing) {
+				checkpointDescByKey = {};
+				(msg.tree || []).forEach(function (cat) {
+					(cat.features || []).forEach(function (feat) {
+						(feat.issues || []).forEach(function (issue) {
+							const key = String(issue.issueKey || '');
+							if (key) checkpointDescByKey[key] = String(issue.title || key);
+						});
+					});
+				});
+			}
+			// Stay in edit after create/paste; keep the already-seeded issue editor.
+			if (!wasEditing) {
+				checkpointEditing = false;
+				checkpointEditPicker = null;
+				checkpointAddable = null;
+			} else if (keptPicker) {
+				checkpointEditPicker = keptPicker;
+			} else if (!checkpointEditPicker) {
+				const candidates = candidatesFromCheckpointTree(msg.tree || []);
+				candidates.forEach(function (c) {
+					checkpointSelectedKeys[c.issueKey] = true;
+					if (checkpointDescByKey[c.issueKey] == null) {
+						checkpointDescByKey[c.issueKey] = c.description;
+					}
+				});
+				checkpointEditPicker = { tree: msg.tree || [], candidates: candidates };
+			}
+			detailLoading = false;
+			detailView = 'checkpoints';
+			renderProjectDetail();
 		}
 		if (msg.type === 'error') {
 			detailLoading = false;

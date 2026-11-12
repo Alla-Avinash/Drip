@@ -2,13 +2,13 @@
 
 ## What it is
 
-DRIP maintains local SQLite indexes under `.dripindex/` that mirror notes on disk so they can be searched, sorted, and queried quickly — without reparsing everything. KB notes use `index.drip`, project structure uses `projects.drip`, and Today day-logs use `today.drip`.
+DRIP maintains local SQLite indexes under `.dripindex/` that mirror notes on disk so they can be searched, sorted, and queried quickly — without reparsing everything. KB notes use `index.drip`, each project uses its own `.dripindex/projects/<stem>.drip` file, and Today day-logs use `today.drip`.
 
 ## How to access it
 
 - Mostly background — it runs on save and startup automatically.
 - **Update index** on the Knowledge Base toolbar forces a full rebuild (keeps `index.drip`).
-- **Reset/reindex** on the Knowledge Base toolbar wipes `index.drip`, `projects.drip`, and `today.drip`, then re-parses notes and re-encodes KB embeddings (Today is reindexed into `today.drip` only).
+- **Reset/reindex** on the Knowledge Base toolbar wipes `index.drip`, every file under `.dripindex/projects/`, and `today.drip`, then re-parses notes and re-encodes KB embeddings (Today is reindexed into `today.drip` only). No migration from a legacy shared `projects.drip`.
 
 ## What the index stores
 
@@ -17,6 +17,7 @@ DRIP maintains local SQLite indexes under `.dripindex/` that mirror notes on dis
 - **Tags** and **relations** — tags and typed relations between notes/headings.
 - **Typed metadata** — fixed tables for each built-in type: concept (`domain`, `status`), task (`status`, `priority`, `deadline`, `category`), and issue (`status`, `priority`, `deadline`, `category`, `parent`). Issue `completed`, `feature`, and `team` live on the issue in the file (and in remaining keys when indexed). Project fields (`status`, `priority`, `deadline`) live on the projects registry and feature `category` on the features registry. Any user-added keys go into a single EAV table (`metadata_remaining_keys`).
 - **Projects** and **issues** — the project/issue hierarchy tables.
+- **Completed issues** — per-project rows for completed issues only (`issue key → file, completed time, archived?, checkpoint claim`), used by checkpoint compose and the archive sweep. Rebuilt from notes on index / archive / checkpoint edit; no separate migration.
 - **Embeddings** — vector records for headings (used by semantic search).
 
 ## Identity
@@ -30,7 +31,7 @@ DRIP maintains local SQLite indexes under `.dripindex/` that mirror notes on dis
 
 These IDs survive renames, moves, and restructuring, so links keep pointing correctly. A heading's parent in the index is derived from the heading marker level (`#` = 0, `#1` = 1, …), not from tab indentation.
 
-The two indexes are **local only**. They are never sent to another person. After shared-project operations land in the files, the existing reindex updates the local rows. Reset / reindex rebuilds both databases from disk and must not strip hidden ids from project files or delete a project's `.drip/` sidecar.
+The indexes are **local only**. They are never sent to another person. After shared-project operations land in the files, the existing reindex updates the local rows. Reset / reindex rebuilds `index.drip` and every per-project DB from disk and must not strip hidden ids from project files or delete a project's `.drip/` sidecar.
 
 ## How the index is kept up to date
 

@@ -40,6 +40,82 @@ const {
  */
 
 /**
+ * Prepare readers for concept/task hot-column tables (Retriever card metadata).
+ * @param {import('../db/dripSqlite').DripSqliteDatabase} db
+ */
+function prepareTypedMetadataReaders(db) {
+	/** @type {{ get: (...args: unknown[]) => any } | null} */
+	let conceptStmt = null;
+	/** @type {{ get: (...args: unknown[]) => any } | null} */
+	let taskStmt = null;
+	if (!db || !db.native) return { conceptStmt, taskStmt };
+	try {
+		conceptStmt = db.native.prepare(
+			`SELECT domain, status FROM concept_metadata WHERE file_id = ? AND heading_id = ?`
+		);
+	} catch {
+		conceptStmt = null;
+	}
+	try {
+		taskStmt = db.native.prepare(
+			`SELECT status, category, deadline, priority FROM task_metadata WHERE file_id = ? AND heading_id = ?`
+		);
+	} catch {
+		taskStmt = null;
+	}
+	return { conceptStmt, taskStmt };
+}
+
+/**
+ * Load main-table metadata only (never EAV remaining_keys).
+ * @param {{ conceptStmt: { get: (...args: unknown[]) => any } | null, taskStmt: { get: (...args: unknown[]) => any } | null }} readers
+ * @param {number} fileId
+ * @param {number} headingId
+ * @param {string} typeId
+ * @returns {Record<string, string>}
+ */
+function readTypedMetadataKv(readers, fileId, headingId, typeId) {
+	const tid = String(typeId || '')
+		.trim()
+		.toLowerCase();
+	/** @type {Record<string, string>} */
+	const out = {};
+	if (tid === 'concept' && readers.conceptStmt) {
+		try {
+			const row = readers.conceptStmt.get(fileId, headingId);
+			if (row) {
+				const domain = String(row.domain || '').trim();
+				const status = String(row.status || '').trim();
+				if (domain) out.domain = domain;
+				if (status) out.status = status;
+			}
+		} catch {
+			// older indexes
+		}
+	} else if (tid === 'task' && readers.taskStmt) {
+		try {
+			const row = readers.taskStmt.get(fileId, headingId);
+			if (row) {
+				const status = String(row.status || '').trim();
+				const priority = String(row.priority || '').trim();
+				const category = String(row.category || '').trim();
+				const deadline =
+					row.deadline != null && String(row.deadline).trim() !== ''
+						? String(row.deadline).trim()
+						: '';
+				if (status) out.status = status;
+				if (priority) out.priority = priority;
+				if (deadline) out.deadline = deadline;
+				if (category) out.category = category;
+			}
+		} catch {
+			// older indexes
+		}
+	}
+	return out;
+}
+
+/**
  * @param {unknown} raw
  * @returns {string[]}
  */
@@ -58,6 +134,9 @@ function normalizeLowerIdList(raw) {
 	}
 	return out;
 }
+
+/** Hard cap for Retriever ranked results per search (matches webview). */
+const MAX_RETRIEVER_RESULTS = 100;
 
 /**
  * @param {unknown} payload
@@ -113,6 +192,14 @@ function normalizeRetrieverIndexQuery(payload) {
 		scopeFiles = false;
 		scopeHeadings = false;
 	}
+	const offset =
+		Number.isFinite(offsetRaw) && offsetRaw > 0
+			? Math.min(MAX_RETRIEVER_RESULTS, Math.floor(offsetRaw))
+			: 0;
+	const rawLimit =
+		Number.isFinite(limitRaw) && limitRaw > 0 ? Math.floor(limitRaw) : 100;
+	// Never return a page that would push past the hard 100-result cap.
+	const limit = Math.max(0, Math.min(rawLimit, MAX_RETRIEVER_RESULTS - offset));
 	return {
 		q: typeof p.q === 'string' ? p.q : '',
 		typeIds: normalizeLowerIdList(p.selectedTypeIds ?? p.typeIds),
@@ -127,8 +214,8 @@ function normalizeRetrieverIndexQuery(payload) {
 		scope: scopeFiles && !scopeHeadings ? 'files' : 'headings',
 		sortBy,
 		searchEngine,
-		offset: Number.isFinite(offsetRaw) && offsetRaw > 0 ? Math.floor(offsetRaw) : 0,
-		limit: Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(500, Math.floor(limitRaw)) : 100,
+		offset,
+		limit,
 		corpus: isCustomCorpus ? 'custom' : corpusRaw === 'entire' ? 'entire' : 'working',
 		customCorpusPaths,
 		respectDripignore
@@ -866,20 +953,7 @@ function loadCardsForEmbeddingIds(db, embeddingIds, kbRootUri, opts) {
 			relStmt = null;
 		}
 	}
-	let kvStmt = null;
-	try {
-		kvStmt = db.native.prepare(
-			`
-			SELECT key AS k, value AS v
-			FROM metadata_remaining_keys
-			WHERE file_id = ? AND heading_id = ?
-			ORDER BY key
-			LIMIT 12
-			`
-		);
-	} catch {
-		kvStmt = null;
-	}
+	const typedReaders = prepareTypedMetadataReaders(db);
 
 	for (const row of rows) {
 		const embeddingId = Number(row.embedding_id);
@@ -911,19 +985,7 @@ function loadCardsForEmbeddingIds(db, embeddingIds, kbRootUri, opts) {
 				// older indexes
 			}
 		}
-		/** @type {Record<string, string>} */
-		const metadataKv = {};
-		if (kvStmt) {
-			try {
-				for (const kv of kvStmt.all(fileId, headingId)) {
-					const k = String(kv.k || '').trim();
-					const v = String(kv.v || '').trim();
-					if (k && v) metadataKv[k] = v;
-				}
-			} catch {
-				// older indexes may lack the table
-			}
-		}
+		const metadataKv = readTypedMetadataKv(typedReaders, fileId, headingId, typeId);
 		const fileUri = vscode.Uri.joinPath(kbRootUri, ...relPath.split('/').filter(Boolean));
 		map.set(embeddingId, {
 			embedding_id: embeddingId,
@@ -955,7 +1017,8 @@ function loadCardsForEmbeddingIds(db, embeddingIds, kbRootUri, opts) {
  * @returns {Promise<HeadingEmbeddingSearchHit[]>}
  */
 async function searchHeadingsExact(kbRootUri, queryText, opts) {
-	const limit = Math.max(1, Math.min(Number(opts?.limit) || 20, 200));
+	// Allow Retriever “Load more” to page past the first Top-embeddings slice (up to 500).
+	const limit = Math.max(1, Math.min(Number(opts?.limit) || 20, 500));
 	const q = String(queryText || '').trim();
 	if (!q) {
 		return [];
@@ -1251,20 +1314,7 @@ async function listHeadingsFromIndex(kbRootUri, opts) {
 				relStmt = null;
 			}
 		}
-		let kvStmt = null;
-		try {
-			kvStmt = handle.db.native.prepare(
-				`
-				SELECT key AS k, value AS v
-				FROM metadata_remaining_keys
-				WHERE file_id = ? AND heading_id = ?
-				ORDER BY key
-				LIMIT 12
-				`
-			);
-		} catch {
-			kvStmt = null;
-		}
+		const typedReaders = prepareTypedMetadataReaders(handle.db);
 
 		/** @type {HeadingEmbeddingSearchHit[]} */
 		const hits = [];
@@ -1298,19 +1348,7 @@ async function listHeadingsFromIndex(kbRootUri, opts) {
 					// ignore
 				}
 			}
-			/** @type {Record<string, string>} */
-			const metadataKv = {};
-			if (kvStmt) {
-				try {
-					for (const kv of kvStmt.all(fileId, headingId)) {
-						const k = String(kv.k || '').trim();
-						const v = String(kv.v || '').trim();
-						if (k && v) metadataKv[k] = v;
-					}
-				} catch {
-					// ignore
-				}
-			}
+			const metadataKv = readTypedMetadataKv(typedReaders, fileId, headingId, typeId);
 			const fileUri = vscode.Uri.joinPath(kbRootUri, ...relPath.split('/').filter(Boolean));
 			hits.push({
 				embedding_id: 0,
@@ -1447,6 +1485,18 @@ async function queryRetrieverFromIndex(kbRootUri, payload) {
 			searchMethod: 'none'
 		};
 	}
+	// Hard cap reached — no further pages.
+	if (q.limit <= 0 || q.offset >= MAX_RETRIEVER_RESULTS) {
+		return {
+			rows: [],
+			totalMatched: q.offset,
+			truncated: false,
+			offset: q.offset,
+			loadedThrough: q.offset,
+			pageSize: 0,
+			searchMethod: 'capped'
+		};
+	}
 
 	const filesScope = q.scopeFiles && !q.scopeHeadings;
 	const qTrim = String(q.q || '').trim();
@@ -1527,7 +1577,9 @@ async function queryRetrieverFromIndex(kbRootUri, payload) {
 	}
 
 	async function fetchSearchEngineWire(fetchN) {
-		const includeRelations = q.relationFilters.length > 0;
+		// Always join relations so Retriever compact cards can show the context line
+		// even when no relation filter is active.
+		const includeRelations = true;
 		const engine = q.searchEngine || 'recommended';
 		/** @type {ReturnType<typeof embeddingHitsToRetrieverWireRows>} */
 		let semanticWire = [];
@@ -1560,7 +1612,7 @@ async function queryRetrieverFromIndex(kbRootUri, payload) {
 
 	if (filesScope) {
 		const need = q.offset + q.limit;
-		const fetchN = Math.min(500, Math.max(need * 10, 250));
+		const fetchN = Math.min(500, Math.max(need * 10, need, 250));
 		const { wire, method, candidateCount } = await fetchSearchEngineWire(fetchN);
 		// Keep h0 for file ranking; filter types/tags only on heading rows after assemble.
 		const assembled = assembleFilesScopeHeadingRows(wire, {
@@ -1596,7 +1648,8 @@ async function queryRetrieverFromIndex(kbRootUri, payload) {
 		q.relationFilters.length > 0 ||
 		useCustomCorpus ||
 		q.respectDripignore;
-	const fetchN = Math.min(200, Math.max(need, hasFilters ? need * 5 : need));
+	// Fetch through the requested page window so Load more (offset > 0) returns the next slice.
+	const fetchN = Math.min(500, Math.max(need, hasFilters ? need * 5 : need));
 	const { wire: rawWire, method, candidateCount } = await fetchSearchEngineWire(fetchN);
 	let wire = rawWire.filter(row => rowMatchesTypeTagFilters(row, q));
 	if (q.scopeHeadings && !q.scopeFiles) {

@@ -2,7 +2,7 @@
 
 /**
  * Today notes — personal day logs and day-tasks under `.drip.dailynotes/`.
- * Indexed only in `today.drip` (never in index.drip / projects.drip).
+ * Indexed only in `today.drip` (never in index.drip / per-project DBs).
  */
 
 const path = require('path');

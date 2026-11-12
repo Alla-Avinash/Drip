@@ -13,10 +13,17 @@ const {
 	getTodayCalendarWeek,
 	getTodayCalendarDayDetail,
 	listTodayTaskBoard,
-	listTodayDailyLog
+	listTodayDailyLog,
+	getTodaysLogSummary
 } = require('../../../indexing/todayQuery');
 const { searchTodayHeadingsHybrid } = require('../../../indexing/todayHeadingSearch');
-const { ensureTodayDailyNote } = require('../../../startup/dailyNotesDrip');
+const {
+	ensureTodayDailyNote,
+	loadDailyNotesTree,
+	loadDailyMonthNodes,
+	loadDailyNoteNodes,
+	toRelPath
+} = require('../../../startup/dailyNotesDrip');
 const { setTodayTaskStatus, createTodayTask } = require('../../../startup/todayTaskActions');
 
 /** @type {import('vscode').WebviewPanel | undefined} */
@@ -41,6 +48,7 @@ function openTodayCalendarPanel(context, state) {
 		const now = new Date();
 		void postMonth(panel.webview, kbRoot, now.getFullYear(), now.getMonth());
 		void postTasks(panel.webview, kbRoot);
+		void postNotesTreeRoot(panel.webview, kbRoot);
 		return;
 	}
 
@@ -75,6 +83,7 @@ function openTodayCalendarPanel(context, state) {
 				else await postMonth(panel.webview, root, now.getFullYear(), now.getMonth());
 				await postDay(panel.webview, root, now.getFullYear(), now.getMonth(), now.getDate());
 				await postTasks(panel.webview, root);
+				await postNotesTreeRoot(panel.webview, root);
 			} else if (msg.type === 'loadMonth') {
 				await postMonth(panel.webview, root, Number(msg.year), Number(msg.month0));
 			} else if (msg.type === 'loadWeek') {
@@ -89,6 +98,18 @@ function openTodayCalendarPanel(context, state) {
 				await postMonth(panel.webview, root, date.getFullYear(), date.getMonth());
 				await postWeek(panel.webview, root, date);
 				await postDay(panel.webview, root, date.getFullYear(), date.getMonth(), date.getDate());
+				await postNotesTreeRoot(panel.webview, root);
+			} else if (msg.type === 'openTodaysLog') {
+				const date = new Date();
+				const { uri } = await ensureTodayDailyNote(root, date, { context });
+				await vscode.window.showTextDocument(uri);
+				await postTodaysLog(panel.webview, root);
+				await postMonth(panel.webview, root, date.getFullYear(), date.getMonth());
+				await postWeek(panel.webview, root, date);
+				await postDay(panel.webview, root, date.getFullYear(), date.getMonth(), date.getDate());
+				await postNotesTreeRoot(panel.webview, root);
+			} else if (msg.type === 'loadTodaysLog') {
+				await postTodaysLog(panel.webview, root);
 			} else if (msg.type === 'openTask' || msg.type === 'openHeading') {
 				const rel = String(msg.path || '').replace(/\\/g, '/');
 				if (!rel) return;
@@ -122,6 +143,15 @@ function openTodayCalendarPanel(context, state) {
 					append: msg.append === true,
 					seq: Number(msg.seq) || 0
 				});
+			} else if (msg.type === 'loadNotesTree') {
+				await postNotesTreeRoot(panel.webview, root);
+			} else if (msg.type === 'expandNotesNode') {
+				await postNotesTreeChildren(panel.webview, root, msg);
+			} else if (msg.type === 'openNotePath') {
+				const rel = String(msg.path || '').replace(/\\/g, '/');
+				if (!rel) return;
+				const uri = vscode.Uri.joinPath(root, ...rel.split('/').filter(Boolean));
+				await vscode.window.showTextDocument(uri);
 			} else if (msg.type === 'completeTask') {
 				await setTodayTaskStatus(
 					root,
@@ -243,6 +273,67 @@ async function postDailyLog(webview, kbRoot, opts = {}) {
 }
 
 /**
+ * Status for the Today's log tab (calendar day = now).
+ * @param {import('vscode').Webview} webview
+ * @param {import('vscode').Uri} kbRoot
+ */
+async function postTodaysLog(webview, kbRoot) {
+	const summary = getTodaysLogSummary(kbRoot, new Date());
+	webview.postMessage({ type: 'todaysLog', ...summary });
+}
+
+/**
+ * Root years for the Calendar notes tree.
+ * @param {import('vscode').Webview} webview
+ * @param {import('vscode').Uri} kbRoot
+ */
+async function postNotesTreeRoot(webview, kbRoot) {
+	const years = await loadDailyNotesTree(kbRoot);
+	webview.postMessage({
+		type: 'notesTreeRoot',
+		nodes: years.map(y => ({
+			kind: 'year',
+			label: y.label,
+			path: toRelPath(kbRoot, y.uri)
+		}))
+	});
+}
+
+/**
+ * Expand a year → months or month → day notes.
+ * @param {import('vscode').Webview} webview
+ * @param {import('vscode').Uri} kbRoot
+ * @param {{ kind?: string, path?: string }} msg
+ */
+async function postNotesTreeChildren(webview, kbRoot, msg) {
+	const kind = String(msg.kind || '');
+	const rel = String(msg.path || '').replace(/\\/g, '/');
+	if (!rel) {
+		webview.postMessage({ type: 'notesTreeChildren', path: '', nodes: [] });
+		return;
+	}
+	const uri = vscode.Uri.joinPath(kbRoot, ...rel.split('/').filter(Boolean));
+	/** @type {{ kind: string, label: string, path: string }[]} */
+	let nodes = [];
+	if (kind === 'year') {
+		const months = await loadDailyMonthNodes(uri);
+		nodes = months.map(m => ({
+			kind: 'month',
+			label: m.label,
+			path: toRelPath(kbRoot, m.uri)
+		}));
+	} else if (kind === 'month') {
+		const notes = await loadDailyNoteNodes(uri);
+		nodes = notes.map(n => ({
+			kind: 'note',
+			label: n.label,
+			path: toRelPath(kbRoot, n.uri)
+		}));
+	}
+	webview.postMessage({ type: 'notesTreeChildren', path: rel, kind, nodes });
+}
+
+/**
  * @param {import('vscode').Webview} webview
  * @param {import('vscode').Uri} extensionUri
  */
@@ -278,6 +369,7 @@ function getHtml(webview, extensionUri) {
 
 	<nav class="tabs" aria-label="Today sections">
 		<button type="button" data-section="calendar" class="active">Calendar</button>
+		<button type="button" data-section="todayslog">Today's log</button>
 		<button type="button" data-section="search">Search</button>
 		<button type="button" data-section="tasks">Tasks</button>
 		<button type="button" data-section="dailylog">Daily log</button>
@@ -285,36 +377,45 @@ function getHtml(webview, extensionUri) {
 
 	<div class="layout">
 		<section class="panel active" data-panel="calendar" aria-label="Calendar">
-			<div class="toolbar">
-				<div class="segment" role="group" aria-label="View">
-					<button type="button" data-lens="day">Day</button>
-					<button type="button" data-lens="week">Week</button>
-					<button type="button" data-lens="month" class="active">Month</button>
-				</div>
-				<button type="button" id="jump-today" class="ghost today-jump">Today</button>
-				<div class="cal-legend" aria-label="Legend">
-					<span><i class="dot"></i> Day log</span>
-					<span><i class="dot task"></i> Pending tasks</span>
-				</div>
-			</div>
-			<div class="cal-layout">
-				<div>
-					<div class="cal-nav">
-						<button type="button" id="prev-range" class="ghost nav-btn" aria-label="Previous" title="Previous">‹</button>
-						<span class="month-label" id="month-label">—</span>
-						<button type="button" id="next-range" class="ghost nav-btn" aria-label="Next" title="Next">›</button>
+			<div class="cal-layout" id="cal-layout">
+				<div class="cal-main">
+					<div class="toolbar cal-toolbar">
+						<div class="segment" role="group" aria-label="View">
+							<button type="button" data-lens="day">Day</button>
+							<button type="button" data-lens="week">Week</button>
+							<button type="button" data-lens="month" class="active">Month</button>
+						</div>
+						<button type="button" id="jump-today" class="ghost today-jump">Today</button>
+						<div class="cal-legend" aria-label="Legend">
+							<span><i class="dot"></i> Day log</span>
+							<span><i class="dot task"></i> Pending tasks</span>
+						</div>
+						<button type="button" id="file-view" class="ghost file-view-btn">File view</button>
 					</div>
-					<div id="day-lens-block" class="day-lens hidden">
-						<div class="day-hour-grid" id="day-hour-grid" role="list" aria-label="Day timeline"></div>
+					<div class="cal-main-body" id="cal-main-body">
+						<div class="cal-nav">
+							<button type="button" id="prev-range" class="ghost nav-btn" aria-label="Previous" title="Previous">‹</button>
+							<span class="month-label" id="month-label">—</span>
+							<button type="button" id="next-range" class="ghost nav-btn" aria-label="Next" title="Next">›</button>
+						</div>
+						<div id="day-lens-block" class="day-lens hidden">
+							<div class="day-hour-grid" id="day-hour-grid" role="list" aria-label="Day timeline"></div>
+						</div>
+						<div class="weekdays" id="weekdays">
+							<span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span>
+							<span>Thu</span><span>Fri</span><span>Sat</span>
+						</div>
+						<div class="grid" id="cal-grid"></div>
+						<div class="week-grid hidden" id="week-grid"></div>
 					</div>
-					<div class="weekdays" id="weekdays">
-						<span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span>
-						<span>Thu</span><span>Fri</span><span>Sat</span>
+					<div class="file-view-panel hidden" id="file-view-panel" aria-label="Daily notes folders">
+						<div class="section-label">Notes</div>
+						<div id="notes-tree" class="notes-tree">
+							<div class="empty">Loading…</div>
+						</div>
 					</div>
-					<div class="grid" id="cal-grid"></div>
-					<div class="week-grid hidden" id="week-grid"></div>
 				</div>
-				<aside aria-label="Selected day">
+				<aside id="cal-aside" aria-label="Selected day">
 					<div class="side-head">
 						<div class="side-head-text">
 							<h2 class="side-title" id="day-title">Select a day</h2>
@@ -377,7 +478,7 @@ function getHtml(webview, extensionUri) {
 
 		<section class="panel panel-narrow" data-panel="tasks" aria-label="Tasks">
 			<div class="tasks-toolbar">
-				<div class="chips" role="group" aria-label="Task filters">
+				<div class="chips" id="task-filter-chips" role="group" aria-label="Task filters">
 					<button type="button" data-filter="all" class="active">All</button>
 					<button type="button" data-filter="overdue">Overdue</button>
 					<button type="button" data-filter="today">Today</button>
@@ -385,6 +486,22 @@ function getHtml(webview, extensionUri) {
 					<button type="button" data-filter="later">Later</button>
 				</div>
 				<button type="button" id="add-task" class="tint">+ New task</button>
+			</div>
+			<div id="upcoming-horizon" class="upcoming-horizon hidden" aria-label="Upcoming deadline range">
+				<div class="chips" id="upcoming-range-chips" role="group" aria-label="Upcoming range">
+					<button type="button" data-upcoming-range="any" class="active">All</button>
+					<button type="button" data-upcoming-range="tomorrow">Tomorrow</button>
+					<button type="button" data-upcoming-range="2">Next 2 days</button>
+					<button type="button" data-upcoming-range="7">Next week</button>
+					<button type="button" data-upcoming-range="custom">Next X days</button>
+				</div>
+				<div id="upcoming-custom" class="upcoming-custom hidden">
+					<label class="upcoming-custom-field">
+						<span>Days</span>
+						<input type="number" id="upcoming-custom-days" min="1" max="365" step="1" value="3" />
+					</label>
+					<button type="button" id="upcoming-custom-apply" class="tint">Apply</button>
+				</div>
 			</div>
 			<div id="tasks-compose" class="compose hidden">
 				<label class="compose-label" for="tasksComposeTitle">New task</label>
@@ -410,6 +527,14 @@ function getHtml(webview, extensionUri) {
 			</div>
 			<div id="task-board">
 				<div class="empty">Loading…</div>
+			</div>
+		</section>
+
+		<section class="panel panel-narrow" data-panel="todayslog" aria-label="Today's log">
+			<div class="tlog-card">
+				<p class="tlog-eyebrow">Today</p>
+				<h2 class="tlog-title" id="tlog-title">Today's log</h2>
+				<button type="button" id="open-todays-log" class="tint">Create log</button>
 			</div>
 		</section>
 

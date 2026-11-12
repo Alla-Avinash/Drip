@@ -1053,16 +1053,17 @@ label.rz-attr-opt:hover {
 	height: auto;
 }
 
-/* —— Heading / file result cards (natural height, never squished) —— */
+/* —— Compact heading result cards (title · optional meta/tags · optional filepath) ——
+   Height follows Display toggles — hidden rows are omitted, not left blank. */
 .rz-row,
 .rz-card {
 	display: flex;
 	flex-direction: column;
-	align-items: flex-start;
+	align-items: stretch;
 	gap: 0;
 	text-align: left;
 	width: 100%;
-	padding: 10px 12px;
+	padding: 10px;
 	border-radius: 6px;
 	border: 1px solid var(--rz-border);
 	background: transparent;
@@ -1070,10 +1071,12 @@ label.rz-attr-opt:hover {
 	cursor: pointer;
 	font: inherit;
 	flex-shrink: 0;
-	min-height: auto;
+	box-sizing: border-box;
 	height: auto;
+	min-height: 0;
 	max-height: none;
-	overflow: visible;
+	overflow: hidden;
+	outline: none;
 	transition: background 0.08s ease, border-color 0.08s ease;
 }
 .rz-row:hover,
@@ -1081,27 +1084,56 @@ label.rz-attr-opt:hover {
 	background: var(--rz-list-hover);
 	border-color: var(--rz-border);
 }
+.rz-row:focus-visible,
+.rz-card:focus-visible {
+	border-color: var(--vscode-focusBorder, var(--rz-border));
+	box-shadow: 0 0 0 1px var(--vscode-focusBorder, transparent);
+}
+.rz-row-main {
+	flex: 1 1 auto;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	overflow: hidden;
+}
 .rz-row-head {
 	display: flex;
-	align-items: baseline;
-	justify-content: space-between;
-	gap: 10px;
+	align-items: center;
+	gap: 8px;
 	width: 100%;
 	min-width: 0;
+}
+/* Bullet sits on the title line (same row as title / score / chevron) */
+.rz-row-bullet {
+	flex: 0 0 auto;
+	width: 7px;
+	height: 7px;
+	border-radius: 999px;
+	background: var(--vscode-editor-foreground, var(--rz-fg));
+	opacity: 0.55;
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--rz-fg) 18%, transparent);
 }
 .rz-title,
 .rz-card-title {
 	font-weight: 600;
 	font-size: 13px;
-	line-height: 1.35;
+	line-height: 1.3;
 	min-width: 0;
 	flex: 1 1 auto;
-	white-space: normal;
-	overflow-wrap: anywhere;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 .rz-title.is-invalid-heading {
 	text-decoration: line-through;
 	opacity: 0.65;
+}
+.rz-score-num {
+	flex: 0 0 auto;
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+	color: var(--rz-muted);
 }
 .rz-score-pill {
 	flex: 0 0 auto;
@@ -1114,28 +1146,103 @@ label.rz-attr-opt:hover {
 	color: var(--rz-muted);
 	background: var(--rz-list-hover, transparent);
 }
+.rz-ic {
+	flex: 0 0 auto;
+	display: block;
+	opacity: 0.75;
+}
+.rz-ic-chevron {
+	opacity: 0.55;
+}
+/* Metadata pills + tags share one line; filepath is the next line.
+   Indent under the title text (past the title-line bullet + gap). */
+.rz-row-meta {
+	display: flex;
+	flex-wrap: nowrap;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	min-width: 0;
+	padding-left: 15px;
+	box-sizing: border-box;
+	overflow: hidden;
+}
 .rz-row-pills {
 	display: flex;
-	flex-wrap: wrap;
+	flex-wrap: nowrap;
 	gap: 6px;
 	align-items: center;
-	margin-top: 8px;
-	width: 100%;
-	max-width: 100%;
+	flex: 0 1 auto;
+	min-width: 0;
+	max-width: 55%;
+	overflow: hidden;
 }
-.rz-card {
-	padding: 12px 14px;
-	min-height: 0;
-	box-sizing: border-box;
-}
-.rz-card-path,
-.rz-meta {
-	display: block;
-	margin-top: 6px;
+.rz-row-tags {
+	display: flex;
+	flex-wrap: nowrap;
+	align-items: center;
+	gap: 10px;
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
 	font-size: 11px;
 	color: var(--rz-muted);
-	font-family: var(--vscode-editor-font-family);
+}
+.rz-meta-pill,
+.rz-date-pill {
+	display: inline-flex;
+	align-items: center;
+	font-size: 11px;
+	line-height: 1.35;
+	padding: 0 6px;
+	border-radius: 3px;
+	border: 1px solid var(--rz-border);
+	color: var(--rz-muted);
+	background: var(--rz-list-hover, transparent);
 	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.rz-date-pill {
+	font-family: var(--vscode-editor-font-family);
+	font-variant-numeric: tabular-nums;
+	border-color: transparent;
+	background: transparent;
+	padding-left: 0;
+	padding-right: 0;
+}
+.rz-ctx-bit {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	min-width: 0;
+	max-width: 100%;
+	overflow: hidden;
+}
+.rz-ctx-text {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.rz-row-path {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	width: 100%;
+	min-width: 0;
+	padding-left: 15px;
+	box-sizing: border-box;
+	font-size: 11px;
+	color: var(--rz-muted);
+	overflow: hidden;
+}
+.rz-path-text,
+.rz-card-path,
+.rz-meta {
+	min-width: 0;
+	font-family: var(--vscode-editor-font-family);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -1288,7 +1395,7 @@ button.rz-group-toggle:hover {
 	overflow: visible;
 }
 .rz-group-body > .rz-row {
-	margin: 0 0 6px;
+	margin: 0 0 8px;
 }
 .rz-group-body > .rz-row:last-child {
 	margin-bottom: 0;
@@ -1394,7 +1501,7 @@ button.rz-file-group-header:hover {
 	overflow: visible;
 }
 .rz-file-group-body > .rz-row {
-	margin: 0 0 6px;
+	margin: 0 0 8px;
 }
 .rz-file-group-body > .rz-row:last-child {
 	margin-bottom: 0;

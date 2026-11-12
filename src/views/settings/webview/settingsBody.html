@@ -196,6 +196,15 @@
 					</label>
 					<p class="meta" id="project-metadata-hint"></p>
 				</div>
+				<div class="card" id="project-archive-card">
+					<h3 style="margin-top:0;">Archive completed issues</h3>
+					<p class="meta" id="project-archive-hint">Default wait before the weekly Sunday sweep moves completed issues into <code>_archive</code> (<code>done-N</code> notes). Parent and feature metadata stay on the issue when it is archived. Select a project above to override this default for that project only.</p>
+					<label class="row" style="align-items:center;">
+						<span style="min-width:9em;">Archive after</span>
+						<input type="number" id="project-archive-days" min="1" max="365" step="1" value="3" style="width:4.5em; padding:4px 6px; background:var(--vscode-input-background); color:var(--vscode-input-foreground); border:1px solid var(--vscode-input-border); border-radius:4px;">
+						<span style="margin-left:8px;">days</span>
+					</label>
+				</div>
 				<div class="card">
 					<h3 id="project-metadata-heading">Default project template</h3>
 					<p class="meta">Project (<code>.p</code>), feature (<code>.f</code>), and issue (<code>.issue</code> / <code>i</code>) types. Shortcuts are fixed. Issues are headings inside project folders; their metadata (status, priority, deadline, category, parent <code>i-N</code>) feeds Project View. Per-project changes add keys or change enum values; built-in keys cannot be deleted.</p>

@@ -1,23 +1,21 @@
 'use strict';
 
 /**
- * Static SQLite schema for `<kb>/.dripindex/projects.drip` — the project-scoped index.
+ * Static SQLite schema for one per-project index file under
+ * `<kb>/.dripindex/projects/<stem>.drip` (stem encodes the folder prefix).
  *
- * This is a second SQLite file, separate from `index.drip`. It holds everything that
- * belongs to the project/feature/issue hierarchy so project headings never leak into
- * the global document-KB search. `index.drip` keeps document headings (concept/task),
- * the shared `files` registry, tags, relations, and embeddings.
+ * Each `.p` project gets its own SQLite file with this schema. It holds that
+ * project's features, issues, headings, and project-zone embeddings so they never
+ * leak into global document-KB search. `index.drip` keeps document headings
+ * (concept/task), the shared `files` registry, tags, relations, and document embeddings.
  *
- * The two databases share one file-id sequence: `@fN` ids are minted by `index.drip`
- * (`index_meta.next_file_id`); `projects.drip` only *records* file ids, it never mints
- * them. Because SQLite foreign keys cannot cross database files, `projects.drip` tables
- * reference `file_id` as a plain integer with no FK into `index.drip.files`.
+ * File ids (`@fN`) are minted by `index.drip` (`index_meta.next_file_id`); a project
+ * DB only *records* file ids. Because SQLite foreign keys cannot cross database files,
+ * `file_id` columns here are plain integers with no FK into `index.drip.files`.
  *
- * Project entity alloc is local to this file:
- * - `index_meta.next_project_id` / `next_feature_id` seed the project/feature ids
- * - issue ids (`i-N`) are derived live from `issue_metadata` rows (see projectIndex.js)
- * - concept (`c-N`) and decision (`d-N`) ids are per-project integers minted from
- *   the project's entity alloc counter (same pattern as issue numbering)
+ * `project_id` is always `1` in a given file (one project per DB). Entity alloc is local:
+ * - issue ids (`i-N`) are derived live from `issue_metadata` rows
+ * - feature / concept / decision counters live in `index_meta`
  */
 
 const PROJECTS_SCHEMA_VERSION = 1;
@@ -152,6 +150,24 @@ CREATE TABLE IF NOT EXISTS issue_teams (
 );
 
 CREATE INDEX IF NOT EXISTS idx_issue_teams_team ON issue_teams(team);
+
+-- Fast index for completed issues: where the block lives, when it completed,
+-- whether it has moved into done-N, and which checkpoint (if any) lists it.
+-- Notes remain the source of truth; this table is rebuilt on index / archive /
+-- checkpoint edit so claim checks and archive sweeps do not rescan every file.
+CREATE TABLE IF NOT EXISTS completed_issues (
+	issue_key TEXT PRIMARY KEY,
+	file_id INTEGER NOT NULL,
+	heading_id INTEGER NOT NULL,
+	completed_at INTEGER,
+	archived INTEGER NOT NULL DEFAULT 0,
+	checkpoint_rel TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_completed_issues_file ON completed_issues(file_id, heading_id);
+CREATE INDEX IF NOT EXISTS idx_completed_issues_archived ON completed_issues(archived);
+CREATE INDEX IF NOT EXISTS idx_completed_issues_checkpoint ON completed_issues(checkpoint_rel);
+CREATE INDEX IF NOT EXISTS idx_completed_issues_completed_at ON completed_issues(completed_at);
 
 -- Canonical Project View concept store. concept_key = c-N's number (per project,
 -- integer starting at 1). Concepts live in the project's _concepts folder, outside

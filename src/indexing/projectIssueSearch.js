@@ -3,10 +3,10 @@
 /**
  * Semantic + word search over a project's issues (Project View issue search bar).
  *
- * Issues live in `projects.drip`, so this mirrors the Retriever's hybrid ranking but
- * scoped to one project's issues and backed by project-zone heading embeddings
- * (stored in `projects.drip`). Word mode stays on the webview; the host only runs the
- * semantic / recommended paths.
+ * Issues live in that project's `.dripindex/projects/….drip` file, so this mirrors
+ * the Retriever's hybrid ranking but scoped to one project's issues and backed by
+ * project-zone heading embeddings in the same file. Word mode stays on the webview;
+ * the host only runs the semantic / recommended paths.
  */
 
 const { listProjectChildrenFromIndex } = require('./projectViewQuery');
@@ -153,7 +153,7 @@ async function searchProjectIssues(kbRootUri, projectFolderPrefix, opts = {}) {
 		}
 		const vector = await encodeHeadingEmbeddingText(query, { modelId });
 
-		const ph = openDripProjectsDb(kbRootUri);
+		const ph = openDripProjectsDb(kbRootUri, projectFolderPrefix);
 		try {
 			const byLoc = new Map();
 			for (const i of issues) byLoc.set(`${i.fileId}:${i.headingId}`, i);

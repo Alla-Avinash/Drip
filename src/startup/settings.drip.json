@@ -9,6 +9,7 @@
       ".d.md"
     ],
     "defaultNewNoteExtension": ".d.txt",
+    "archiveCompletedIssuesAfterDays": 3,
     "editHeadingsInFile": false,
     "editHeadingsViaRhs": true,
     "dripnoteAllowedMetadataKeys": [],
@@ -82,7 +83,7 @@
           "status": {
             "kind": "enum",
             "default": "in-progress",
-            "required": false,
+            "required": true,
             "values": [
               "in-progress",
               "to-do",

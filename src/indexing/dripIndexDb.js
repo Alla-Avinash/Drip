@@ -19,9 +19,19 @@ const {
 	upsertIssueRow,
 	issueKeyFromHeadingTitle,
 	classifyNoteZone,
-	isTodayNotePath
+	isTodayNotePath,
+	projectFolderPrefixFromPath
 } = require('./projectIndex');
-const { openDripProjectsDb } = require('./dripProjectDb');
+const {
+	openDripProjectsDbForNotePath,
+	resetDripProjectsDatabase
+} = require('./dripProjectDb');
+const {
+	syncCompletedIssueFromIndex,
+	deleteCompletedIssuesForFile,
+	deleteCompletedIssueForHeading,
+	remainingCompletedValue
+} = require('./completedIssueIndex');
 const { openDripTodayDb } = require('./dripTodayDb');
 const { openDripSqlite } = require('./db/dripSqlite');
 const { DAILY_NOTES_DIR } = require('../shared/constants');
@@ -83,17 +93,22 @@ function typedMetadataTablesForZone(zone) {
 
 /**
  * Stamp heading-embedding upsert targets with their zone so the drain encodes
- * into the right DB: `index.drip` (document), `projects.drip` (project), or
- * `today.drip` (Today day notes). Today vectors never enter KB/project indexes.
- * @template {{ fileId: number, headingId: number, zone?: string }} T
+ * into the right DB: `index.drip` (document), that project's `.dripindex/projects/….drip`,
+ * or `today.drip` (Today day notes). Today vectors never enter KB/project indexes.
+ * @template {{ fileId: number, headingId: number, zone?: string, folderPrefix?: string }} T
  * @param {T[]} targets
  * @param {'project' | 'document' | 'today'} zone
+ * @param {string} [folderPrefix] required for project-zone jobs (which DB file to open)
  * @returns {T[]}
  */
-function headingEmbeddingTargetsZone(targets, zone) {
+function headingEmbeddingTargetsZone(targets, zone, folderPrefix) {
 	const z = zone === 'project' ? 'project' : zone === 'today' ? 'today' : 'document';
+	const prefix = z === 'project' ? String(folderPrefix || '') : '';
 	for (const t of targets || []) {
-		if (t && typeof t === 'object') t.zone = z;
+		if (t && typeof t === 'object') {
+			t.zone = z;
+			if (prefix) t.folderPrefix = prefix;
+		}
 	}
 	return targets || [];
 }
@@ -101,13 +116,14 @@ function headingEmbeddingTargetsZone(targets, zone) {
 /**
  * @param {import('vscode').Uri} kbRootUri
  * @param {'project' | 'document' | 'today'} zone
+ * @param {string} [noteRelPath] KB-relative path — required when zone is `project`
  * @returns {Promise<{
  *   fileHandle: { db: import('./db/dripSqlite').DripSqliteDatabase, save: () => Promise<void>, close: () => void },
  *   scopeHandle: { db: import('./db/dripSqlite').DripSqliteDatabase, save: () => Promise<void>, close: () => void },
  *   closeAll: () => void
  * }>}
  */
-async function openHandlesForZone(kbRootUri, zone) {
+async function openHandlesForZone(kbRootUri, zone, noteRelPath) {
 	if (zone === 'today') {
 		const today = openDripTodayDb(kbRootUri);
 		return {
@@ -120,7 +136,7 @@ async function openHandlesForZone(kbRootUri, zone) {
 	}
 	const fileHandle = await openDripIndexDb(kbRootUri);
 	if (zone === 'project') {
-		const scopeHandle = openDripProjectsDb(kbRootUri);
+		const scopeHandle = openDripProjectsDbForNotePath(kbRootUri, noteRelPath);
 		return {
 			fileHandle,
 			scopeHandle,
@@ -153,6 +169,9 @@ function deleteFileHeadingScopedRows(db, fileId, zone) {
 		db.run(`DELETE FROM ${table} WHERE file_id = ?`, [fileId]);
 	}
 	db.run(`DELETE FROM ${REMAINING_METADATA_TABLE} WHERE file_id = ?`, [fileId]);
+	if (zone === 'project') {
+		deleteCompletedIssuesForFile(db, fileId);
+	}
 	db.run('DELETE FROM headings WHERE file_id = ?', [fileId]);
 }
 
@@ -180,6 +199,9 @@ function deleteHeadingScopedRows(db, fileId, headingId, options, zone) {
 		fileId,
 		headingId
 	]);
+	if (zone === 'project') {
+		deleteCompletedIssueForHeading(db, fileId, headingId);
+	}
 	db.run('DELETE FROM headings WHERE file_id = ? AND heading_id = ?', [fileId, headingId]);
 }
 
@@ -464,6 +486,16 @@ function insertTypedMetadataRows(db, fileId, typedMetadata, metadataTypeIdByLowe
 						priority: fields.priority != null ? String(fields.priority) : null,
 						parentIssueKey: parentKey
 					});
+					if (issueKey) {
+						syncCompletedIssueFromIndex(db, {
+							issueKey,
+							fileId,
+							headingId,
+							status: fields.status != null ? String(fields.status) : null,
+							completedRaw: remainingCompletedValue(entry.remaining),
+							filePath: ctx.filePath || ''
+						});
+					}
 					// Team → its own table keyed by the issue number (i-N), so a
 					// project's teams are separable from the generic EAV store.
 					if (issueKey) {
@@ -607,7 +639,7 @@ function insertParsedHeadingsAndReferences(
 	const metaMap = metadataTypeIdByLower || new Map();
 	const relMap = relationTypeIdByLower || new Map();
 	const filePath = String((parsed.file && parsed.file.path) || '');
-	// Project/feature scoping only exists in projects.drip; document headings carry none.
+	// Project/feature scoping only exists in per-project DBs; document headings carry none.
 	const isProject = zone === 'project';
 	const projectId = isProject ? resolveProjectIdForFile(db, filePath, fileId) : null;
 	const featureId = isProject ? resolveFeatureIdForFile(db, filePath, fileId) : null;
@@ -1207,22 +1239,43 @@ async function rebuildTodayDripIndex(kbRootUri, context) {
 }
 
 /**
- * Full rebuild of index.drip, projects.drip, and today.drip from notes on disk.
+ * Full rebuild of index.drip, every `.dripindex/projects/….drip`, and today.drip from notes on disk.
  * @param {import('vscode').Uri} kbRootUri
  * @param {import('vscode').ExtensionContext | null | undefined} [context]
  */
 async function rebuildDripIndex(kbRootUri, context) {
+	// Wipe all per-project DBs first (no migration from a shared projects.drip).
+	await resetDripProjectsDatabase(kbRootUri);
+
 	const handle = await openDripIndexDb(kbRootUri);
-	const projectHandle = openDripProjectsDb(kbRootUri);
+	/** @type {Map<string, ReturnType<typeof openDripProjectsDbForNotePath>>} */
+	const projectHandles = new Map();
 	const usedFileIds = new Set();
 	let nextFileId = 0;
 	const knownTagsLower = collectKnownTagNamesLower(context);
+
+	/**
+	 * @param {string} relPath
+	 */
+	function projectHandleFor(relPath) {
+		const prefix = projectFolderPrefixFromPath(relPath);
+		if (!prefix) {
+			throw new Error(`rebuildDripIndex: not under a project: ${relPath}`);
+		}
+		let h = projectHandles.get(prefix);
+		if (!h) {
+			h = openDripProjectsDbForNotePath(kbRootUri, relPath);
+			h.db.run('BEGIN');
+			syncTagsTableFromGraph(h.db, context, { replaceAll: true });
+			projectHandles.set(prefix, h);
+		}
+		return h;
+	}
 
 	try {
 		// Reset document scope.
 		handle.db.run('BEGIN');
 		clearAllHeadingEmbeddings(handle.db);
-		clearAllHeadingEmbeddings(projectHandle.db);
 		try {
 			require('./embeddings/folderEmbeddingStore').clearAllFolderEmbeddings(handle.db);
 		} catch (err) {
@@ -1242,27 +1295,8 @@ async function rebuildDripIndex(kbRootUri, context) {
 		handle.db.run('DELETE FROM headings');
 		handle.db.run('DELETE FROM files');
 
-		// Reset project scope.
-		projectHandle.db.run('BEGIN');
-		projectHandle.db.run('DELETE FROM searchtags');
-		projectHandle.db.run('DELETE FROM relations');
-		for (const table of PROJECT_TYPED_METADATA_TABLES) {
-			projectHandle.db.run(`DELETE FROM ${table}`);
-		}
-		projectHandle.db.run(`DELETE FROM ${REMAINING_METADATA_TABLE}`);
-		projectHandle.db.run('DELETE FROM issue_concept_links');
-		projectHandle.db.run('DELETE FROM issue_decision_links');
-		projectHandle.db.run('DELETE FROM decision_concept_links');
-		projectHandle.db.run('DELETE FROM decisions');
-		projectHandle.db.run('DELETE FROM concepts');
-		projectHandle.db.run('DELETE FROM headings');
-		projectHandle.db.run('DELETE FROM features');
-		projectHandle.db.run('DELETE FROM projects');
-
 		const tagIdByLower = syncTagsTableFromGraph(handle.db, context, { replaceAll: true });
 		const { metadataTypeIdByLower, relationTypeIdByLower } = loadTypeLookupMaps(handle.db);
-		const projectTagIdByLower = syncTagsTableFromGraph(projectHandle.db, context, { replaceAll: true });
-		const projectLookup = loadTypeLookupMaps(projectHandle.db);
 
 		await forEachKnowledgeBaseNote(
 			kbRootUri,
@@ -1332,23 +1366,37 @@ async function rebuildDripIndex(kbRootUri, context) {
 					]
 				);
 
-				const scopeDb = zone === 'project' ? projectHandle.db : handle.db;
-				const scopeTags = zone === 'project' ? projectTagIdByLower : tagIdByLower;
-				const scopeLookup = zone === 'project' ? projectLookup : { metadataTypeIdByLower, relationTypeIdByLower };
-				insertParsedHeadingsAndReferences(
-					scopeDb,
-					fileId,
-					parsed,
-					scopeTags,
-					scopeLookup.metadataTypeIdByLower,
-					scopeLookup.relationTypeIdByLower,
-					zone
-				);
+				if (zone === 'project') {
+					const ph = projectHandleFor(relPath);
+					const projectLookup = loadTypeLookupMaps(ph.db);
+					const projectTags = syncTagsTableFromGraph(ph.db, context);
+					insertParsedHeadingsAndReferences(
+						ph.db,
+						fileId,
+						parsed,
+						projectTags,
+						projectLookup.metadataTypeIdByLower,
+						projectLookup.relationTypeIdByLower,
+						zone
+					);
+				} else {
+					insertParsedHeadingsAndReferences(
+						handle.db,
+						fileId,
+						parsed,
+						tagIdByLower,
+						metadataTypeIdByLower,
+						relationTypeIdByLower,
+						zone
+					);
+				}
 			},
 			{ yieldEvery: 20 }
 		);
 
-		projectHandle.db.run('COMMIT');
+		for (const ph of projectHandles.values()) {
+			ph.db.run('COMMIT');
+		}
 		handle.db.run('COMMIT');
 
 		const maxRow = queryOne(handle.db, 'SELECT COALESCE(MAX(id), -1) FROM files', []);
@@ -1358,20 +1406,42 @@ async function rebuildDripIndex(kbRootUri, context) {
 		]);
 		await handle.save();
 	} catch (err) {
-		try {
-			projectHandle.db.run('ROLLBACK');
-		} catch {
-			// ignore rollback failure
+		for (const ph of projectHandles.values()) {
+			try {
+				ph.db.run('ROLLBACK');
+			} catch {
+				/* ignore */
+			}
 		}
 		try {
 			handle.db.run('ROLLBACK');
 		} catch {
-			// ignore rollback failure
+			/* ignore */
 		}
 		throw err;
 	} finally {
-		projectHandle.close();
+		for (const ph of projectHandles.values()) {
+			try {
+				ph.close();
+			} catch {
+				/* ignore */
+			}
+		}
 		handle.close();
+	}
+
+	// Rebuild checkpoint claims from `_archive/_checkpoints/` into each project DB.
+	try {
+		const { rebuildCheckpointClaims } = require('./completedIssueIndex');
+		for (const prefix of projectHandles.keys()) {
+			const folderUri = vscode.Uri.joinPath(
+				kbRootUri,
+				...String(prefix).replace(/\/+$/, '').split('/').filter(Boolean)
+			);
+			await rebuildCheckpointClaims(kbRootUri, folderUri);
+		}
+	} catch (err) {
+		console.warn('[DRIP] checkpoint claim rebuild after index failed', err && err.message);
 	}
 
 	await rebuildTodayDripIndex(kbRootUri, context);
@@ -1379,7 +1449,7 @@ async function rebuildDripIndex(kbRootUri, context) {
 
 /**
  * Write parsed note rows into `index.drip` (shared `files` + document rows) and, for
- * project-zone notes, into `projects.drip` (project headings/issues). Owns its transactions.
+ * project-zone notes, into that project's `.dripindex/projects/….drip`. Owns its transactions.
  * @param {import('vscode').Uri} kbRootUri
  * @param {string} relPath
  * @param {ReturnType<typeof parseNoteForIndex>} parsed
@@ -1393,8 +1463,14 @@ async function applyParsedNoteToIndex(kbRootUri, relPath, parsed, context, optio
 	const embeddingUpserts =
 		options && Array.isArray(options.embeddingUpserts) ? options.embeddingUpserts : null;
 	const zone = classifyNoteZone(normalizedPath);
+	const projectPrefix =
+		zone === 'project' ? projectFolderPrefixFromPath(normalizedPath) : '';
 
-	const { fileHandle, scopeHandle, closeAll } = await openHandlesForZone(kbRootUri, zone);
+	const { fileHandle, scopeHandle, closeAll } = await openHandlesForZone(
+		kbRootUri,
+		zone,
+		normalizedPath
+	);
 	try {
 		const fileDb = fileHandle.db;
 		const scopeDb = scopeHandle.db;
@@ -1452,7 +1528,13 @@ async function applyParsedNoteToIndex(kbRootUri, relPath, parsed, context, optio
 						);
 						if (embeddingUpserts) {
 							for (const headingId of upsertSet) {
-								embeddingUpserts.push({ fileId, headingId, zone });
+								embeddingUpserts.push(
+									...headingEmbeddingTargetsZone(
+										[{ fileId, headingId }],
+										zone,
+										projectPrefix
+									)
+								);
 							}
 						}
 					}
@@ -1471,7 +1553,11 @@ async function applyParsedNoteToIndex(kbRootUri, relPath, parsed, context, optio
 					);
 					if (embeddingUpserts) {
 						embeddingUpserts.push(
-							...headingEmbeddingTargetsZone(collectAllHeadingEmbeddingTargets(fileId, parsed), zone)
+							...headingEmbeddingTargetsZone(
+								collectAllHeadingEmbeddingTargets(fileId, parsed),
+								zone,
+								projectPrefix
+							)
 						);
 					}
 				}
@@ -1509,7 +1595,11 @@ async function applyParsedNoteToIndex(kbRootUri, relPath, parsed, context, optio
 				);
 				if (embeddingUpserts) {
 					embeddingUpserts.push(
-						...headingEmbeddingTargetsZone(collectAllHeadingEmbeddingTargets(fileId, parsed), zone)
+						...headingEmbeddingTargetsZone(
+							collectAllHeadingEmbeddingTargets(fileId, parsed),
+							zone,
+							projectPrefix
+						)
 					);
 				}
 			}
@@ -1546,7 +1636,11 @@ async function applyParsedNoteToIndex(kbRootUri, relPath, parsed, context, optio
 async function removeFileFromDripIndex(kbRootUri, relPath) {
 	const normalized = String(relPath || '').replace(/\\/g, '/');
 	const zone = classifyNoteZone(normalized);
-	const { fileHandle, scopeHandle, closeAll } = await openHandlesForZone(kbRootUri, zone);
+	const { fileHandle, scopeHandle, closeAll } = await openHandlesForZone(
+		kbRootUri,
+		zone,
+		normalized
+	);
 	try {
 		const row = queryOne(fileHandle.db, 'SELECT id FROM files WHERE path = ?', [normalized]);
 		if (!row) {
@@ -1632,8 +1726,14 @@ async function replaceParsedNoteAtFileId(kbRootUri, fileId, parsed, context, opt
 	const embeddingUpserts =
 		options && Array.isArray(options.embeddingUpserts) ? options.embeddingUpserts : null;
 	const zone = classifyNoteZone(normalizedPath);
+	const projectPrefix =
+		zone === 'project' ? projectFolderPrefixFromPath(normalizedPath) : '';
 
-	const { fileHandle, scopeHandle, closeAll } = await openHandlesForZone(kbRootUri, zone);
+	const { fileHandle, scopeHandle, closeAll } = await openHandlesForZone(
+		kbRootUri,
+		zone,
+		normalizedPath
+	);
 	try {
 		const fileDb = fileHandle.db;
 		const scopeDb = scopeHandle.db;
@@ -1687,7 +1787,11 @@ async function replaceParsedNoteAtFileId(kbRootUri, fileId, parsed, context, opt
 			);
 			if (embeddingUpserts) {
 				embeddingUpserts.push(
-					...headingEmbeddingTargetsZone(collectAllHeadingEmbeddingTargets(id, parsed), zone)
+					...headingEmbeddingTargetsZone(
+						collectAllHeadingEmbeddingTargets(id, parsed),
+						zone,
+						projectPrefix
+					)
 				);
 			}
 			bumpNextFileIdCounter(fileDb, id);

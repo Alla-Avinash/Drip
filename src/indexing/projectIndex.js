@@ -3,12 +3,10 @@
 /**
  * Project-scoped index helpers.
  *
- * These operate on the project-scoped `projects.drip` database (opened by callers via
- * `openDripProjectsDb`), never on `index.drip`.
- * - `projects` rows keyed by folder_prefix (e.g. `sample/kjh.p/`)
- * - `headings.project_id` set for every heading under a `.p` folder
- * - `issue_metadata` rows keyed by (file_id, heading_id) with a per-project
- *   unique issue_key and parent_issue_key hierarchy
+ * These operate on per-project SQLite files under `.dripindex/projects/`
+ * (opened via `openDripProjectsDb(kb, folderPrefix)`), never on `index.drip`.
+ * Each DB is one project (`project_id` is always 1) with its features, issues,
+ * headings, and project-zone embeddings.
  */
 
 const path = require('path');
@@ -46,31 +44,9 @@ function projectFolderPrefixFromPath(filePath) {
  * @param {import('./db/dripSqlite').DripSqliteDatabase} db
  * @returns {number}
  */
-function allocateProjectId(db) {
-	let next = 1;
-	try {
-		if (db.native) {
-			const row = db.native.prepare(`SELECT value FROM index_meta WHERE key = 'next_project_id'`).get();
-			const n = row && row.value != null ? parseInt(String(row.value), 10) : NaN;
-			if (Number.isFinite(n) && n >= 1) next = n;
-		} else {
-			const stmt = db.prepare(`SELECT value FROM index_meta WHERE key = 'next_project_id'`);
-			stmt.bind([]);
-			if (stmt.step()) {
-				const row = stmt.get();
-				const n = row && row[0] != null ? parseInt(String(row[0]), 10) : NaN;
-				if (Number.isFinite(n) && n >= 1) next = n;
-			}
-			stmt.free();
-		}
-	} catch {
-		next = 1;
-	}
-	const id = next;
-	db.run(`INSERT OR REPLACE INTO index_meta(key, value) VALUES ('next_project_id', ?)`, [
-		String(id + 1)
-	]);
-	return id;
+function allocateProjectId(_db) {
+	// One project per DB file — always id 1 (no cross-project id allocator).
+	return 1;
 }
 
 /**
@@ -162,7 +138,8 @@ function resolveProjectIdForFile(db, filePath, fileId) {
 
 /**
  * True when a KB-relative path belongs to the project zone (under a `.p` project
- * folder or a `.f` feature folder). Project-zone notes index into `projects.drip`.
+ * folder or a `.f` feature folder). Project-zone notes index into that project's
+ * `.dripindex/projects/….drip` file.
  * @param {string} filePath
  * @returns {boolean}
  */
@@ -403,7 +380,7 @@ function upsertIssueRow(db, row) {
 
 /**
  * Drop every index row for a project folder: note files in `index.drip`,
- * plus the project / feature / issue rows in `projects.drip`.
+ * plus delete that project's own `.dripindex/projects/….drip` file.
  * Call this before deleting the folder so Settings and Project View
  * do not keep listing a project that is gone.
  * @param {import('vscode').Uri} kbRootUri
@@ -413,7 +390,7 @@ async function removeProjectFolderFromIndexes(kbRootUri, folderUri) {
 	const vscode = require('vscode');
 	const { fileNameMatchesKbNote } = require('../document/model/dripNoteFileTypes.js');
 	const { removeFileFromDripIndex } = require('./dripIndexDb');
-	const { openDripProjectsDb } = require('./dripProjectDb');
+	const { deleteProjectDatabase } = require('./dripProjectDb');
 
 	const relFolder = path.relative(kbRootUri.fsPath, folderUri.fsPath).replace(/\\/g, '/');
 	const prefix = projectFolderPrefixFromPath(relFolder + '/');
@@ -444,36 +421,11 @@ async function removeProjectFolderFromIndexes(kbRootUri, folderUri) {
 		}
 	}
 
-	const handle = openDripProjectsDb(kbRootUri);
-	try {
-		const db = handle.db;
-		const like = prefix + '%';
-		let rows = [];
-		if (db.native) {
-			rows = db.native
-				.prepare(
-					`SELECT project_id AS projectId FROM projects WHERE folder_prefix = ? OR folder_prefix LIKE ?`
-				)
-				.all(prefix, like);
-		}
-		for (const r of rows || []) {
-			const pid = Number(r.projectId || r.project_id);
-			if (!pid) continue;
-			db.run(`DELETE FROM headings WHERE project_id = ?`, [pid]);
-			db.run(`DELETE FROM issue_metadata WHERE project_id = ?`, [pid]);
-			db.run(`DELETE FROM concepts WHERE project_id = ?`, [pid]);
-			db.run(`DELETE FROM decisions WHERE project_id = ?`, [pid]);
-		}
-		db.run(`DELETE FROM features WHERE folder_prefix = ? OR folder_prefix LIKE ?`, [prefix, like]);
-		db.run(`DELETE FROM projects WHERE folder_prefix = ? OR folder_prefix LIKE ?`, [prefix, like]);
-		await handle.save();
-	} finally {
-		handle.close();
-	}
+	await deleteProjectDatabase(kbRootUri, prefix);
 }
 
 /**
- * After a join/import, put the new `.p` folder in `projects.drip` and index
+ * After a join/import, create that project's `.dripindex/projects/….drip` and index
  * its notes so Settings and Project View list it immediately.
  * @param {import('vscode').Uri} kbRootUri
  * @param {import('vscode').Uri} folderUri
@@ -490,7 +442,7 @@ async function ensureJoinedProjectInIndex(kbRootUri, folderUri, title) {
 	const prefix = projectFolderPrefixFromPath(relFolder + '/');
 	if (!prefix) return '';
 
-	const handle = openDripProjectsDb(kbRootUri);
+	const handle = openDripProjectsDb(kbRootUri, prefix);
 	try {
 		ensureProjectRow(handle.db, prefix, { title: String(title || '').trim() });
 		await handle.save();
@@ -537,20 +489,10 @@ async function clearProjectIssueTeams(kbRootUri, folderPrefix) {
 		.replace(/\\/g, '/')
 		.replace(/\/+$/, '') + '/';
 	const { openDripProjectsDb } = require('./dripProjectDb');
-	const handle = openDripProjectsDb(kbRootUri);
+	const handle = openDripProjectsDb(kbRootUri, prefix);
 	try {
-		const db = handle.db;
-		let rows = [];
-		if (db.native) {
-			rows = db.native
-				.prepare(`SELECT project_id AS projectId FROM projects WHERE folder_prefix = ?`)
-				.all(prefix);
-		}
-		for (const r of rows || []) {
-			const pid = Number(r.projectId || r.project_id);
-			if (!pid) continue;
-			db.run(`DELETE FROM issue_teams WHERE project_id = ?`, [pid]);
-		}
+		// One project per DB — clear all team rows in this file.
+		handle.db.run(`DELETE FROM issue_teams`);
 	} finally {
 		handle.close();
 	}

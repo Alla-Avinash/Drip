@@ -14,7 +14,6 @@ const {
 	DRIP_DRAFTS_VIEW_ID,
 	DRIP_RECENTS_VIEW_ID,
 	DRIP_OPEN_RECENT_FILE_COMMAND_ID,
-	DRIP_DAILY_NOTES_VIEW_ID,
 	DRIP_OPEN_TODAY_DAILY_NOTE_COMMAND_ID,
 	DRIP_OPEN_TODAY_CALENDAR_COMMAND_ID,
 	DRIP_CHAT_VIEW_ID,
@@ -178,14 +177,12 @@ async function activate(context) {
 	const projectsTreeProvider = new DripTreeDataProvider(state, 'projects');
 	const draftsTreeProvider = new DripTreeDataProvider(state, 'drafts');
 	const recentsTreeProvider = new DripTreeDataProvider(state, 'recents');
-	const dailyNotesTreeProvider = new DripTreeDataProvider(state, 'dailyNotes');
 	const sidebarRefreshHub = {
 		refresh() {
 			componentsTreeProvider.refresh();
 			kbTreeProvider.refresh();
 			draftsTreeProvider.refresh();
 			recentsTreeProvider.refresh();
-			dailyNotesTreeProvider.refresh();
 		},
 		refreshProjects() {
 			projectsTreeProvider.refresh();
@@ -306,12 +303,8 @@ async function activate(context) {
 	const recentsTreeView = vscode.window.createTreeView(DRIP_RECENTS_VIEW_ID, {
 		treeDataProvider: recentsTreeProvider
 	});
-	const dailyNotesTreeView = vscode.window.createTreeView(DRIP_DAILY_NOTES_VIEW_ID, {
-		treeDataProvider: dailyNotesTreeProvider,
-		showCollapseAll: true
-	});
 
-	context.subscriptions.push(componentsTreeView, kbTreeView, projectsTreeView, draftsTreeView, recentsTreeView, dailyNotesTreeView);
+	context.subscriptions.push(componentsTreeView, kbTreeView, projectsTreeView, draftsTreeView, recentsTreeView);
 	registerDripSidebarViewBehavior(kbTreeView, componentsTreeView, context);
 
 	function isDripnoteDocument(doc) {
@@ -354,8 +347,7 @@ async function activate(context) {
 			if (!isDailyNoteUri(kbRoot, doc.uri)) return;
 			try {
 				const { deleteTodayNoteIfEmpty } = require('../startup/todayCleanup');
-				const deleted = await deleteTodayNoteIfEmpty(kbRoot, doc.uri);
-				if (deleted) dailyNotesTreeProvider.refresh();
+				await deleteTodayNoteIfEmpty(kbRoot, doc.uri);
 			} catch {
 				// best-effort
 			}
@@ -598,7 +590,6 @@ async function activate(context) {
 				await postTagGraphStateToAll(state);
 				await state.refreshDraftsFromStorage();
 				await state.refreshRecentsFromStorage();
-				dailyNotesTreeProvider.refresh();
 				refreshRetrieverCatalogIfShown();
 				if (getOpenSettingsPanel()) {
 					await postDripSettingsValuesToWebview(getOpenSettingsPanel().webview, state, context);
@@ -682,7 +673,6 @@ async function activate(context) {
 					context
 				});
 				await vscode.window.showTextDocument(uri);
-				dailyNotesTreeProvider.refresh();
 				if (isNew) {
 					newDailyNoteInitialText.set(uri.toString(), initialText);
 				}

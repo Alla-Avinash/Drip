@@ -1,10 +1,12 @@
 (function () {
 	const vscode = acquireVsCodeApi();
 
-	/** @type {'calendar' | 'search' | 'tasks' | 'dailylog'} */
+	/** @type {'calendar' | 'todayslog' | 'search' | 'tasks' | 'dailylog'} */
 	let section = 'calendar';
 	/** @type {'day' | 'week' | 'month'} */
 	let lens = 'month';
+	/** @type {'calendar' | 'files'} */
+	let calendarSurface = 'calendar';
 	/** @type {{ year: number, month0: number, days: any[] } | null} */
 	let month = null;
 	/** @type {{ weekStart: any, days: any[] } | null} */
@@ -13,6 +15,9 @@
 	let selected = null;
 	/** @type {'all' | 'overdue' | 'today' | 'upcoming' | 'later'} */
 	let taskFilter = 'all';
+	/** @type {'any' | 'tomorrow' | '2' | '7' | 'custom'} */
+	let upcomingRange = 'any';
+	let upcomingCustomDays = 3;
 	/** @type {any} */
 	let taskBoard = null;
 	/** @type {any[]} */
@@ -39,6 +44,15 @@
 	/** @type {boolean} */
 	let selectedHasNote = false;
 
+	/** @type {{ kind: string, label: string, path: string }[]} */
+	let notesRoot = [];
+	/** @type {Record<string, { kind: string, label: string, path: string }[]>} */
+	let notesChildren = Object.create(null);
+	/** @type {Record<string, boolean>} */
+	let notesExpanded = Object.create(null);
+	/** @type {Record<string, boolean>} */
+	let notesLoading = Object.create(null);
+
 	const SEARCH_ENGINE_ICON_SVG =
 		'<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M6.5 1a5.5 5.5 0 0 1 4.383 8.823l3.147 3.147-.708.708-3.147-3.147A5.5 5.5 0 1 1 6.5 1zm0 1a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9z"/></svg>';
 
@@ -62,11 +76,21 @@
 	const taskCompose = document.getElementById('task-compose');
 	const tasksCompose = document.getElementById('tasks-compose');
 	const taskList = document.getElementById('task-board');
+	const notesTreeEl = document.getElementById('notes-tree');
+	const calMainBody = document.getElementById('cal-main-body');
+	const calAside = document.getElementById('cal-aside');
+	const fileViewPanel = document.getElementById('file-view-panel');
+	const fileViewBtn = document.getElementById('file-view');
+	const openTodaysLogBtn = document.getElementById('open-todays-log');
+	const tlogTitle = document.getElementById('tlog-title');
 	const dailyLogEl = document.getElementById('daily-log');
 	const dailyLogScroll = document.getElementById('daily-log-scroll');
 	const dailyLogSentinel = document.getElementById('daily-log-sentinel');
 	const dailyLogFoot = document.getElementById('daily-log-foot');
 	const dailyLogCustom = document.getElementById('dlog-custom');
+	const upcomingHorizon = document.getElementById('upcoming-horizon');
+	const upcomingCustom = document.getElementById('upcoming-custom');
+	const upcomingCustomDaysInput = document.getElementById('upcoming-custom-days');
 	/** @type {'calendar' | 'tasks' | null} */
 	let composeTarget = null;
 
@@ -110,7 +134,10 @@
 		document.querySelectorAll('.panel').forEach(p => {
 			p.classList.toggle('active', p.getAttribute('data-panel') === section);
 		});
-		if (section === 'calendar') requestCalendar();
+		if (section === 'calendar') {
+			if (calendarSurface === 'files') showFileView();
+			else requestCalendar();
+		} else if (section === 'todayslog') vscode.postMessage({ type: 'loadTodaysLog' });
 		else if (section === 'tasks') vscode.postMessage({ type: 'loadTasks' });
 		else if (section === 'dailylog') requestDailyLog({ reset: true });
 		else if (section === 'search') {
@@ -119,11 +146,268 @@
 		}
 	}
 
+	function applyCalendarSurface() {
+		const files = calendarSurface === 'files';
+		if (calMainBody) calMainBody.classList.toggle('hidden', files);
+		if (calAside) calAside.classList.toggle('hidden', files);
+		if (fileViewPanel) fileViewPanel.classList.toggle('hidden', !files);
+		if (fileViewBtn) fileViewBtn.classList.toggle('active', files);
+		document.querySelectorAll('.segment button[data-lens]').forEach(btn => {
+			btn.classList.toggle('active', !files && btn.getAttribute('data-lens') === lens);
+		});
+	}
+
+	function showFileView() {
+		calendarSurface = 'files';
+		applyCalendarSurface();
+		vscode.postMessage({ type: 'loadNotesTree' });
+	}
+
+	function showCalendarSurface() {
+		calendarSurface = 'calendar';
+		applyCalendarSurface();
+		requestCalendar();
+	}
+
+	function renderTodaysLog(payload) {
+		const hasNote = Boolean(payload && payload.hasNote);
+		const label = payload && payload.label ? String(payload.label) : "Today's log";
+		if (tlogTitle) tlogTitle.textContent = label;
+		if (openTodaysLogBtn) {
+			openTodaysLogBtn.textContent = hasNote ? 'Open log' : 'Create log';
+		}
+	}
+
+	function renderNotesTree() {
+		if (!notesTreeEl) return;
+		notesTreeEl.innerHTML = '';
+		if (!notesRoot.length) {
+			notesTreeEl.innerHTML = '<div class="empty">No daily notes yet</div>';
+			return;
+		}
+		for (const node of notesRoot) {
+			notesTreeEl.appendChild(buildNotesNode(node, 0));
+		}
+	}
+
+	function buildNotesNode(node, depth) {
+		const wrap = document.createElement('div');
+		const isFolder = node.kind === 'year' || node.kind === 'month';
+		const expanded = Boolean(notesExpanded[node.path]);
+		const row = document.createElement('button');
+		row.type = 'button';
+		row.className = 'notes-row' + (isFolder ? ' folder' : '');
+		row.style.paddingLeft = `${6 + depth * 14}px`;
+		const chevron = isFolder ? (expanded ? '▼' : '▶') : '';
+		row.innerHTML =
+			`<span class="notes-chevron">${chevron}</span>` +
+			`<span class="notes-label">${escapeHtml(node.label || '')}</span>`;
+		row.addEventListener('click', () => {
+			if (node.kind === 'note') {
+				vscode.postMessage({ type: 'openNotePath', path: node.path });
+				return;
+			}
+			toggleNotesFolder(node);
+		});
+		wrap.appendChild(row);
+		if (isFolder && expanded) {
+			const kids = document.createElement('div');
+			kids.className = 'notes-children';
+			if (notesLoading[node.path]) {
+				const loading = document.createElement('div');
+				loading.className = 'empty';
+				loading.style.paddingLeft = `${20 + depth * 14}px`;
+				loading.textContent = 'Loading…';
+				kids.appendChild(loading);
+			} else {
+				const list = notesChildren[node.path] || [];
+				if (!list.length) {
+					const empty = document.createElement('div');
+					empty.className = 'empty';
+					empty.style.paddingLeft = `${20 + depth * 14}px`;
+					empty.textContent = 'Empty';
+					kids.appendChild(empty);
+				} else {
+					for (const child of list) {
+						kids.appendChild(buildNotesNode(child, depth + 1));
+					}
+				}
+			}
+			wrap.appendChild(kids);
+		}
+		return wrap;
+	}
+
+	function toggleNotesFolder(node) {
+		const path = node.path;
+		if (notesExpanded[path]) {
+			delete notesExpanded[path];
+			renderNotesTree();
+			return;
+		}
+		notesExpanded[path] = true;
+		if (notesChildren[path]) {
+			renderNotesTree();
+			return;
+		}
+		notesLoading[path] = true;
+		renderNotesTree();
+		vscode.postMessage({ type: 'expandNotesNode', kind: node.kind, path });
+	}
+
+	function applyNotesTreeRoot(nodes) {
+		notesRoot = Array.isArray(nodes) ? nodes : [];
+		notesChildren = Object.create(null);
+		notesExpanded = Object.create(null);
+		notesLoading = Object.create(null);
+		renderNotesTree();
+	}
+
+	function applyNotesTreeChildren(msg) {
+		const path = String((msg && msg.path) || '');
+		if (!path) return;
+		notesChildren[path] = Array.isArray(msg.nodes) ? msg.nodes : [];
+		delete notesLoading[path];
+		notesExpanded[path] = true;
+		renderNotesTree();
+	}
+
+	function dailyLogRangeBounds() {
+		const now = new Date();
+		const end = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+		if (dailyLogRange === '7') {
+			const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6).getTime();
+			return { fromMs: start, toMs: end };
+		}
+		if (dailyLogRange === '30') {
+			const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29).getTime();
+			return { fromMs: start, toMs: end };
+		}
+		if (dailyLogRange === 'custom') {
+			let fromMs = null;
+			let toMs = null;
+			if (dailyLogFrom) {
+				const p = dailyLogFrom.split('-').map(Number);
+				if (p.length === 3) fromMs = new Date(p[0], p[1] - 1, p[2]).getTime();
+			}
+			if (dailyLogTo) {
+				const p = dailyLogTo.split('-').map(Number);
+				if (p.length === 3) toMs = new Date(p[0], p[1] - 1, p[2]).getTime();
+			}
+			return { fromMs, toMs };
+		}
+		return { fromMs: null, toMs: null };
+	}
+
+	function requestDailyLog(opts) {
+		const reset = Boolean(opts && opts.reset);
+		if (dailyLogLoading) return;
+		if (!reset && !dailyLogHasMore) return;
+		if (reset) {
+			dailyLogOffset = 0;
+			dailyLogDays = [];
+			dailyLogHasMore = true;
+			if (dailyLogEl) dailyLogEl.innerHTML = '<div class="empty">Loading…</div>';
+			if (dailyLogFoot) dailyLogFoot.textContent = '';
+		}
+		dailyLogLoading = true;
+		if (dailyLogFoot && !reset) dailyLogFoot.textContent = 'Loading…';
+		dailyLogSeq += 1;
+		const seq = dailyLogSeq;
+		const bounds = dailyLogRangeBounds();
+		vscode.postMessage({
+			type: 'loadDailyLog',
+			limit: DAILY_LOG_PAGE,
+			offset: dailyLogOffset,
+			fromMs: bounds.fromMs,
+			toMs: bounds.toMs,
+			append: !reset,
+			seq
+		});
+	}
+
+	function sortDailyLogNewestFirst(days) {
+		return (Array.isArray(days) ? days.slice() : []).sort(
+			(a, b) =>
+				Number((b && b.dateMs) || 0) - Number((a && a.dateMs) || 0) ||
+				String((b && b.dateKey) || '').localeCompare(String((a && a.dateKey) || ''))
+		);
+	}
+
+	function appendDailyLogDays(days) {
+		if (!dailyLogEl) return;
+		for (const g of days || []) {
+			const row = document.createElement('div');
+			row.className = 'timeline-row';
+			const headings = (g.headings || [])
+				.map(
+					h =>
+						`<button type="button" class="timeline-heading" data-path="${escapeHtml(h.path || '')}" data-hid="${Number(h.headingId) || 0}">${escapeHtml(h.title || 'Untitled')}</button>`
+				)
+				.join('');
+			row.innerHTML =
+				`<div class="timeline-date">${escapeHtml(g.label || '')}</div>` +
+				`<div class="timeline-rail" aria-hidden="true"><span class="timeline-dot"></span></div>` +
+				`<div class="timeline-body">${headings}</div>`;
+			row.querySelectorAll('.timeline-heading').forEach(btn => {
+				btn.addEventListener('click', () => {
+					vscode.postMessage({
+						type: 'openHeading',
+						path: btn.getAttribute('data-path') || '',
+						headingId: Number(btn.getAttribute('data-hid')) || 0
+					});
+				});
+			});
+			dailyLogEl.appendChild(row);
+		}
+	}
+
+	function renderDailyLog(opts) {
+		if (!dailyLogEl) return;
+		const append = Boolean(opts && opts.append);
+		const incoming = sortDailyLogNewestFirst(opts && opts.days);
+		if (!append) {
+			dailyLogEl.innerHTML = '';
+			dailyLogDays = [];
+		}
+		if (!incoming.length && !dailyLogDays.length) {
+			dailyLogEl.innerHTML = '<div class="empty">No daily log headings in this range</div>';
+		} else {
+			const empty = dailyLogEl.querySelector('.empty');
+			if (empty) empty.remove();
+			if (append) {
+				appendDailyLogDays(incoming);
+				dailyLogDays = sortDailyLogNewestFirst(dailyLogDays.concat(incoming));
+			} else {
+				dailyLogDays = incoming;
+				appendDailyLogDays(dailyLogDays);
+			}
+		}
+		dailyLogHasMore = Boolean(opts && opts.hasMore);
+		dailyLogOffset = Number(opts && opts.nextOffset) || dailyLogDays.length;
+		if (dailyLogFoot) {
+			if (dailyLogLoading) dailyLogFoot.textContent = 'Loading…';
+			else if (dailyLogHasMore) dailyLogFoot.textContent = 'Scroll for more';
+			else if (dailyLogDays.length)
+				dailyLogFoot.textContent = `${dailyLogDays.length} day${dailyLogDays.length === 1 ? '' : 's'} · newest first`;
+			else dailyLogFoot.textContent = '';
+		}
+	}
+
+	function setDailyLogRange(next) {
+		if (next !== 'recent' && next !== '7' && next !== '30' && next !== 'custom') return;
+		dailyLogRange = next;
+		document.querySelectorAll('[data-dlog-range]').forEach(btn => {
+			btn.classList.toggle('active', btn.getAttribute('data-dlog-range') === dailyLogRange);
+		});
+		if (dailyLogCustom) dailyLogCustom.classList.toggle('hidden', dailyLogRange !== 'custom');
+		if (dailyLogRange !== 'custom') requestDailyLog({ reset: true });
+	}
+
 	function setLens(next) {
 		lens = next;
-		document.querySelectorAll('.segment button[data-lens]').forEach(btn => {
-			btn.classList.toggle('active', btn.getAttribute('data-lens') === lens);
-		});
+		calendarSurface = 'calendar';
+		applyCalendarSurface();
 		if (grid) grid.classList.toggle('hidden', lens !== 'month');
 		if (weekdaysEl) weekdaysEl.classList.toggle('hidden', lens !== 'month');
 		if (weekGrid) weekGrid.classList.toggle('hidden', lens !== 'week');
@@ -266,125 +550,6 @@
 			weekGrid.appendChild(btn);
 		}
 		updateNavLabel();
-	}
-
-	function dailyLogRangeBounds() {
-		const now = new Date();
-		const end = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-		if (dailyLogRange === '7') {
-			const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6).getTime();
-			return { fromMs: start, toMs: end };
-		}
-		if (dailyLogRange === '30') {
-			const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29).getTime();
-			return { fromMs: start, toMs: end };
-		}
-		if (dailyLogRange === 'custom') {
-			let fromMs = null;
-			let toMs = null;
-			if (dailyLogFrom) {
-				const p = dailyLogFrom.split('-').map(Number);
-				if (p.length === 3) fromMs = new Date(p[0], p[1] - 1, p[2]).getTime();
-			}
-			if (dailyLogTo) {
-				const p = dailyLogTo.split('-').map(Number);
-				if (p.length === 3) toMs = new Date(p[0], p[1] - 1, p[2]).getTime();
-			}
-			return { fromMs, toMs };
-		}
-		return { fromMs: null, toMs: null };
-	}
-
-	function requestDailyLog(opts) {
-		const reset = Boolean(opts && opts.reset);
-		if (dailyLogLoading) return;
-		if (!reset && !dailyLogHasMore) return;
-		if (reset) {
-			dailyLogOffset = 0;
-			dailyLogDays = [];
-			dailyLogHasMore = true;
-			if (dailyLogEl) dailyLogEl.innerHTML = '<div class="empty">Loading…</div>';
-			if (dailyLogFoot) dailyLogFoot.textContent = '';
-		}
-		dailyLogLoading = true;
-		if (dailyLogFoot && !reset) dailyLogFoot.textContent = 'Loading…';
-		dailyLogSeq += 1;
-		const seq = dailyLogSeq;
-		const bounds = dailyLogRangeBounds();
-		vscode.postMessage({
-			type: 'loadDailyLog',
-			limit: DAILY_LOG_PAGE,
-			offset: dailyLogOffset,
-			fromMs: bounds.fromMs,
-			toMs: bounds.toMs,
-			append: !reset,
-			seq
-		});
-	}
-
-	function appendDailyLogDays(days) {
-		if (!dailyLogEl) return;
-		for (const g of days || []) {
-			const row = document.createElement('div');
-			row.className = 'timeline-row';
-			const headings = (g.headings || [])
-				.map(
-					h =>
-						`<button type="button" class="timeline-heading" data-path="${escapeHtml(h.path || '')}" data-hid="${Number(h.headingId) || 0}">${escapeHtml(h.title || 'Untitled')}</button>`
-				)
-				.join('');
-			row.innerHTML =
-				`<div class="timeline-date">${escapeHtml(g.label || '')}</div>` +
-				`<div class="timeline-rail" aria-hidden="true"><span class="timeline-dot"></span></div>` +
-				`<div class="timeline-body">${headings}</div>`;
-			row.querySelectorAll('.timeline-heading').forEach(btn => {
-				btn.addEventListener('click', () => {
-					vscode.postMessage({
-						type: 'openHeading',
-						path: btn.getAttribute('data-path') || '',
-						headingId: Number(btn.getAttribute('data-hid')) || 0
-					});
-				});
-			});
-			dailyLogEl.appendChild(row);
-		}
-	}
-
-	function renderDailyLog(opts) {
-		if (!dailyLogEl) return;
-		const append = Boolean(opts && opts.append);
-		const incoming = Array.isArray(opts && opts.days) ? opts.days : [];
-		if (!append) {
-			dailyLogEl.innerHTML = '';
-			dailyLogDays = [];
-		}
-		if (!incoming.length && !dailyLogDays.length) {
-			dailyLogEl.innerHTML = '<div class="empty">No daily log headings in this range</div>';
-		} else {
-			const empty = dailyLogEl.querySelector('.empty');
-			if (empty) empty.remove();
-			appendDailyLogDays(incoming);
-			dailyLogDays = dailyLogDays.concat(incoming);
-		}
-		dailyLogHasMore = Boolean(opts && opts.hasMore);
-		dailyLogOffset = Number(opts && opts.nextOffset) || dailyLogDays.length;
-		if (dailyLogFoot) {
-			if (dailyLogLoading) dailyLogFoot.textContent = 'Loading…';
-			else if (dailyLogHasMore) dailyLogFoot.textContent = 'Scroll for more';
-			else if (dailyLogDays.length)
-				dailyLogFoot.textContent = `${dailyLogDays.length} day${dailyLogDays.length === 1 ? '' : 's'}`;
-			else dailyLogFoot.textContent = '';
-		}
-	}
-
-	function setDailyLogRange(next) {
-		if (next !== 'recent' && next !== '7' && next !== '30' && next !== 'custom') return;
-		dailyLogRange = next;
-		document.querySelectorAll('[data-dlog-range]').forEach(btn => {
-			btn.classList.toggle('active', btn.getAttribute('data-dlog-range') === dailyLogRange);
-		});
-		if (dailyLogCustom) dailyLogCustom.classList.toggle('hidden', dailyLogRange !== 'custom');
-		if (dailyLogRange !== 'custom') requestDailyLog({ reset: true });
 	}
 
 	function renderDayDetail(payload) {
@@ -740,19 +905,100 @@
 
 	function setTaskFilter(next) {
 		taskFilter = next;
-		document.querySelectorAll('.chips button').forEach(btn => {
+		document.querySelectorAll('#task-filter-chips button').forEach(btn => {
 			btn.classList.toggle('active', btn.getAttribute('data-filter') === taskFilter);
 		});
+		updateUpcomingHorizonVisibility();
 		renderTaskBoard();
+	}
+
+	function updateUpcomingHorizonVisibility() {
+		const show = taskFilter === 'upcoming';
+		if (upcomingHorizon) upcomingHorizon.classList.toggle('hidden', !show);
+		if (upcomingCustom) {
+			upcomingCustom.classList.toggle('hidden', !show || upcomingRange !== 'custom');
+		}
+	}
+
+	function setUpcomingRange(next) {
+		if (
+			next !== 'any' &&
+			next !== 'tomorrow' &&
+			next !== '2' &&
+			next !== '7' &&
+			next !== 'custom'
+		) {
+			return;
+		}
+		upcomingRange = next;
+		document.querySelectorAll('#upcoming-range-chips button').forEach(btn => {
+			btn.classList.toggle('active', btn.getAttribute('data-upcoming-range') === upcomingRange);
+		});
+		if (upcomingCustom) upcomingCustom.classList.toggle('hidden', upcomingRange !== 'custom');
+		if (upcomingRange !== 'custom') renderTaskBoard();
+	}
+
+	function clampUpcomingDays(raw) {
+		let n = parseInt(String(raw), 10);
+		if (!Number.isFinite(n) || n < 1) n = 1;
+		if (n > 365) n = 365;
+		return n;
+	}
+
+	/**
+	 * Upcoming deadlines after end-of-today, limited to the next N calendar days.
+	 * @param {any[]} items
+	 * @param {number | null} daysAhead null = any upcoming
+	 */
+	function filterUpcomingByHorizon(items, daysAhead) {
+		const sorted = sortTasksByDeadline(items);
+		if (daysAhead == null) return sorted;
+		const asOf = Number(taskBoard && taskBoard.asOf);
+		const todayStart = Number.isFinite(asOf)
+			? asOf
+			: new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).getTime();
+		const dayMs = 24 * 60 * 60 * 1000;
+		const windowEnd = todayStart + (daysAhead + 1) * dayMs;
+		return sorted.filter(t => {
+			const d = Number(t && t.deadline);
+			return Number.isFinite(d) && d < windowEnd;
+		});
+	}
+
+	function sortTasksByDeadline(items) {
+		return (Array.isArray(items) ? items.slice() : []).sort(
+			(a, b) =>
+				Number((a && a.deadline) || 0) - Number((b && b.deadline) || 0) ||
+				String((a && a.title) || '').localeCompare(String((b && b.title) || ''))
+		);
+	}
+
+	function upcomingHorizonDays() {
+		if (upcomingRange === 'any') return null;
+		if (upcomingRange === 'tomorrow') return 1;
+		if (upcomingRange === '2') return 2;
+		if (upcomingRange === '7') return 7;
+		if (upcomingRange === 'custom') return clampUpcomingDays(upcomingCustomDays);
+		return null;
+	}
+
+	function upcomingHorizonLabel() {
+		const days = upcomingHorizonDays();
+		if (days == null) return 'Upcoming';
+		if (days === 1) return 'Tomorrow';
+		if (days === 2) return 'Next 2 days';
+		if (days === 7) return 'Next week';
+		return `Next ${days} days`;
 	}
 
 	function renderTaskBoard() {
 		if (!taskList || !taskBoard) return;
+		updateUpcomingHorizonVisibility();
 		const buckets = {
-			overdue: taskBoard.overdue || [],
-			today: taskBoard.dueToday || [],
-			upcoming: taskBoard.upcoming || [],
-			later: taskBoard.noDeadline || []
+			overdue: sortTasksByDeadline(taskBoard.overdue || []),
+			today: sortTasksByDeadline(taskBoard.dueToday || []),
+			upcoming: filterUpcomingByHorizon(taskBoard.upcoming || [], upcomingHorizonDays()),
+			later: Array.isArray(taskBoard.noDeadline) ? taskBoard.noDeadline.slice() : []
 		};
 		/** @type {{ key: string, label: string, items: any[] }[]} */
 		let groups = [];
@@ -760,14 +1006,25 @@
 			groups = [
 				{ key: 'overdue', label: 'Overdue', items: buckets.overdue },
 				{ key: 'today', label: 'Today', items: buckets.today },
-				{ key: 'upcoming', label: 'Upcoming', items: buckets.upcoming },
+				{
+					key: 'upcoming',
+					label: 'Upcoming',
+					items: filterUpcomingByHorizon(taskBoard.upcoming || [], null)
+				},
 				{ key: 'later', label: 'Later', items: buckets.later }
+			];
+		} else if (taskFilter === 'upcoming') {
+			groups = [
+				{
+					key: 'upcoming',
+					label: upcomingHorizonLabel(),
+					items: buckets.upcoming
+				}
 			];
 		} else {
 			const map = {
 				overdue: 'Overdue',
 				today: 'Today',
-				upcoming: 'Upcoming',
 				later: 'Later'
 			};
 			groups = [{ key: taskFilter, label: map[taskFilter], items: buckets[taskFilter] || [] }];
@@ -819,10 +1076,19 @@
 	document.querySelectorAll('.tabs button').forEach(btn => {
 		btn.addEventListener('click', () => {
 			const s = btn.getAttribute('data-section');
-			if (s === 'calendar' || s === 'search' || s === 'tasks' || s === 'dailylog') {
+			if (
+				s === 'calendar' ||
+				s === 'todayslog' ||
+				s === 'search' ||
+				s === 'tasks' ||
+				s === 'dailylog'
+			) {
 				showSection(s);
 			}
 		});
+	});
+	openTodaysLogBtn?.addEventListener('click', () => {
+		vscode.postMessage({ type: 'openTodaysLog' });
 	});
 	document.querySelectorAll('.segment button[data-lens]').forEach(btn => {
 		btn.addEventListener('click', () => {
@@ -830,13 +1096,38 @@
 			if (l === 'day' || l === 'week' || l === 'month') setLens(l);
 		});
 	});
-	document.querySelectorAll('.chips button').forEach(btn => {
+	fileViewBtn?.addEventListener('click', () => {
+		if (calendarSurface === 'files') showCalendarSurface();
+		else showFileView();
+	});
+	document.querySelectorAll('#task-filter-chips button').forEach(btn => {
 		btn.addEventListener('click', () => {
 			const f = btn.getAttribute('data-filter');
 			if (f === 'all' || f === 'overdue' || f === 'today' || f === 'upcoming' || f === 'later') {
 				setTaskFilter(f);
 			}
 		});
+	});
+	document.querySelectorAll('#upcoming-range-chips button').forEach(btn => {
+		btn.addEventListener('click', () => {
+			const r = btn.getAttribute('data-upcoming-range');
+			if (r === 'any' || r === 'tomorrow' || r === '2' || r === '7' || r === 'custom') {
+				setUpcomingRange(r);
+			}
+		});
+	});
+	document.getElementById('upcoming-custom-apply')?.addEventListener('click', () => {
+		upcomingCustomDays = clampUpcomingDays(
+			upcomingCustomDaysInput ? upcomingCustomDaysInput.value : upcomingCustomDays
+		);
+		if (upcomingCustomDaysInput) upcomingCustomDaysInput.value = String(upcomingCustomDays);
+		renderTaskBoard();
+	});
+	upcomingCustomDaysInput?.addEventListener('keydown', e => {
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			document.getElementById('upcoming-custom-apply')?.click();
+		}
 	});
 	document.querySelectorAll('[data-dlog-range]').forEach(btn => {
 		btn.addEventListener('click', () => {
@@ -853,7 +1144,10 @@
 	});
 	document.getElementById('prev-range')?.addEventListener('click', () => shiftRange(-1));
 	document.getElementById('next-range')?.addEventListener('click', () => shiftRange(1));
-	document.getElementById('jump-today')?.addEventListener('click', () => jumpToToday());
+	document.getElementById('jump-today')?.addEventListener('click', () => {
+		if (calendarSurface === 'files') showCalendarSurface();
+		jumpToToday();
+	});
 	document.getElementById('add-side-task')?.addEventListener('click', () => openCompose('calendar'));
 	document.getElementById('add-task')?.addEventListener('click', () => openCompose('tasks'));
 	document.getElementById('composeSubmit')?.addEventListener('click', () => submitCompose());
@@ -889,8 +1183,12 @@
 	});
 	document.getElementById('refresh')?.addEventListener('click', () => {
 		vscode.postMessage({ type: 'refresh', section, lens });
-		if (section === 'dailylog') requestDailyLog({ reset: true });
+		if (section === 'todayslog') vscode.postMessage({ type: 'loadTodaysLog' });
 		else if (section === 'tasks') vscode.postMessage({ type: 'loadTasks' });
+		else if (section === 'dailylog') requestDailyLog({ reset: true });
+		else if (section === 'calendar' && calendarSurface === 'files') {
+			vscode.postMessage({ type: 'loadNotesTree' });
+		}
 	});
 	if (dailyLogSentinel && typeof IntersectionObserver === 'function') {
 		const io = new IntersectionObserver(
@@ -962,6 +1260,9 @@
 			taskBoard = msg.board || null;
 			renderTaskBoard();
 			setStatus('');
+		} else if (msg.type === 'todaysLog') {
+			renderTodaysLog(msg);
+			setStatus('');
 		} else if (msg.type === 'dailyLog') {
 			if (Number(msg.seq) && Number(msg.seq) !== dailyLogSeq) return;
 			dailyLogLoading = false;
@@ -972,6 +1273,11 @@
 				append: Boolean(msg.append)
 			});
 			setStatus('');
+		} else if (msg.type === 'notesTreeRoot') {
+			applyNotesTreeRoot(msg.nodes || []);
+			setStatus('');
+		} else if (msg.type === 'notesTreeChildren') {
+			applyNotesTreeChildren(msg);
 		} else if (msg.type === 'datetimeNormalized') {
 			const field = String(msg.field || '');
 			const value = String(msg.value || '');

@@ -4,7 +4,10 @@
 	const $ = id => document.getElementById(id);
 	/** First page size for word search; subsequent “Load more” uses LOAD_MORE_SIZE. */
 	const QUERY_PAGE_SIZE = 100;
-	const LOAD_MORE_SIZE = 100;
+	/** Each Load more click appends only this many additional results. */
+	const LOAD_MORE_SIZE = 10;
+	/** Hard cap per search — never show more than this many ranked results. */
+	const MAX_RETRIEVER_RESULTS = 100;
 
 	/** @type {{ id: string, label: string, marker: string, color?: string, attributes?: { key: string, kind: string, values: string[] }[] }[]} */
 	let metadataTypes = [];
@@ -491,8 +494,13 @@
 	}
 
 	function firstPageLimit() {
-		if (searchEngine === 'word') return QUERY_PAGE_SIZE;
-		return topEmbeddings;
+		const raw = searchEngine === 'word' ? QUERY_PAGE_SIZE : topEmbeddings;
+		return Math.min(Math.max(1, Number(raw) || 1), MAX_RETRIEVER_RESULTS);
+	}
+
+	/** How many more results can still be loaded under the hard cap. */
+	function remainingResultSlots() {
+		return Math.max(0, MAX_RETRIEVER_RESULTS - accumulatedRows.length);
 	}
 
 	/** @type {Set<string>} expanded note `relPath` keys for file-group accordion */
@@ -522,8 +530,39 @@
 
 	/** Rows accumulated across pagination (slice of full matching set). */
 	let accumulatedRows = [];
+	/** Host `loadedThrough` from the last page — preferred Load more offset. */
+	let accumulatedLoadedThrough = 0;
 	/** Guard so viewport keydown is bound once. */
 	let viewportKeyNavBound = false;
+
+	function retrieverRowDedupeKey(r) {
+		return `${String((r && r.fileId) || '')}:${Number((r && r.headingId) || 0)}:${String(
+			(r && r.relPath) || ''
+		)}`;
+	}
+
+	/**
+	 * Append a host page onto the session list without duplicating keys.
+	 * Stops at MAX_RETRIEVER_RESULTS.
+	 * @param {unknown[]} page
+	 */
+	function appendRetrieverPage(page) {
+		const seen = new Set(accumulatedRows.map(retrieverRowDedupeKey));
+		for (const row of Array.isArray(page) ? page : []) {
+			if (accumulatedRows.length >= MAX_RETRIEVER_RESULTS) break;
+			const k = retrieverRowDedupeKey(row);
+			if (seen.has(k)) continue;
+			seen.add(k);
+			accumulatedRows.push(row);
+		}
+	}
+
+	function setLoadMoreBusy(busy) {
+		const loadBtn = $('rz-load-more');
+		if (!loadBtn) return;
+		loadBtn.disabled = !!busy;
+		loadBtn.textContent = busy ? 'Loading…' : 'Load more';
+	}
 
 	let persistTimer = null;
 	function getPersistPayload() {
@@ -721,6 +760,10 @@
 	function queryPayload(offset) {
 		const { scopeFiles, scopeHeadings, corpus, scope, customCorpusPaths } = readScopeFromUi();
 		const off = Number(offset) || 0;
+		const limit =
+			off === 0
+				? firstPageLimit()
+				: Math.min(LOAD_MORE_SIZE, Math.max(0, MAX_RETRIEVER_RESULTS - off));
 		return {
 			q: ($('rz-heading-search') && $('rz-heading-search').value) || '',
 			selectedTypeIds: [...selectedTypes],
@@ -745,7 +788,7 @@
 			groupBy: scope === 'files' ? 'none' : groupBy,
 			viewMode,
 			offset: off,
-			limit: off === 0 ? firstPageLimit() : LOAD_MORE_SIZE
+			limit
 		};
 	}
 
@@ -1318,21 +1361,6 @@
 		return ` style="color:${esc(c)};border-color:${esc(c)}${bgPart}"`;
 	}
 
-	/** Type marker pill — Settings color or theme default (semantic `type` in .d.txt). */
-	function typePillHtml(typeId, marker) {
-		const tid = String(typeId || '').trim();
-		const mk = String(marker || '').trim();
-		if (!tid && !mk) {
-			return `<span class="rz-type-pill rz-type-pill--theme rz-type-pill--muted">none</span>`;
-		}
-		const label = esc(mk ? mk : '.' + tid);
-		const c = colorForMetadataType(tid, mk);
-		if (c) {
-			return `<span class="rz-type-pill rz-type-pill--settings"${styleColorAttr(c, 0.32)}>${label}</span>`;
-		}
-		return `<span class="rz-type-pill rz-type-pill--theme">${label}</span>`;
-	}
-
 	function applyThemeTypeAccent(el) {
 		if (!el) return;
 		const fg = getComputedStyle(document.documentElement).getPropertyValue('--rz-type-theme-fg').trim();
@@ -1610,8 +1638,25 @@
 		}
 	}
 
-	function formatRelPath(rel, line) {
-		return `${rel}:${line}`;
+	/** Drop `.d.txt` / `.d.md` (and other KB note suffixes) from a basename for display. */
+	function stripNoteExtForDisplay(name) {
+		return String(name || '').replace(/\.d\.(txt|md)$/i, '');
+	}
+
+	/**
+	 * Path shown in cards / group headers — same relative path, but without note extensions.
+	 * @param {unknown} rel
+	 */
+	function displayRelPath(rel) {
+		const s = String(rel || '').replace(/\\/g, '/');
+		if (!s) return '';
+		const i = s.lastIndexOf('/');
+		if (i < 0) return stripNoteExtForDisplay(s);
+		return s.slice(0, i + 1) + stripNoteExtForDisplay(s.slice(i + 1));
+	}
+
+	function formatRelPath(rel, _line) {
+		return displayRelPath(rel);
 	}
 
 	function folderKeyFromRel(rel) {
@@ -1619,6 +1664,21 @@
 		const i = s.lastIndexOf('/');
 		return i <= 0 ? '.' : s.slice(0, i);
 	}
+
+	function fileLabelFromRel(rel) {
+		const shown = displayRelPath(rel);
+		if (!shown) return '(note)';
+		return shown.includes('/') ? shown.slice(shown.lastIndexOf('/') + 1) : shown;
+	}
+
+	const IC_TAGS =
+		'<svg class="rz-ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 5H2v7l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L9 5z"/><circle cx="6" cy="8.5" r="1.25" fill="currentColor" stroke="none"/></svg>';
+	const IC_BRANCH =
+		'<svg class="rz-ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>';
+	const IC_FILE =
+		'<svg class="rz-ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+	const IC_CHEVRON =
+		'<svg class="rz-ic rz-ic-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>';
 
 	/** @param {unknown[]} rows */
 	function dedupeRowsOnePerFile(rows) {
@@ -1640,135 +1700,329 @@
 		return key || '— Untyped';
 	}
 
-	function tagsRowHtml(row) {
-		if (!showRowTags || !row.tags || !row.tags.length) return '';
-		const shown = row.tags.slice(0, 12);
-		const more = row.tags.length > shown.length ? ` +${row.tags.length - shown.length}` : '';
-		const tagStyle = styleColorAttr(metaUiColors.tagsColor);
-		return (
-			shown.map(t => `<span class="rz-tag-pill"${tagStyle}>${esc(t)}</span>`).join('') +
-			(more ? `<span class="rz-tag-more">${esc(more)}</span>` : '')
+	/** Readable type face for compact cards (label / id, not `.marker`). */
+	function typeFaceLabel(typeId, marker) {
+		const tid = String(typeId || '')
+			.trim()
+			.toLowerCase();
+		if (tid) {
+			const hit = metadataTypes.find(
+				t =>
+					String(t && t.id != null ? t.id : '')
+						.trim()
+						.toLowerCase() === tid
+			);
+			const label = hit && hit.label != null ? String(hit.label).trim() : '';
+			if (label) return label;
+			return tid;
+		}
+		return String(marker || '')
+			.trim()
+			.replace(/^\./, '');
+	}
+
+	/** Main-table keys for Retriever cards (matches typed SQLite columns). */
+	const TYPED_CARD_KEYS_BY_TYPE = {
+		concept: ['domain', 'status'],
+		task: ['status', 'priority', 'deadline', 'category']
+	};
+
+	function attrKindForKey(typeId, key) {
+		const tid = String(typeId || '')
+			.trim()
+			.toLowerCase();
+		const k = String(key || '')
+			.trim()
+			.toLowerCase();
+		const t = metadataTypes.find(
+			x =>
+				String((x && x.id) || '')
+					.trim()
+					.toLowerCase() === tid
 		);
+		const attrs = Array.isArray(t && t.attributes) ? t.attributes : [];
+		const hit = attrs.find(
+			a =>
+				String((a && a.key) || '')
+					.trim()
+					.toLowerCase() === k
+		);
+		return String((hit && hit.kind) || '').toLowerCase();
+	}
+
+	/** Active attribute-filter keys for a type (non-default filters only). */
+	function activeAttrFilterKeys(typeId) {
+		const tid = String(typeId || '')
+			.trim()
+			.toLowerCase();
+		const byKey = attrFilters[tid];
+		if (!byKey) return [];
+		/** @type {string[]} */
+		const out = [];
+		for (const key of Object.keys(byKey)) {
+			const f = byKey[key];
+			if (!f) continue;
+			if (f.kind === 'enum' && Array.isArray(f.values) && f.values.length) out.push(key);
+			else if (f.kind === 'datetime' && f.mode && f.mode !== 'any') out.push(key);
+			else if (f.kind === 'duration' && f.mode && f.mode !== 'any') out.push(key);
+		}
+		return out;
 	}
 
 	/**
-	 * Relations breadcrumb: when any relation filter is active and Display → Relations is on.
-	 * Shows each selected relation type's matching tags on the row.
+	 * Format unix-seconds / ISO datetime into a short readable stamp.
+	 * @param {unknown} raw
 	 */
-	function relationsRowHtml(row) {
-		const filters = getSelectedRelationFilters();
-		if (!showRowRelations || !filters.length) return '';
-		const tagStyle = styleColorAttr(metaUiColors.tagsColor);
-		/** @type {string[]} */
-		const parts = [];
-		for (const f of filters) {
-			const bag =
-				row && row.relations && typeof row.relations === 'object' ? row.relations[f.type] : null;
-			let list = Array.isArray(bag)
-				? bag.map(t => String(t || '').trim().toLowerCase()).filter(Boolean)
-				: [];
-			if (f.tags.length) list = list.filter(t => f.tags.includes(t));
-			if (!list.length) continue;
-			const shown = list.slice(0, 8);
-			const more = list.length > shown.length ? ` +${list.length - shown.length}` : '';
-			parts.push(
-				`<span class="rz-relations-row" title="${esc(f.type)}">` +
-					`<span class="rz-rel-key">${esc(f.type)}:</span>` +
-					shown.map(t => `<span class="rz-tag-pill"${tagStyle}>${esc(t)}</span>`).join('') +
-					(more ? `<span class="rz-tag-more">${esc(more)}</span>` : '') +
-					`</span>`
-			);
+	function formatMetaDatetimeDisplay(raw) {
+		const s = String(raw || '').trim();
+		if (!s) return '';
+		const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+		const n = Number(s);
+		if (Number.isFinite(n) && /^\d+(\.\d+)?$/.test(s)) {
+			// Index stores unix seconds; treat large ms values as ms.
+			const ms = n < 1e12 ? Math.floor(n * 1000) : Math.floor(n);
+			const d = new Date(ms);
+			if (!Number.isNaN(d.getTime())) {
+				return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+			}
 		}
-		return parts.join('');
+		const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{2}):(\d{2}))?/);
+		if (m) {
+			const mi = Number(m[2]) - 1;
+			if (mi >= 0 && mi < 12) {
+				const day = String(Number(m[3]));
+				if (m[4] != null) return `${day} ${months[mi]} ${m[1]} ${m[4]}:${m[5]}`;
+				return `${day} ${months[mi]} ${m[1]}`;
+			}
+		}
+		return s.length > 18 ? s.slice(0, 16) + '…' : s;
 	}
 
-	function scorePillHtml(row) {
-		const overlap = Number(row && row._tagOverlap);
-		const relOverlap = Number(row && row._relationOverlap);
-		const score =
-			Number(row && row._relevanceScore) ||
-			Number(row && row._embeddingScore);
+	/**
+	 * Convert indexed duration seconds back to a readable unit string.
+	 * @param {unknown} raw
+	 */
+	function formatMetaDurationDisplay(raw) {
+		const s = String(raw || '').trim();
+		if (!s) return '';
+		// Already human ("2 hours") — leave alone.
+		if (/[a-z]/i.test(s) && !/^\d+(\.\d+)?$/.test(s)) return s;
+		const sec = Math.round(Number(s));
+		if (!Number.isFinite(sec) || sec < 0) return s;
+		const units = [
+			{ name: 'year', secs: 31536000 },
+			{ name: 'month', secs: 2592000 },
+			{ name: 'week', secs: 604800 },
+			{ name: 'day', secs: 86400 },
+			{ name: 'hour', secs: 3600 },
+			{ name: 'minute', secs: 60 }
+		];
+		for (const u of units) {
+			if (sec >= u.secs) {
+				const amount = Math.round((sec / u.secs) * 10) / 10;
+				const label = amount === 1 ? u.name : `${u.name}s`;
+				return `${amount} ${label}`;
+			}
+		}
+		return sec === 1 ? '1 second' : `${sec} seconds`;
+	}
+
+	/**
+	 * @param {string} typeId
+	 * @param {string} key
+	 * @param {unknown} raw
+	 */
+	function formatMetaValueForDisplay(typeId, key, raw) {
+		const kind = attrKindForKey(typeId, key);
+		const k = String(key || '')
+			.trim()
+			.toLowerCase();
+		if (kind === 'datetime' || /^(date|deadline|due|due[_-]?date|when|scheduled|created|updated|completed)$/.test(k)) {
+			return formatMetaDatetimeDisplay(raw);
+		}
+		if (kind === 'duration' || /duration|estimate|spent|elapsed/.test(k)) {
+			return formatMetaDurationDisplay(raw);
+		}
+		return String(raw || '').trim();
+	}
+
+	/**
+	 * Type + main-table key-values (Display toggles apply).
+	 * Untyped headings always show an explicit "none" pill — never leave a blank slot.
+	 * Filtered attribute keys are listed first; only typed-table keys are shown.
+	 * @param {any} row
+	 */
+	function compactMetaPillsHtml(row) {
+		/** @type {string[]} */
 		const bits = [];
-		if (selectedTags.size && Number.isFinite(overlap) && overlap > 0) {
-			bits.push(
-				`<span class="rz-score-pill" title="Selected tags matched">${overlap}/${selectedTags.size} tags</span>`
-			);
+		const tid = String((row && row.typeId) || '')
+			.trim()
+			.toLowerCase();
+		if (showTypeStrip) {
+			const face = typeFaceLabel(row && row.typeId, row && row.marker);
+			if (face) {
+				const c = colorForMetadataType(tid, row && row.marker);
+				if (c) {
+					bits.push(
+						`<span class="rz-type-pill rz-type-pill--settings"${styleColorAttr(c, 0.28)}>${esc(face)}</span>`
+					);
+				} else {
+					bits.push(`<span class="rz-type-pill rz-type-pill--theme">${esc(face)}</span>`);
+				}
+			} else {
+				bits.push(
+					`<span class="rz-type-pill rz-type-pill--theme rz-type-pill--muted">none</span>`
+				);
+			}
 		}
-		const relNeed = totalSelectedRelationTagCount();
-		if (relNeed && Number.isFinite(relOverlap) && relOverlap > 0) {
-			bits.push(
-				`<span class="rz-score-pill" title="Relation tags matched across selected types">${relOverlap}/${relNeed} relations</span>`
-			);
-		}
-		if (Number.isFinite(score) && score > 0) {
-			const pct = Math.round(Math.max(0, Math.min(1, score)) * 100);
-			const label =
-				searchEngine === 'word'
-					? 'Word match'
-					: searchEngine === 'semantic'
-						? 'Semantic relevance'
-						: 'Recommended relevance (92% semantic / 8% word)';
-			bits.push(`<span class="rz-score-pill" title="${esc(label)}">${pct}%</span>`);
+		if (showBreadcrumbs) {
+			const kv = row && row.metadataKv && typeof row.metadataKv === 'object' ? row.metadataKv : {};
+			const typedKeys = TYPED_CARD_KEYS_BY_TYPE[tid] || Object.keys(kv);
+			const filteredFirst = activeAttrFilterKeys(tid).filter(k => typedKeys.includes(k));
+			/** @type {string[]} */
+			const order = [];
+			const seen = new Set();
+			for (const k of filteredFirst.concat(typedKeys)) {
+				if (seen.has(k)) continue;
+				seen.add(k);
+				order.push(k);
+			}
+			/** @type {string[]} */
+			const secondary = [];
+			let dateBit = '';
+			for (const key of order) {
+				const raw = kv[key];
+				if (raw == null || String(raw).trim() === '') continue;
+				const display = formatMetaValueForDisplay(tid, key, raw);
+				if (!display) continue;
+				const kind = attrKindForKey(tid, key);
+				if (
+					kind === 'datetime' ||
+					/^(date|deadline|due|due[_-]?date|when|scheduled|created|updated|completed)$/.test(key)
+				) {
+					if (!dateBit) dateBit = display;
+					continue;
+				}
+				if (secondary.length >= 3) continue;
+				secondary.push(display);
+			}
+			for (const v of secondary) {
+				bits.push(`<span class="rz-meta-pill">${esc(v)}</span>`);
+			}
+			if (dateBit) {
+				bits.push(`<span class="rz-date-pill">${esc(dateBit)}</span>`);
+			}
 		}
 		return bits.join('');
 	}
 
-	function rowHtml(row) {
-		let bc = '';
-		if (showBreadcrumbs) {
-			const kv = row && row.metadataKv && typeof row.metadataKv === 'object' ? row.metadataKv : null;
-			const kvEntries = kv
-				? Object.keys(kv)
-						.filter(k => String(kv[k] || '').trim())
-						.slice(0, 8)
-						.map(k => `${k}: ${String(kv[k])}`)
-				: [];
-			if (kvEntries.length) {
-				bc =
-					`<span class="rz-bc rz-bc-kv">` +
-					kvEntries
-						.map(s => {
-							const i = s.indexOf(':');
-							const k = i >= 0 ? s.slice(0, i) : s;
-							const v = i >= 0 ? s.slice(i + 1).trim() : '';
-							return (
-								`<span class="rz-bc-kv-item">` +
-								`<span class="rz-bc-k">${esc(k)}</span>` +
-								(v ? `<span class="rz-bc-colon">:</span> <span class="rz-bc-v">${esc(v)}</span>` : '') +
-								`</span>`
-							);
-						})
-						.join('') +
-					`</span>`;
-			} else if (row.breadcrumbs && row.breadcrumbs.length > 1) {
-				bc = `<span class="rz-bc">${esc(row.breadcrumbs.slice(0, -1).join(' › '))}</span>`;
+	/**
+	 * Tags (+ relations) bits that sit on the same line as metadata pills.
+	 * @param {any} row
+	 */
+	function compactTagsBitsHtml(row) {
+		/** @type {string[]} */
+		const parts = [];
+		if (showRowTags && row && Array.isArray(row.tags) && row.tags.length) {
+			const shown = row.tags
+				.map(t => String(t || '').trim())
+				.filter(Boolean)
+				.slice(0, 8);
+			if (shown.length) {
+				parts.push(
+					`<span class="rz-ctx-bit">${IC_TAGS}<span class="rz-ctx-text">${esc(shown.join(' · '))}</span></span>`
+				);
 			}
 		}
-		const pathLine =
-			showPathLine
-				? `<span class="rz-meta">${esc(formatRelPath(row.relPath, row.line))}</span>`
-				: '';
-		let typeHtml = '';
-		if (showTypeStrip) {
-			typeHtml = typePillHtml(row.typeId, row.marker);
+		if (showRowRelations && row && row.relations && typeof row.relations === 'object') {
+			const filters = getSelectedRelationFilters();
+			/** @type {string[]} */
+			const relBits = [];
+			const typeOrder = filters.length
+				? filters.map(f => f.type)
+				: Object.keys(row.relations).sort((a, b) => a.localeCompare(b));
+			for (const type of typeOrder) {
+				const bag = row.relations[type];
+				let list = Array.isArray(bag)
+					? bag.map(t => String(t || '').trim().toLowerCase()).filter(Boolean)
+					: [];
+				const filter = filters.find(f => f.type === type);
+				if (filter && filter.tags.length) list = list.filter(t => filter.tags.includes(t));
+				if (!list.length) continue;
+				relBits.push(`${type}: ${list.slice(0, 4).join(', ')}`);
+				if (relBits.length >= 3) break;
+			}
+			if (relBits.length) {
+				parts.push(
+					`<span class="rz-ctx-bit">${IC_BRANCH}<span class="rz-ctx-text">${esc(relBits.join(' · '))}</span></span>`
+				);
+			}
 		}
-		const invalid = row.validHeading === false;
+		return parts.join('');
+	}
+
+	function scoreNumHtml(row) {
+		const score =
+			Number(row && row._relevanceScore) ||
+			Number(row && row._embeddingScore);
+		if (!Number.isFinite(score) || score <= 0) return '';
+		const clamped = Math.max(0, Math.min(1, score));
+		const label =
+			searchEngine === 'word'
+				? 'Word match'
+				: searchEngine === 'semantic'
+					? 'Semantic relevance'
+					: 'Recommended relevance (92% semantic / 8% word)';
+		return `<span class="rz-score-num" title="${esc(label)}">${clamped.toFixed(2)}</span>`;
+	}
+
+	/**
+	 * Compact heading result card (list + board share the same anatomy).
+	 * @param {any} row
+	 * @param {'row'|'card'} kind
+	 */
+	function compactHeadingCardHtml(row, kind) {
+		const cls = kind === 'card' ? 'rz-card' : 'rz-row';
+		const role = kind === 'card' ? '' : ' role="option"';
+		const invalid = row && row.validHeading === false;
 		const titleClass = invalid ? 'rz-title is-invalid-heading' : 'rz-title';
-		const tagsHtml = tagsRowHtml(row);
-		const relHtml = relationsRowHtml(row);
-		const scoreHtml = scorePillHtml(row);
-		const pills = typeHtml + bc + tagsHtml + relHtml;
+		const meta = compactMetaPillsHtml(row);
+		const tags = compactTagsBitsHtml(row);
+		// Omit whole rows when Display toggles hide them — no empty placeholder lines.
+		const metaLine =
+			meta || tags
+				? `<span class="rz-row-meta">` +
+					(meta ? `<span class="rz-row-pills">${meta}</span>` : '') +
+					(tags ? `<span class="rz-row-tags">${tags}</span>` : '') +
+					`</span>`
+				: '';
+		const pathLine = showPathLine
+			? `<span class="rz-row-path">${IC_FILE}<span class="rz-path-text" title="${esc(
+					String(row.relPath || '')
+				)}">${esc(formatRelPath(row.relPath, row.line))}</span></span>`
+			: '';
 		const rp = esc(row.relPath || '');
 		const fid = esc(row.fileId || '');
 		const hid = Number(row.headingId) || 0;
 		const titleAttr = esc(String(row.title || ''));
 		return (
-			`<button type="button" class="rz-row" role="option" tabindex="-1" data-uri="${esc(row.uri)}" data-line="${Number(row.line) || 1}" data-rel="${rp}" data-fileid="${fid}" data-headingid="${hid}" data-title="${titleAttr}">` +
-			`<span class="rz-row-head"><span class="${titleClass}">${esc(row.title)}</span>${scoreHtml}</span>` +
-			(pills ? `<span class="rz-row-pills">${pills}</span>` : '') +
+			`<button type="button" class="${cls}"${role} tabindex="-1" data-uri="${esc(row.uri)}" data-line="${
+				Number(row.line) || 1
+			}" data-rel="${rp}" data-fileid="${fid}" data-headingid="${hid}" data-title="${titleAttr}" title="${titleAttr}">` +
+			`<span class="rz-row-main">` +
+			`<span class="rz-row-head">` +
+			`<span class="rz-row-bullet" aria-hidden="true"></span>` +
+			`<span class="${titleClass}">${esc(row.title)}</span>` +
+			`${scoreNumHtml(row)}${IC_CHEVRON}` +
+			`</span>` +
+			metaLine +
 			pathLine +
-			`</button>`
+			`</span></button>`
 		);
+	}
+
+	function rowHtml(row) {
+		return compactHeadingCardHtml(row, 'row');
 	}
 
 	function postRetrieverOpenFromEl(el) {
@@ -1905,8 +2159,14 @@
 	function parseDurationMinutes(raw) {
 		const s = String(raw || '').trim();
 		const m = s.match(/^([+-]?(?:\d+\.?\d*|\.\d+))\s+([a-z]+)$/i);
-		if (!m) return null;
-		return durationToMinutes(m[1], m[2]);
+		if (m) return durationToMinutes(m[1], m[2]);
+		// Indexed durations are total seconds — accept bare numbers too.
+		if (/^\d+(\.\d+)?$/.test(s)) {
+			const sec = Number(s);
+			if (!Number.isFinite(sec)) return null;
+			return sec / 60;
+		}
+		return null;
 	}
 
 	function matchDatetimeFilter(rawValue, f) {
@@ -2453,8 +2713,7 @@
 		const parts = [];
 		for (const rel of fileOrder) {
 			const groupRows = byRel.get(rel) || [];
-			const baseName =
-				rel && rel.includes('/') ? rel.slice(rel.lastIndexOf('/') + 1) : rel || '(note)';
+			const baseName = fileLabelFromRel(rel);
 			const fileScore = Number(groupRows[0] && groupRows[0]._fileEmbeddingScore);
 			const fileScoreHtml =
 				Number.isFinite(fileScore) && fileScore > 0
@@ -2513,9 +2772,7 @@
 				const displayKey = groupBy === 'type' && key === '__untyped__' ? '' : key;
 				const label =
 					labelKind === 'file'
-						? key.includes('/')
-							? key.slice(key.lastIndexOf('/') + 1)
-							: key
+						? fileLabelFromRel(key)
 						: formatGroupHeading(displayKey, labelKind === 'file' ? 'folder' : labelKind);
 				groups.set(key, { label, rows: [] });
 				order.push(key);
@@ -2541,64 +2798,9 @@
 		return parts;
 	}
 
-	/** Compact board slot — fewer KV/tags than list so two columns stay short. */
+	/** Board uses the same compact heading card as list. */
 	function cardParts(r) {
-		let typeHtml = '';
-		if (showTypeStrip) {
-			typeHtml = typePillHtml(r.typeId, r.marker);
-		}
-		let bc = '';
-		if (showBreadcrumbs) {
-			const kv = r && r.metadataKv && typeof r.metadataKv === 'object' ? r.metadataKv : null;
-			const kvEntries = kv
-				? Object.keys(kv)
-						.filter(k => String(kv[k] || '').trim())
-						.slice(0, 2)
-						.map(k => `${k}: ${String(kv[k])}`)
-				: [];
-			if (kvEntries.length) {
-				bc =
-					`<span class="rz-bc rz-bc-kv">` +
-					kvEntries
-						.map(s => {
-							const i = s.indexOf(':');
-							const k = i >= 0 ? s.slice(0, i) : s;
-							const v = i >= 0 ? s.slice(i + 1).trim() : '';
-							return (
-								`<span class="rz-bc-kv-item">` +
-								`<span class="rz-bc-k">${esc(k)}</span>` +
-								(v ? `<span class="rz-bc-colon">:</span> <span class="rz-bc-v">${esc(v)}</span>` : '') +
-								`</span>`
-							);
-						})
-						.join('') +
-					`</span>`;
-			}
-		}
-		const tagsHtml = showRowTags && r.tags && r.tags.length
-			? r.tags
-					.slice(0, 3)
-					.map(t => `<span class="rz-tag-pill"${styleColorAttr(metaUiColors.tagsColor)}>${esc(t)}</span>`)
-					.join('')
-			: '';
-		const relHtml = relationsRowHtml(r);
-		const scoreHtml = scorePillHtml(r);
-		const pills = typeHtml + bc + tagsHtml + relHtml;
-		const rp = esc(r.relPath || '');
-		const fid = esc(r.fileId || '');
-		const pathLine = showPathLine
-			? `<span class="rz-card-path">${esc(formatRelPath(r.relPath, r.line))}</span>`
-			: '';
-		const titleText = String(r.title || '');
-		const titleEsc = esc(titleText);
-		const hid = Number(r.headingId) || 0;
-		return (
-			`<button type="button" class="rz-card" tabindex="-1" data-uri="${esc(r.uri)}" data-line="${Number(r.line) || 1}" data-rel="${rp}" data-fileid="${fid}" data-headingid="${hid}" data-title="${titleEsc}" title="${titleEsc}">` +
-			`<span class="rz-row-head"><span class="rz-card-title">${titleEsc}</span>${scoreHtml}</span>` +
-			(pills ? `<span class="rz-row-pills">${pills}</span>` : '') +
-			pathLine +
-			`</button>`
-		);
+		return compactHeadingCardHtml(r, 'card');
 	}
 
 	function buildBoardInnerHtml(rows) {
@@ -2793,7 +2995,7 @@
 					)}">` +
 					`<span class="rz-suggest-title">${esc(r.title)}</span>` +
 					scoreBit +
-					`<span class="rz-suggest-meta">${esc(String(r.relPath || ''))}</span>` +
+					`<span class="rz-suggest-meta">${esc(displayRelPath(r.relPath))}</span>` +
 					`</button>`
 				);
 			})
@@ -2814,21 +3016,21 @@
 
 		const hostRows = (lastResultPayload && lastResultPayload.rows) || [];
 		const rows = prepareRowsForDisplay(hostRows);
-		const truncated = lastResultPayload && lastResultPayload.truncated;
-		const hostTotal =
-			typeof (lastResultPayload && lastResultPayload.totalMatched) === 'number'
-				? lastResultPayload.totalMatched
-				: hostRows.length;
+		const atHardCap = hostRows.length >= MAX_RETRIEVER_RESULTS;
+		const slotsLeft = Math.max(0, MAX_RETRIEVER_RESULTS - hostRows.length);
+		// Host may have more, but we never page past the hard cap.
+		const truncated =
+			!!(lastResultPayload && lastResultPayload.truncated) && !atHardCap && slotsLeft > 0;
 		const searchMethod =
 			typeof (lastResultPayload && lastResultPayload.searchMethod) === 'string'
 				? lastResultPayload.searchMethod
 				: '';
 		const qActive = retrieverTrimmedSearchQuery().length > 0;
 		const clientFiltered = rows.length !== hostRows.length;
-		const totalMatched = clientFiltered ? rows.length : hostTotal;
 
 		if (loadBtn) {
 			loadBtn.classList.toggle('hidden', !(truncated && hostRows.length > 0));
+			if (!(truncated && hostRows.length > 0)) setLoadMoreBusy(false);
 		}
 
 		if (foot) {
@@ -2836,57 +3038,73 @@
 				searchMethod === 'exact' || String(searchMethod).startsWith('recommended:');
 			const methodHint =
 				qActive && isEmbeddingRank
-					? ' · ranked by embedding (' + searchMethod + ')'
+					? ' · ranked by embedding'
 					: qActive && searchMethod && searchMethod !== 'index-browse'
-						? ' · ' + searchMethod
+						? ' · ' + searchEngine
 						: '';
-			const filterHint = clientFiltered
-				? ' · ' + rows.length + ' after type/tag filter'
-				: '';
+			const filterHint = clientFiltered ? ' · filtered' : '';
+			const shown = rows.length;
+			const nextN = Math.min(LOAD_MORE_SIZE, slotsLeft);
 			if (!hostRows.length) {
 				if (catalogShellOnly && !kbMissing && !filtersOrSearchActive()) {
-					foot.textContent =
-						'KB is ready — search to rank headings from index.drip embeddings.';
-				} else if (!kbMissing && headingsInCatalog > 0 && !filtersOrSearchActive()) {
-					foot.textContent =
-						headingsInCatalog +
-						' headings indexed — no matches loaded. Try Refresh if this persists.';
+					foot.textContent = 'KB is ready — type a search to find headings.';
+				} else if (!kbMissing && !filtersOrSearchActive()) {
+					foot.textContent = 'Type a search to find headings.';
 				} else {
 					foot.textContent = kbMissing
 						? 'Choose a knowledge base folder first (DRIP Storage).'
 						: 'No headings match this search / filters.';
 				}
 			} else if (!rows.length) {
+				foot.textContent = 'No headings left after type/tag filters.';
+			} else if (atHardCap) {
 				foot.textContent =
-					'No headings left after type/tag filters (' +
-					hostRows.length +
-					' embedding hits hidden).';
+					'Showing ' +
+					shown +
+					' result' +
+					(shown === 1 ? '' : 's') +
+					' (max ' +
+					MAX_RETRIEVER_RESULTS +
+					')' +
+					methodHint +
+					filterHint +
+					'.';
 			} else if (truncated) {
 				foot.textContent = useFileHeadingGroupLayout()
 					? 'Showing ' +
-						rows.length +
-						' of ' +
-						hostTotal +
-						' heading matches — file groups stay collapsed, click a file row to expand. Load more for additional pages.' +
+						shown +
+						' heading' +
+						(shown === 1 ? '' : 's') +
+						' — click a file row to expand. Load more for the next ' +
+						nextN +
+						'.' +
 						methodHint +
 						filterHint
 					: 'Showing ' +
-						rows.length +
-						' of ' +
-						hostTotal +
-						' matches' +
+						shown +
+						' result' +
+						(shown === 1 ? '' : 's') +
+						' · Load more for the next ' +
+						nextN +
 						methodHint +
 						filterHint +
 						'.';
 			} else {
 				foot.textContent = useFileHeadingGroupLayout()
-					? totalMatched +
-						' heading matches in file groups — click a file row to expand.' +
+					? 'Showing ' +
+						shown +
+						' heading' +
+						(shown === 1 ? '' : 's') +
+						' — click a file row to expand.' +
 						methodHint +
 						filterHint
-					: totalMatched === 1
-						? '1 heading' + methodHint + filterHint + '.'
-						: totalMatched + ' headings' + methodHint + filterHint + '.';
+					: 'Showing ' +
+						shown +
+						' result' +
+						(shown === 1 ? '' : 's') +
+						methodHint +
+						filterHint +
+						'.';
 			}
 		}
 
@@ -3017,6 +3235,7 @@
 					setKbBanner();
 					updateHeadStatus();
 					accumulatedRows = [];
+					accumulatedLoadedThrough = 0;
 					populateTagDatalist();
 					populateTagGraphSelect();
 					if (!retrieverPersistHydrated) {
@@ -3073,13 +3292,35 @@
 					const p = msg.payload || {};
 					const rowSlice = Array.isArray(p.rows) ? p.rows : [];
 					const off = typeof p.offset === 'number' ? p.offset : 0;
+					const loadedThrough =
+						typeof p.loadedThrough === 'number' && p.loadedThrough >= 0
+							? p.loadedThrough
+							: off + rowSlice.length;
 					if (off === 0) {
-						accumulatedRows = [...rowSlice];
+						accumulatedRows = rowSlice.slice(0, MAX_RETRIEVER_RESULTS);
+						accumulatedLoadedThrough = loadedThrough;
 						expandedFileGroupPaths.clear();
 					} else {
-						accumulatedRows = [...accumulatedRows, ...rowSlice];
+						appendRetrieverPage(rowSlice);
+						accumulatedLoadedThrough = Math.max(accumulatedLoadedThrough, loadedThrough);
 					}
-					renderResults({ ...p, rows: accumulatedRows });
+					setLoadMoreBusy(false);
+					const asked =
+						off === 0
+							? firstPageLimit()
+							: Math.min(LOAD_MORE_SIZE, Math.max(0, MAX_RETRIEVER_RESULTS - off));
+					const pageFull = rowSlice.length >= asked && asked > 0;
+					const underCap = accumulatedRows.length < MAX_RETRIEVER_RESULTS;
+					// Short page, empty page, or hard cap ⇒ no more Load more.
+					const stillMore =
+						underCap && rowSlice.length > 0 && pageFull && !!p.truncated;
+					renderResults({
+						...p,
+						rows: accumulatedRows,
+						totalMatched: accumulatedRows.length,
+						truncated: stillMore && accumulatedRows.length > 0,
+						loadedThrough: accumulatedLoadedThrough
+					});
 					break;
 				}
 				case 'retrieverApplyQuery': {
@@ -3285,7 +3526,24 @@
 	const loadMoreBtn = $('rz-load-more');
 	if (loadMoreBtn) {
 		loadMoreBtn.addEventListener('click', () => {
-			vscode.postMessage({ type: 'retrieverQuery', payload: queryPayload(accumulatedRows.length) });
+			if (remainingResultSlots() <= 0) {
+				setLoadMoreBusy(false);
+				renderResults({
+					...(lastResultPayload || {}),
+					rows: accumulatedRows,
+					truncated: false,
+					totalMatched: accumulatedRows.length
+				});
+				return;
+			}
+			const off =
+				accumulatedLoadedThrough > 0
+					? accumulatedLoadedThrough
+					: accumulatedRows.length;
+			const payload = queryPayload(off);
+			if (!payload.limit) return;
+			setLoadMoreBusy(true);
+			vscode.postMessage({ type: 'retrieverQuery', payload });
 			persistUiSoon();
 		});
 	}

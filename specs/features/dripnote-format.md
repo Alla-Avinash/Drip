@@ -91,7 +91,7 @@ The application ships with a fixed, standard set of metadata types, split into t
 **Document KB types** (heading types, in the note zone):
 
 - `.concept` — `domain` (enum), `status` (enum)
-- `.task` — `status` (enum, including completed), `priority` (enum), `deadline` (datetime), `completed` (datetime, stamped when status becomes completed), `category` (enum)
+- `.task` — `status` (**required** enum, including completed), `priority` (enum), `deadline` (datetime), `completed` (datetime, stamped when status becomes completed), `category` (enum)
 
 **Project types** (file-level types for `.p` / `.f` index notes, plus project-scoped heading types):
 

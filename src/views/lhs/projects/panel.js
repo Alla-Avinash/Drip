@@ -77,6 +77,54 @@ function buildFilterSchemaForWebview() {
  * @param {import('vscode').Webview} webview
  * @param {import('vscode').Uri} extensionUri
  */
+/**
+ * Webview roots: extension UI assets + current knowledge base (checkpoint images live there).
+ * @param {import('vscode').ExtensionContext} context
+ * @param {{ getKnowledgeBaseRoot?: () => import('vscode').Uri | undefined }} [state]
+ * @returns {import('vscode').Uri[]}
+ */
+function projectViewLocalRoots(context, state) {
+	/** @type {import('vscode').Uri[]} */
+	const roots = [
+		vscode.Uri.joinPath(context.extensionUri, 'src', 'views', 'lhs', 'projects'),
+		context.extensionUri
+	];
+	try {
+		const kb =
+			state && typeof state.getKnowledgeBaseRoot === 'function'
+				? state.getKnowledgeBaseRoot()
+				: undefined;
+		if (kb) roots.push(kb);
+	} catch {
+		/* ignore */
+	}
+	for (const folder of vscode.workspace.workspaceFolders || []) {
+		if (folder && folder.uri) roots.push(folder.uri);
+	}
+	return roots;
+}
+
+/**
+ * Prefer a data-URL so the webview can show the image even when the KB path is
+ * outside the initial localResourceRoots set.
+ * @param {import('vscode').Uri} imgUri
+ * @returns {Promise<string>}
+ */
+async function checkpointImageDataUrl(imgUri) {
+	try {
+		const bytes = await vscode.workspace.fs.readFile(imgUri);
+		const name = path.basename(imgUri.fsPath).toLowerCase();
+		let mime = 'image/png';
+		if (name.endsWith('.jpg') || name.endsWith('.jpeg')) mime = 'image/jpeg';
+		else if (name.endsWith('.gif')) mime = 'image/gif';
+		else if (name.endsWith('.webp')) mime = 'image/webp';
+		else if (name.endsWith('.svg')) mime = 'image/svg+xml';
+		return `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`;
+	} catch {
+		return '';
+	}
+}
+
 function getProjectViewHtml(webview, extensionUri) {
 	const nonce = getNonce();
 	const styleUri = webview.asWebviewUri(
@@ -91,7 +139,8 @@ function getProjectViewHtml(webview, extensionUri) {
 	const csp = [
 		`default-src 'none'`,
 		`style-src ${webview.cspSource} 'unsafe-inline'`,
-		`script-src 'nonce-${nonce}' ${webview.cspSource}`
+		`script-src 'nonce-${nonce}' ${webview.cspSource}`,
+		`img-src ${webview.cspSource} data: blob:`
 	].join('; ');
 
 	return `<!DOCTYPE html>
@@ -150,9 +199,7 @@ class DripProjectViewPanel {
 			{
 				enableScripts: true,
 				retainContextWhenHidden: true,
-				localResourceRoots: [
-					vscode.Uri.joinPath(context.extensionUri, 'src', 'views', 'lhs', 'projects')
-				]
+				localResourceRoots: projectViewLocalRoots(context, state)
 			}
 		);
 		DripProjectViewPanel.currentPanel = new DripProjectViewPanel(panel, context, state);
@@ -186,6 +233,18 @@ class DripProjectViewPanel {
 						this._selectedPrefix = String(message.folderPrefix || '');
 						await this.loadProject(this._selectedPrefix);
 						break;
+					case 'reloadProject': {
+						const prefix = String(message.folderPrefix || this._selectedPrefix || '');
+						if (prefix) this._selectedPrefix = prefix;
+						try {
+							const { flushPendingDripIndexUpdates } = require('../../../indexing/dripTxt/dripTxtIndexSync.js');
+							await flushPendingDripIndexUpdates();
+						} catch (err) {
+							console.error('[DRIP] flush index before project reload', err);
+						}
+						await this.loadProject(this._selectedPrefix);
+						break;
+					}
 					case 'clearProject':
 						this._selectedPrefix = '';
 						break;
@@ -269,6 +328,30 @@ class DripProjectViewPanel {
 						break;
 					case 'clearChat':
 						await this.clearChat(message);
+						break;
+					case 'listCheckpoints':
+						await this.listCheckpoints(message);
+						break;
+					case 'composeCheckpoint':
+						await this.composeCheckpoint(message);
+						break;
+					case 'createCheckpoint':
+						await this.createCheckpoint(message);
+						break;
+					case 'openCheckpoint':
+						await this.openCheckpoint(message);
+						break;
+					case 'prepareCheckpointEdit':
+						await this.prepareCheckpointEdit(message);
+						break;
+					case 'saveCheckpointWriteUp':
+						await this.saveCheckpointWriteUp(message);
+						break;
+					case 'deleteCheckpoint':
+						await this.deleteCheckpoint(message);
+						break;
+					case 'pasteCheckpointImage':
+						await this.pasteCheckpointImage(message);
 						break;
 					default:
 						break;
@@ -596,6 +679,450 @@ class DripProjectViewPanel {
 			uri = vscode.Uri.joinPath(folderUri, projectIndexFileName(path.basename(folderUri.fsPath)));
 		}
 		await vscode.commands.executeCommand('vscode.open', uri);
+	}
+
+	/**
+	 * @param {string} folderPrefix
+	 * @returns {{ kbRoot: import('vscode').Uri, folderUri: import('vscode').Uri, prefix: string } | null}
+	 */
+	projectFolderContext(folderPrefix) {
+		const kbRoot = this.kbRoot();
+		const prefix = String(folderPrefix || this._selectedPrefix || '');
+		if (!kbRoot || !prefix) return null;
+		const folderUri = vscode.Uri.joinPath(
+			kbRoot,
+			...prefix.replace(/\/+$/, '').split('/').filter(Boolean)
+		);
+		return { kbRoot, folderUri, prefix };
+	}
+
+	/**
+	 * Attach feature labels the same way the webview does.
+	 * @param {any[]} features
+	 * @param {any[]} issues
+	 */
+	enrichIssuesWithFeatureLabels(features, issues) {
+		const feats = Array.isArray(features) ? features : [];
+		for (const i of issues || []) {
+			let feat = null;
+			if (i && i.inProjectInbox) {
+				feat = 'Project issues';
+			} else {
+				const fp = i && i.featurePathPrefix;
+				if (fp) {
+					for (const f of feats) {
+						if (f.folderPrefix && (fp === f.folderPrefix || String(fp).startsWith(f.folderPrefix))) {
+							feat = f.title;
+							break;
+						}
+						if (fp === f.path) {
+							feat = f.title;
+							break;
+						}
+					}
+				}
+			}
+			let label = String(feat || 'Other')
+				.trim()
+				.replace(/^#+\s*/, '')
+				.replace(/^\.\s*f\b\s*/i, '')
+				.replace(/\/+$/, '');
+			const base = (label.split(/[/\\]/).pop() || label).trim();
+			i.feature =
+				base
+					.replace(/\.f\.d\.(txt|md)$/i, '')
+					.replace(/\.f$/i, '')
+					.trim() || 'Other';
+		}
+		return issues;
+	}
+
+	doneIssueStatusValue() {
+		const doc = getMetadataSettings();
+		const issueType = doc.typeById && doc.typeById.get('issue');
+		const vals = enumValuesFor(issueType, 'status');
+		if (vals.includes('completed')) return 'completed';
+		return vals.length ? vals[vals.length - 1] : 'completed';
+	}
+
+	/**
+	 * @param {{ folderPrefix?: string }} message
+	 */
+	async listCheckpoints(message) {
+		const ctx = this.projectFolderContext(message.folderPrefix);
+		if (!ctx) return;
+		const { listCheckpoints } = require('../../../document/project/projectCheckpoints');
+		const list = await listCheckpoints(ctx.folderUri);
+		await this.panel.webview.postMessage({
+			type: 'checkpointsList',
+			folderPrefix: ctx.prefix,
+			checkpoints: list.map(cp => ({
+				date: cp.date,
+				title: cp.title,
+				rel: cp.rel,
+				issueCount: (cp.issueKeys || []).length
+			}))
+		});
+	}
+
+	/**
+	 * Candidates for a new checkpoint: completed issues not yet claimed by another checkpoint.
+	 * @param {{ folderPrefix?: string }} message
+	 */
+	async composeCheckpoint(message) {
+		const ctx = this.projectFolderContext(message.folderPrefix);
+		if (!ctx) return;
+		try {
+			const { flushPendingDripIndexUpdates } = require('../../../indexing/dripTxt/dripTxtIndexSync.js');
+			await flushPendingDripIndexUpdates();
+		} catch (err) {
+			console.error('[DRIP] flush index before checkpoint compose', err);
+		}
+		const data = await listProjectChildrenFromIndex(ctx.kbRoot, ctx.prefix);
+		this.enrichIssuesWithFeatureLabels(data.features, data.issues);
+		const {
+			listClaimedIssueKeys,
+			buildCheckpointIssueTree,
+			normalizeIssueKey,
+			todayCheckpointDate
+		} = require('../../../document/project/projectCheckpoints');
+		const claimed = await listClaimedIssueKeys(ctx.folderUri, undefined, ctx.kbRoot);
+		const done = this.doneIssueStatusValue();
+		const candidates = (data.issues || []).filter(i => {
+			const key = normalizeIssueKey(i && i.issueKey);
+			if (!key) return false;
+			if (claimed.has(key)) return false;
+			return String((i && i.status) || '')
+				.trim()
+				.toLowerCase() === done;
+		});
+		const dateStr = todayCheckpointDate();
+		await this.panel.webview.postMessage({
+			type: 'checkpointCompose',
+			folderPrefix: ctx.prefix,
+			date: dateStr,
+			tree: buildCheckpointIssueTree(candidates),
+			candidates: candidates.map(i => ({
+				issueKey: normalizeIssueKey(i.issueKey),
+				title: String(i.title || i.issueKey || ''),
+				category: String(i.category || '').trim() || '(none)',
+				feature: String(i.feature || 'Other')
+			}))
+		});
+	}
+
+	/**
+	 * @param {{ folderPrefix?: string, date?: string, writeUp?: string, issueKeys?: string[], issueDescriptions?: Record<string, string> }} message
+	 */
+	async createCheckpoint(message) {
+		const ctx = this.projectFolderContext(message.folderPrefix);
+		if (!ctx) return;
+		const { createCheckpoint, normalizeIssueKey } = require('../../../document/project/projectCheckpoints');
+		try {
+			const { flushPendingDripIndexUpdates } = require('../../../indexing/dripTxt/dripTxtIndexSync.js');
+			await flushPendingDripIndexUpdates();
+		} catch (err) {
+			console.error('[DRIP] flush index before checkpoint create', err);
+		}
+		const data = await listProjectChildrenFromIndex(ctx.kbRoot, ctx.prefix);
+		this.enrichIssuesWithFeatureLabels(data.features, data.issues);
+		const want = new Set(
+			(Array.isArray(message.issueKeys) ? message.issueKeys : [])
+				.map(k => normalizeIssueKey(k))
+				.filter(Boolean)
+		);
+		/** @type {Record<string, string>} */
+		const descriptions =
+			message.issueDescriptions && typeof message.issueDescriptions === 'object'
+				? message.issueDescriptions
+				: {};
+		const selected = (data.issues || [])
+			.filter(i => want.has(normalizeIssueKey(i && i.issueKey)))
+			.map(i => {
+				const key = normalizeIssueKey(i.issueKey);
+				const liveTitle = String(i.title || i.issueKey || '');
+				const blurb = String(descriptions[key] || '').trim();
+				return {
+					issueKey: key,
+					title: blurb || liveTitle,
+					description: blurb || liveTitle
+				};
+			});
+		// Keep keys the user selected even if the live index row is missing.
+		const have = new Set(selected.map(i => i.issueKey));
+		for (const key of want) {
+			if (have.has(key)) continue;
+			const blurb = String(descriptions[key] || '').trim() || key;
+			selected.push({ issueKey: key, title: blurb, description: blurb });
+		}
+		const created = await createCheckpoint(ctx.kbRoot, ctx.folderUri, {
+			date: String(message.date || ''),
+			writeUp: String(message.writeUp || ''),
+			issues: selected
+		});
+		await this.postCheckpointDetail(ctx, created.uri, created.rel);
+	}
+
+	/**
+	 * @param {{ folderPrefix?: string, rel?: string }} message
+	 */
+	async openCheckpoint(message) {
+		const ctx = this.projectFolderContext(message.folderPrefix);
+		if (!ctx) return;
+		const rel = String(message.rel || '').replace(/\\/g, '/');
+		if (!rel || rel.includes('..')) return;
+		const uri = vscode.Uri.joinPath(ctx.folderUri, ...rel.split('/').filter(Boolean));
+		await this.postCheckpointDetail(ctx, uri, rel);
+	}
+
+	/**
+	 * @param {{ kbRoot: import('vscode').Uri, folderUri: import('vscode').Uri, prefix: string }} ctx
+	 * @param {import('vscode').Uri} uri
+	 * @param {string} rel
+	 */
+	async postCheckpointDetail(ctx, uri, rel) {
+		const {
+			readCheckpoint,
+			listWriteUpImageRels,
+			treeFromCheckpointText,
+			buildCheckpointIssueTree,
+			normalizeIssueKey
+		} = require('../../../document/project/projectCheckpoints');
+		// Allow loading checkpoint `.img` files from the knowledge base.
+		this.panel.webview.options = {
+			enableScripts: true,
+			localResourceRoots: projectViewLocalRoots(this.context, this.state)
+		};
+		const detail = await readCheckpoint(uri);
+		const noteDir = vscode.Uri.joinPath(uri, '..');
+		/** @type {Record<string, string>} */
+		const imageUris = {};
+		for (const imgRel of listWriteUpImageRels(detail.writeUp)) {
+			try {
+				const imgUri = vscode.Uri.joinPath(noteDir, ...String(imgRel).split('/').filter(Boolean));
+				// Data URL renders reliably in the webview; fall back to asWebviewUri.
+				const dataUrl = await checkpointImageDataUrl(imgUri);
+				imageUris[imgRel] =
+					dataUrl || this.panel.webview.asWebviewUri(imgUri).toString();
+			} catch {
+				/* skip broken image refs */
+			}
+		}
+		// File stores only [i-N] + description; enrich display with live category/feature chips.
+		/** @type {Map<string, any>} */
+		const liveByKey = new Map();
+		try {
+			const data = await listProjectChildrenFromIndex(ctx.kbRoot, ctx.prefix);
+			this.enrichIssuesWithFeatureLabels(data.features, data.issues);
+			for (const i of data.issues || []) {
+				const key = normalizeIssueKey(i && i.issueKey);
+				if (key) liveByKey.set(key, i);
+			}
+		} catch {
+			/* display enrich is best-effort */
+		}
+		const entries = Array.isArray(detail.entries) ? detail.entries : [];
+		const enriched = entries.map(e => {
+			const live = liveByKey.get(e.issueKey);
+			return {
+				issueKey: e.issueKey,
+				title: e.description || e.issueKey,
+				description: e.description || e.issueKey,
+				category: live ? String(live.category || '').trim() || '(none)' : '(none)',
+				feature: live ? String(live.feature || 'Other') : 'Other'
+			};
+		});
+		const tree = enriched.length
+			? buildCheckpointIssueTree(enriched)
+			: detail.tree || treeFromCheckpointText(detail.text);
+		await this.panel.webview.postMessage({
+			type: 'checkpointDetail',
+			folderPrefix: ctx.prefix,
+			rel: rel || detail.relName,
+			date: detail.date,
+			title: detail.title,
+			writeUp: detail.writeUp,
+			tree,
+			issueKeys: detail.issueKeys,
+			entries,
+			imageUris
+		});
+	}
+
+	/**
+	 * Load completed issues that can still be added to this checkpoint
+	 * (not claimed by another checkpoint, and not already in the editor selection).
+	 * @param {{ folderPrefix?: string, rel?: string, excludeKeys?: string[] }} message
+	 */
+	async prepareCheckpointEdit(message) {
+		const ctx = this.projectFolderContext(message.folderPrefix);
+		if (!ctx) return;
+		const rel = String(message.rel || '').replace(/\\/g, '/');
+		if (!rel || rel.includes('..')) return;
+		const {
+			listClaimedIssueKeys,
+			buildCheckpointIssueTree,
+			normalizeIssueKey
+		} = require('../../../document/project/projectCheckpoints');
+		const exclude = new Set(
+			(Array.isArray(message.excludeKeys) ? message.excludeKeys : [])
+				.map(k => normalizeIssueKey(k))
+				.filter(Boolean)
+		);
+		const claimedElsewhere = await listClaimedIssueKeys(ctx.folderUri, rel, ctx.kbRoot);
+		const data = await listProjectChildrenFromIndex(ctx.kbRoot, ctx.prefix);
+		this.enrichIssuesWithFeatureLabels(data.features, data.issues);
+		const done = this.doneIssueStatusValue();
+		const candidates = (data.issues || []).filter(i => {
+			const key = normalizeIssueKey(i && i.issueKey);
+			if (!key) return false;
+			if (exclude.has(key) || claimedElsewhere.has(key)) return false;
+			return String((i && i.status) || '')
+				.trim()
+				.toLowerCase() === done;
+		});
+		await this.panel.webview.postMessage({
+			type: 'checkpointAddableReady',
+			folderPrefix: ctx.prefix,
+			rel,
+			tree: buildCheckpointIssueTree(candidates),
+			candidates: candidates.map(i => {
+				const key = normalizeIssueKey(i.issueKey);
+				const liveTitle = String(i.title || i.issueKey || '');
+				return {
+					issueKey: key,
+					title: liveTitle,
+					description: liveTitle,
+					category: String(i.category || '').trim() || '(none)',
+					feature: String(i.feature || 'Other')
+				};
+			})
+		});
+	}
+
+	/**
+	 * @param {{ folderPrefix?: string, rel?: string, writeUp?: string, date?: string, issueKeys?: string[], issueDescriptions?: Record<string, string> }} message
+	 */
+	async saveCheckpointWriteUp(message) {
+		const ctx = this.projectFolderContext(message.folderPrefix);
+		if (!ctx) return;
+		const rel = String(message.rel || '').replace(/\\/g, '/');
+		if (!rel || rel.includes('..')) return;
+		const uri = vscode.Uri.joinPath(ctx.folderUri, ...rel.split('/').filter(Boolean));
+		const {
+			saveCheckpointWriteUp,
+			normalizeIssueKey
+		} = require('../../../document/project/projectCheckpoints');
+		/** @type {Array<{ issueKey: string, title: string, description: string }>|null} */
+		let issues = null;
+		if (Array.isArray(message.issueKeys)) {
+			try {
+				const { flushPendingDripIndexUpdates } = require('../../../indexing/dripTxt/dripTxtIndexSync.js');
+				await flushPendingDripIndexUpdates();
+			} catch (err) {
+				console.error('[DRIP] flush index before checkpoint save', err);
+			}
+			const want = new Set(
+				message.issueKeys.map(k => normalizeIssueKey(k)).filter(Boolean)
+			);
+			/** @type {Record<string, string>} */
+			const descriptions =
+				message.issueDescriptions && typeof message.issueDescriptions === 'object'
+					? message.issueDescriptions
+					: {};
+			const data = await listProjectChildrenFromIndex(ctx.kbRoot, ctx.prefix);
+			this.enrichIssuesWithFeatureLabels(data.features, data.issues);
+			issues = (data.issues || [])
+				.filter(i => want.has(normalizeIssueKey(i && i.issueKey)))
+				.map(i => {
+					const key = normalizeIssueKey(i.issueKey);
+					const liveTitle = String(i.title || i.issueKey || '');
+					const blurb = String(descriptions[key] || '').trim();
+					const desc = blurb || liveTitle;
+					return { issueKey: key, title: desc, description: desc };
+				});
+			// Keep keys the user selected even if the live issue disappeared from the index.
+			const have = new Set(issues.map(i => i.issueKey));
+			for (const key of want) {
+				if (have.has(key)) continue;
+				const blurb = String(descriptions[key] || '').trim() || key;
+				issues.push({ issueKey: key, title: blurb, description: blurb });
+			}
+		}
+		const date = String(message.date || '').trim();
+		await saveCheckpointWriteUp(uri, String(message.writeUp || ''), issues, date || undefined, {
+			kbRootUri: ctx.kbRoot,
+			projectFolderUri: ctx.folderUri
+		});
+		await this.postCheckpointDetail(ctx, uri, rel);
+		void vscode.window.setStatusBarMessage('Checkpoint saved', 2000);
+	}
+
+	/**
+	 * Delete a checkpoint note and release its issues for later checkpoints.
+	 * @param {{ folderPrefix?: string, rel?: string }} message
+	 */
+	async deleteCheckpoint(message) {
+		const ctx = this.projectFolderContext(message.folderPrefix);
+		if (!ctx) return;
+		const rel = String(message.rel || '').replace(/\\/g, '/');
+		if (!rel || rel.includes('..')) return;
+		const uri = vscode.Uri.joinPath(ctx.folderUri, ...rel.split('/').filter(Boolean));
+		const { readCheckpoint, deleteCheckpoint } = require('../../../document/project/projectCheckpoints');
+		let label = path.basename(rel);
+		let issueCount = 0;
+		try {
+			const detail = await readCheckpoint(uri);
+			label = detail.title || label;
+			issueCount = (detail.issueKeys || []).length;
+		} catch {
+			/* still allow delete */
+		}
+		const pick = await vscode.window.showWarningMessage(
+			`Delete ${label}?${issueCount ? ` Its ${issueCount} issue${issueCount === 1 ? '' : 's'} will be released for later checkpoints.` : ''}`,
+			{ modal: true },
+			'Delete checkpoint'
+		);
+		if (pick !== 'Delete checkpoint') return;
+		await deleteCheckpoint(uri, { kbRootUri: ctx.kbRoot, projectFolderUri: ctx.folderUri });
+		await this.panel.webview.postMessage({
+			type: 'checkpointDeleted',
+			folderPrefix: ctx.prefix,
+			rel
+		});
+		await this.listCheckpoints({ folderPrefix: ctx.prefix });
+		void vscode.window.setStatusBarMessage('Checkpoint deleted — issues released', 2500);
+	}
+
+	/**
+	 * @param {{ folderPrefix?: string, rel?: string, writeUp?: string, caretStart?: number, caretEnd?: number, dataBase64?: string, mime?: string, ext?: string }} message
+	 */
+	async pasteCheckpointImage(message) {
+		const ctx = this.projectFolderContext(message.folderPrefix);
+		if (!ctx) return;
+		const rel = String(message.rel || '').replace(/\\/g, '/');
+		if (!rel || rel.includes('..')) return;
+		const b64 = String(message.dataBase64 || '');
+		if (!b64) return;
+		const uri = vscode.Uri.joinPath(ctx.folderUri, ...rel.split('/').filter(Boolean));
+		const { saveCheckpointImage, saveCheckpointWriteUp } = require('../../../document/project/projectCheckpoints');
+		const buf = Buffer.from(b64, 'base64');
+		const saved = await saveCheckpointImage(uri, buf, message.ext || '.png');
+		const writeUp = String(message.writeUp || '');
+		const len = writeUp.length;
+		let start = Math.floor(Number(message.caretStart));
+		let end = Math.floor(Number(message.caretEnd));
+		if (!Number.isFinite(start) || start < 0) start = len;
+		if (!Number.isFinite(end) || end < start) end = start;
+		if (start > len) start = len;
+		if (end > len) end = len;
+		const md = `\n${saved.markdown}\n`;
+		const nextWriteUp = writeUp.slice(0, start) + md + writeUp.slice(end);
+		await saveCheckpointWriteUp(uri, nextWriteUp, null, undefined, {
+			kbRootUri: ctx.kbRoot,
+			projectFolderUri: ctx.folderUri
+		});
+		await this.postCheckpointDetail(ctx, uri, rel);
 	}
 
 	/**

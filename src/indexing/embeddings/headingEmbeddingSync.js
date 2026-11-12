@@ -41,15 +41,36 @@ function openDripIndexDb(...args) {
 }
 
 /**
- * Open the heading DB for a job's zone: `projects.drip` for project headings,
- * `today.drip` for Today day notes, `index.drip` for document headings.
+ * Open the heading DB for a job's zone: that project's `.dripindex/projects/….drip`
+ * for project headings, `today.drip` for Today day notes, `index.drip` for document headings.
  * @param {import('vscode').Uri} kbRootUri
  * @param {'document' | 'project' | 'today'} zone
+ * @param {{ folderPrefix?: string, fileId?: number }} [opts]
  * @returns {Promise<{ db: import('../db/dripSqlite').DripSqliteDatabase, close: () => void }>}
  */
-async function openHeadingEmbeddingDb(kbRootUri, zone) {
+async function openHeadingEmbeddingDb(kbRootUri, zone, opts) {
 	if (zone === 'project') {
-		return require('../dripProjectDb').openDripProjectsDb(kbRootUri);
+		const { openDripProjectsDb, openDripProjectsDbForNotePath } = require('../dripProjectDb');
+		const prefix = String((opts && opts.folderPrefix) || '').trim();
+		if (prefix) {
+			return openDripProjectsDb(kbRootUri, prefix);
+		}
+		const fileId = opts && opts.fileId != null ? Math.floor(Number(opts.fileId)) : -1;
+		if (Number.isFinite(fileId) && fileId >= 0) {
+			const indexHandle = await openDripIndexDb(kbRootUri);
+			try {
+				const row = indexHandle.db.native
+					? indexHandle.db.native.prepare(`SELECT path FROM files WHERE id = ?`).get(fileId)
+					: null;
+				const rel = row && row.path != null ? String(row.path).replace(/\\/g, '/') : '';
+				if (rel) {
+					return openDripProjectsDbForNotePath(kbRootUri, rel);
+				}
+			} finally {
+				indexHandle.close();
+			}
+		}
+		throw new Error('openHeadingEmbeddingDb: project zone needs folderPrefix or resolvable fileId');
 	}
 	if (zone === 'today') {
 		return require('../dripTodayDb').openDripTodayDb(kbRootUri);
@@ -201,8 +222,9 @@ async function awaitHeadingEmbeddingsReady(kbRootUri, opts) {
 async function processOneJob(kbRootUri, job) {
 	const zone =
 		job.zone === 'project' ? 'project' : job.zone === 'today' ? 'today' : 'document';
+	const openOpts = { folderPrefix: job.folderPrefix, fileId: job.fileId };
 	if (job.reason === 'delete') {
-		const handle = await openHeadingEmbeddingDb(kbRootUri, zone);
+		const handle = await openHeadingEmbeddingDb(kbRootUri, zone, openOpts);
 		try {
 			deleteHeadingEmbedding(handle.db, job.fileId, job.headingId);
 		} finally {
@@ -213,7 +235,7 @@ async function processOneJob(kbRootUri, job) {
 
 	let text = '';
 	{
-		const handle = await openHeadingEmbeddingDb(kbRootUri, zone);
+		const handle = await openHeadingEmbeddingDb(kbRootUri, zone, openOpts);
 		try {
 			if (getHeadingTitle(handle.db, job.fileId, job.headingId) === undefined) {
 				return;
@@ -224,7 +246,7 @@ async function processOneJob(kbRootUri, job) {
 		}
 	}
 
-	// The embedding model is canonical in `index.drip` (both DBs stay on the same model).
+	// The embedding model is canonical in `index.drip` (all zone DBs stay on the same model).
 	let modelId = '';
 	{
 		const handle = await openDripIndexDb(kbRootUri);
@@ -242,7 +264,7 @@ async function processOneJob(kbRootUri, job) {
 
 	const vector = await encodeHeadingEmbeddingText(text, { modelId });
 
-	const handle2 = await openHeadingEmbeddingDb(kbRootUri, zone);
+	const handle2 = await openHeadingEmbeddingDb(kbRootUri, zone, openOpts);
 	try {
 		if (getHeadingTitle(handle2.db, job.fileId, job.headingId) === undefined) {
 			return;
@@ -308,14 +330,12 @@ async function enqueueMissingHeadingEmbeddings(kbRootUri) {
 	}
 
 	try {
-		const projectHandle = require('../dripProjectDb').openDripProjectsDb(kbRootUri);
-		try {
-			for (const m of collectMissingHeadingEmbeddings(projectHandle.db)) {
-				missing.push({ ...m, zone: 'project' });
+		const { forEachProjectDb } = require('../dripProjectDb');
+		await forEachProjectDb(kbRootUri, handle => {
+			for (const m of collectMissingHeadingEmbeddings(handle.db)) {
+				missing.push({ ...m, zone: 'project', folderPrefix: handle.folderPrefix });
 			}
-		} finally {
-			projectHandle.close();
-		}
+		});
 	} catch (err) {
 		console.warn('[DRIP] project heading embedding scan failed', err && err.message);
 	}
